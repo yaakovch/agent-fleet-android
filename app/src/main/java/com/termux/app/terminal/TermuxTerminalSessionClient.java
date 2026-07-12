@@ -20,6 +20,7 @@ import com.termux.app.TermuxActivity;
 import com.termux.shared.terminal.TermuxTerminalSessionClientBase;
 import com.termux.shared.termux.TermuxConstants;
 import com.termux.app.TermuxService;
+import com.termux.app.fleet.TerminalAppearanceStore;
 import com.termux.shared.settings.properties.TermuxPropertyConstants;
 import com.termux.shared.terminal.io.BellHandler;
 import com.termux.shared.logger.Logger;
@@ -471,13 +472,19 @@ public class TermuxTerminalSessionClient extends TermuxTerminalSessionClientBase
             }
 
             TerminalColors.COLOR_SCHEME.updateWith(props);
-            TerminalSession session = mActivity.getCurrentSession();
-            if (session != null && session.getEmulator() != null) {
-                session.getEmulator().mColors.reset();
+            TermuxService service = mActivity.getTermuxService();
+            if (service != null) {
+                for (TermuxSession termuxSession : service.getTermuxSessions()) {
+                    TerminalSession session = termuxSession.getTerminalSession();
+                    if (session != null && session.getEmulator() != null) {
+                        session.getEmulator().mColors.reset();
+                        session.getEmulator().setCursorStyle();
+                    }
+                }
             }
             updateBackgroundColor();
 
-            final Typeface newTypeface = (fontFile.exists() && fontFile.length() > 0) ? Typeface.createFromFile(fontFile) : Typeface.MONOSPACE;
+            final Typeface newTypeface = TerminalAppearanceStore.resolveTypeface(mActivity, fontFile);
             mActivity.getTerminalView().setTypeface(newTypeface);
         } catch (Exception e) {
             Logger.logStackTraceWithMessage(LOG_TAG, "Error in checkForFontAndColors()", e);

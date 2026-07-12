@@ -243,6 +243,8 @@ public final class TermuxActivity extends ComponentActivity implements ServiceCo
 
         setSettingsButtonView();
 
+        setAppearanceButtonView();
+
         setNewSessionButtonView();
 
         setToggleKeyboardView();
@@ -602,6 +604,13 @@ public final class TermuxActivity extends ComponentActivity implements ServiceCo
         ImageButton settingsButton = findViewById(R.id.settings_button);
         settingsButton.setOnClickListener(v -> {
             startActivity(new Intent(this, SettingsActivity.class));
+        });
+    }
+
+    private void setAppearanceButtonView() {
+        findViewById(R.id.appearance_button).setOnClickListener(v -> {
+            startActivity(new Intent(this, TerminalAppearanceActivity.class));
+            getDrawer().closeDrawers();
         });
     }
 
@@ -969,6 +978,10 @@ public final class TermuxActivity extends ComponentActivity implements ServiceCo
 
         setMargins();
         setTerminalToolbarHeight();
+
+        ViewPager terminalToolbarViewPager = getTerminalToolbarViewPager();
+        if (terminalToolbarViewPager != null)
+            terminalToolbarViewPager.setVisibility(mPreferences.shouldShowTerminalToolbar() ? View.VISIBLE : View.GONE);
 
         if (mTermuxTerminalSessionClient != null)
             mTermuxTerminalSessionClient.onReload();

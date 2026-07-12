@@ -133,6 +133,8 @@ public class TermuxTerminalViewClient extends TermuxTerminalViewClientBase {
      * Should be called when mActivity.reloadActivityStyling() is called
      */
     public void onReload() {
+        mActivity.getTerminalView().setTextSize(mActivity.getPreferences().getFontSize());
+
         // Show the soft keyboard if required
         setSoftKeyboardState(false, true);
 
