@@ -48,11 +48,13 @@
         android:theme="@style/Theme.Termux">
 
         <activity
-            android:name=".app.TermuxActivity"
+            android:name=".app.AgentFleetActivity"
             android:configChanges="orientation|screenSize|smallestScreenSize|density|screenLayout|uiMode|keyboard|keyboardHidden|navigation"
+            android:exported="true"
             android:label="@string/application_name"
             android:launchMode="singleTask"
-            android:resizeableActivity="true">
+            android:resizeableActivity="true"
+            android:theme="@style/Theme.AgentFleet">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
 
@@ -69,9 +71,17 @@
                 android:resource="@xml/shortcuts" />
         </activity>
 
+        <activity
+            android:name=".app.TermuxActivity"
+            android:configChanges="orientation|screenSize|smallestScreenSize|density|screenLayout|uiMode|keyboard|keyboardHidden|navigation"
+            android:exported="false"
+            android:label="@string/application_name"
+            android:launchMode="singleTask"
+            android:resizeableActivity="true" />
+
         <activity-alias
             android:name=".HomeActivity"
-            android:targetActivity=".app.TermuxActivity">
+            android:targetActivity=".app.AgentFleetActivity">
 
             <!-- Launch activity automatically on boot on Android Things devices -->
             <intent-filter>

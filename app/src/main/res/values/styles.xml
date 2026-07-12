@@ -1,6 +1,14 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources xmlns:android="http://schemas.android.com/apk/res/android">
 
+    <style name="Theme.AgentFleet" parent="@android:style/Theme.Material.Light.NoActionBar">
+        <item name="android:fontFamily">sans</item>
+        <item name="android:navigationBarColor">#F6F7FB</item>
+        <item name="android:statusBarColor">#F6F7FB</item>
+        <item name="android:windowActionModeOverlay">true</item>
+        <item name="android:windowLightStatusBar">true</item>
+    </style>
+
     <style name="Theme.Termux" parent="@android:style/Theme.Material.Light.NoActionBar">
         <item name="android:statusBarColor">#000000</item>
         <item name="android:colorPrimary">#FF000000</item>
