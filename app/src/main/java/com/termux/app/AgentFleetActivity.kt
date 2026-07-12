@@ -59,6 +59,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -133,6 +134,9 @@ class AgentFleetActivity : ComponentActivity() {
                     onConfigureUpdates = ::configureUpdates,
                     onCheckUpdate = ::checkForUpdate,
                     onInstallUpdate = ::installUpdate,
+                    onOpenAppearance = {
+                        startActivity(Intent(this, TerminalAppearanceActivity::class.java))
+                    },
                     onOpenClassicTerminal = {
                         startActivity(Intent(this, TermuxActivity::class.java))
                     }
@@ -360,6 +364,7 @@ fun AgentFleetApp(
     onConfigureUpdates: (String) -> Unit,
     onCheckUpdate: () -> Unit,
     onInstallUpdate: (AgentFleetUpdate) -> Unit,
+    onOpenAppearance: () -> Unit,
     onOpenClassicTerminal: () -> Unit
 ) {
     var section by rememberSaveable { mutableStateOf(FleetSection.Sessions) }
@@ -405,7 +410,7 @@ fun AgentFleetApp(
     ) { padding ->
         when (section) {
             FleetSection.Sessions -> SessionsScreen(padding, fleetState, onRefresh, onOpenSession, { actionSession = it.id }, { showCreateSession = true }, { showPairing = true }, onOpenClassicTerminal)
-            FleetSection.Terminal -> TerminalScreen(padding, recentSessions, onOpenSession, onOpenClassicTerminal)
+            FleetSection.Terminal -> TerminalScreen(padding, recentSessions, onOpenSession, onOpenClassicTerminal, onOpenAppearance)
             FleetSection.Limits -> LimitsScreen(padding, fleetState, onScheduleContinue)
             FleetSection.More -> MoreScreen(
                 padding,
@@ -416,7 +421,8 @@ fun AgentFleetApp(
                 onCancelSchedule,
                 { showUpdateSettings = true },
                 onCheckUpdate,
-                onInstallUpdate
+                onInstallUpdate,
+                onOpenAppearance
             )
         }
     }
@@ -567,9 +573,22 @@ private fun SessionCard(session: FleetSession, hostName: String, onOpen: () -> U
                 }
                 Text(if (session.activity == "active") "Active" else "Idle", color = if (session.activity == "active") ReadyGreen else QuietGray, fontWeight = FontWeight.SemiBold)
             }
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-                AssistChip(onClick = {}, label = { Text(hostName) })
-                AssistChip(onClick = {}, label = { Text(session.tool) })
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    hostName,
+                    modifier = Modifier.weight(1f),
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    fontSize = 15.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Text(
+                    session.tool.replaceFirstChar { it.uppercase() },
+                    modifier = Modifier.background(MaterialTheme.colorScheme.surfaceVariant, RoundedCornerShape(10.dp)).padding(horizontal = 10.dp, vertical = 6.dp),
+                    maxLines = 1,
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.SemiBold
+                )
             }
             Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                 Button(onClick = onOpen, modifier = Modifier.weight(1f), shape = RoundedCornerShape(14.dp)) {
@@ -789,7 +808,8 @@ private fun TerminalScreen(
     padding: PaddingValues,
     recentSessions: List<FleetSession>,
     onOpenSession: (FleetSession) -> Unit,
-    onOpenClassicTerminal: () -> Unit
+    onOpenClassicTerminal: () -> Unit,
+    onOpenAppearance: () -> Unit
 ) {
     LazyColumn(
         modifier = Modifier.fillMaxSize().padding(padding).testTag("terminal-screen"),
@@ -797,12 +817,13 @@ private fun TerminalScreen(
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
         item {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Column(Modifier.weight(1f)) {
-                    Text("Terminal", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
-                    Text("Recent local and fleet tabs", fontSize = 16.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Text("Terminal", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
+                Text("Recent local and fleet tabs", fontSize = 16.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Button(onClick = onOpenClassicTerminal, modifier = Modifier.weight(1f), shape = RoundedCornerShape(14.dp)) { Text("New shell", fontSize = 16.sp) }
+                    OutlinedButton(onClick = onOpenAppearance, modifier = Modifier.weight(1f), shape = RoundedCornerShape(14.dp)) { Text("Appearance", fontSize = 16.sp) }
                 }
-                Button(onClick = onOpenClassicTerminal, shape = RoundedCornerShape(14.dp)) { Text("New shell", fontSize = 16.sp) }
             }
         }
         if (recentSessions.isEmpty()) {
@@ -953,7 +974,8 @@ private fun MoreScreen(
     onCancelSchedule: (FleetSchedule) -> Unit,
     onConfigureUpdate: () -> Unit,
     onCheckUpdate: () -> Unit,
-    onInstallUpdate: (AgentFleetUpdate) -> Unit
+    onInstallUpdate: (AgentFleetUpdate) -> Unit,
+    onOpenAppearance: () -> Unit
 ) {
     val snapshot = (fleetState as? FleetLoadState.Ready)?.snapshot
     val pendingSchedules = snapshot?.schedules?.count { it.status == "pending" } ?: 0
@@ -1020,7 +1042,17 @@ private fun MoreScreen(
                 }
             }
         }
-        item { FeatureCard("Terminal appearance", "System theme · 16sp · Android Compose for AI") }
+        item {
+            Card(shape = RoundedCornerShape(18.dp), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)) {
+                Row(Modifier.fillMaxWidth().padding(18.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Column(Modifier.weight(1f)) {
+                        Text("Terminal appearance", fontSize = 18.sp, fontWeight = FontWeight.Bold)
+                        Text("Themes, text, cursor, spacing, and keys", fontSize = 16.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                    Button(onClick = onOpenAppearance, shape = RoundedCornerShape(14.dp)) { Text("Open") }
+                }
+            }
+        }
         item { FeatureCard("Diagnostics", "Runtime, bridge, package, transport, and update checks") }
     }
 }
@@ -1115,6 +1147,7 @@ private fun AgentFleetPreview() {
             onConfigureUpdates = {},
             onCheckUpdate = {},
             onInstallUpdate = {},
+            onOpenAppearance = {},
             onOpenClassicTerminal = {}
         )
     }

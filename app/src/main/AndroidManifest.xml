@@ -88,6 +88,13 @@
         </activity>
 
         <activity
+            android:name=".app.TerminalAppearanceActivity"
+            android:exported="false"
+            android:label="@string/action_terminal_appearance"
+            android:resizeableActivity="true"
+            android:theme="@style/Theme.AgentFleet" />
+
+        <activity
             android:name=".app.TermuxActivity"
             android:configChanges="orientation|screenSize|smallestScreenSize|density|screenLayout|uiMode|keyboard|keyboardHidden|navigation"
             android:exported="true"
