@@ -2,6 +2,7 @@ package com.termux.app
 
 import android.content.Intent
 import android.os.Bundle
+import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.background
@@ -52,18 +53,63 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.termux.app.fleet.FleetHost
+import com.termux.app.fleet.FleetLoadState
+import com.termux.app.fleet.FleetRuntime
+import com.termux.app.fleet.FleetSession
+import com.termux.app.fleet.FleetSnapshot
+import com.termux.app.fleet.FleetUnavailableException
+import java.util.concurrent.Executors
 
 class AgentFleetActivity : ComponentActivity() {
+    private val fleetState = mutableStateOf<FleetLoadState>(FleetLoadState.Loading)
+    private val fleetExecutor = Executors.newSingleThreadExecutor()
+    private lateinit var fleetRuntime: FleetRuntime
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        fleetRuntime = FleetRuntime(applicationContext)
         setContent {
             AgentFleetTheme {
                 AgentFleetApp(
+                    fleetState = fleetState.value,
+                    onRefresh = ::refreshFleet,
+                    onOpenSession = ::openFleetSession,
                     onOpenClassicTerminal = {
                         startActivity(Intent(this, TermuxActivity::class.java))
                     }
                 )
             }
+        }
+    }
+
+    override fun onStart() {
+        super.onStart()
+        refreshFleet()
+    }
+
+    override fun onDestroy() {
+        fleetExecutor.shutdownNow()
+        super.onDestroy()
+    }
+
+    private fun refreshFleet() {
+        if (fleetState.value !is FleetLoadState.Ready) fleetState.value = FleetLoadState.Loading
+        fleetExecutor.execute {
+            val result = try {
+                FleetLoadState.Ready(fleetRuntime.loadSnapshot())
+            } catch (error: Exception) {
+                FleetLoadState.Unavailable(error.message ?: "Fleet refresh failed.")
+            }
+            runOnUiThread { fleetState.value = result }
+        }
+    }
+
+    private fun openFleetSession(session: FleetSession) {
+        try {
+            fleetRuntime.openSession(session)
+        } catch (error: FleetUnavailableException) {
+            Toast.makeText(this, error.message, Toast.LENGTH_LONG).show()
         }
     }
 }
@@ -75,16 +121,6 @@ enum class FleetSection(val label: String, val glyph: String) {
     More("More", "•••")
 }
 
-data class SessionFixture(
-    val id: String,
-    val host: String,
-    val project: String,
-    val title: String,
-    val tool: String,
-    val active: Boolean,
-    val attached: Boolean
-)
-
 data class LimitFixture(
     val label: String,
     val fiveHourRemaining: Int,
@@ -94,13 +130,6 @@ data class LimitFixture(
 )
 
 object AgentFleetFixtures {
-    val sessions = listOf(
-        SessionFixture("gaming:wtmux", "Gaming desktop", "wtmux", "Android companion", "Codex", true, true),
-        SessionFixture("gaming:agent", "Gaming desktop", "agent-fleet", "Terminal tabs", "Claude", false, false),
-        SessionFixture("work:infra", "Work M", "infrastructure", "Release checks", "Shell", false, false),
-        SessionFixture("work:limits", "Work M", "agent-fleet", "Limits collector", "Codex", true, false)
-    )
-
     val limits = listOf(
         LimitFixture("Codex 2", 76, 42, "5h resets 14:05", "Ready"),
         LimitFixture("Codex 3", 0, 68, "Available again 02:05", "Limited"),
@@ -108,12 +137,13 @@ object AgentFleetFixtures {
     )
 }
 
-fun filterSessions(sessions: List<SessionFixture>, query: String): List<SessionFixture> {
+fun filterSessions(sessions: List<FleetSession>, hosts: Map<String, FleetHost>, query: String): List<FleetSession> {
     val normalized = query.trim()
     if (normalized.isEmpty()) return sessions
     return sessions.filter {
-        it.host.contains(normalized, ignoreCase = true) ||
+        hosts[it.hostId]?.name?.contains(normalized, ignoreCase = true) == true ||
             it.project.contains(normalized, ignoreCase = true) ||
+            it.name.contains(normalized, ignoreCase = true) ||
             it.title.contains(normalized, ignoreCase = true) ||
             it.tool.contains(normalized, ignoreCase = true)
     }
@@ -121,7 +151,12 @@ fun filterSessions(sessions: List<SessionFixture>, query: String): List<SessionF
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun AgentFleetApp(onOpenClassicTerminal: () -> Unit) {
+fun AgentFleetApp(
+    fleetState: FleetLoadState,
+    onRefresh: () -> Unit,
+    onOpenSession: (FleetSession) -> Unit,
+    onOpenClassicTerminal: () -> Unit
+) {
     var section by rememberSaveable { mutableStateOf(FleetSection.Sessions) }
 
     Scaffold(
@@ -152,7 +187,7 @@ fun AgentFleetApp(onOpenClassicTerminal: () -> Unit) {
         }
     ) { padding ->
         when (section) {
-            FleetSection.Sessions -> SessionsScreen(padding, onOpenClassicTerminal)
+            FleetSection.Sessions -> SessionsScreen(padding, fleetState, onRefresh, onOpenSession, onOpenClassicTerminal)
             FleetSection.Terminal -> TerminalScreen(padding, onOpenClassicTerminal)
             FleetSection.Limits -> LimitsScreen(padding)
             FleetSection.More -> MoreScreen(padding)
@@ -161,9 +196,17 @@ fun AgentFleetApp(onOpenClassicTerminal: () -> Unit) {
 }
 
 @Composable
-private fun SessionsScreen(padding: PaddingValues, onOpenTerminal: () -> Unit) {
+private fun SessionsScreen(
+    padding: PaddingValues,
+    fleetState: FleetLoadState,
+    onRefresh: () -> Unit,
+    onOpenSession: (FleetSession) -> Unit,
+    onOpenTerminal: () -> Unit
+) {
     var query by rememberSaveable { mutableStateOf("") }
-    val filtered = filterSessions(AgentFleetFixtures.sessions, query)
+    val snapshot = (fleetState as? FleetLoadState.Ready)?.snapshot
+    val hosts = snapshot?.hosts?.associateBy { it.id }.orEmpty()
+    val filtered = filterSessions(snapshot?.sessions.orEmpty(), hosts, query)
 
     LazyColumn(
         modifier = Modifier.fillMaxSize().padding(padding).testTag("sessions-screen"),
@@ -174,7 +217,11 @@ private fun SessionsScreen(padding: PaddingValues, onOpenTerminal: () -> Unit) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Column(modifier = Modifier.weight(1f)) {
                     Text("Your sessions", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
-                    Text("4 sessions across 2 machines", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 16.sp)
+                    Text(
+                        if (snapshot == null) "Connect to your fleet" else "${snapshot.sessions.size} sessions across ${snapshot.hosts.size} machines",
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        fontSize = 16.sp
+                    )
                 }
                 Button(onClick = onOpenTerminal, shape = RoundedCornerShape(14.dp)) { Text("New", fontSize = 16.sp) }
             }
@@ -189,18 +236,26 @@ private fun SessionsScreen(padding: PaddingValues, onOpenTerminal: () -> Unit) {
                 shape = RoundedCornerShape(16.dp)
             )
         }
-        if (filtered.isEmpty()) {
-            item { EmptyState("No sessions match “$query”.") }
-        } else {
-            items(filtered, key = { it.id }) { session ->
-                SessionCard(session, onOpenTerminal)
+        when (fleetState) {
+            FleetLoadState.Loading -> item { EmptyState("Refreshing fleet…") }
+            is FleetLoadState.Unavailable -> item {
+                FleetUnavailableCard(fleetState.reason, onRefresh, onOpenTerminal)
+            }
+            is FleetLoadState.Ready -> {
+                if (filtered.isEmpty()) {
+                    item { EmptyState(if (query.isBlank()) "No managed sessions are open." else "No sessions match “$query”.") }
+                } else {
+                    items(filtered, key = { it.id }) { session ->
+                        SessionCard(session, hosts[session.hostId]?.name ?: session.hostId) { onOpenSession(session) }
+                    }
+                }
             }
         }
     }
 }
 
 @Composable
-private fun SessionCard(session: SessionFixture, onOpen: () -> Unit) {
+private fun SessionCard(session: FleetSession, hostName: String, onOpen: () -> Unit) {
     Card(
         modifier = Modifier.fillMaxWidth().testTag("session-${session.id}"),
         shape = RoundedCornerShape(20.dp),
@@ -208,16 +263,16 @@ private fun SessionCard(session: SessionFixture, onOpen: () -> Unit) {
     ) {
         Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                StatusDot(if (session.active) ReadyGreen else QuietGray)
+                StatusDot(if (session.activity == "active") ReadyGreen else QuietGray)
                 Spacer(Modifier.size(10.dp))
                 Column(Modifier.weight(1f)) {
-                    Text(session.project, fontSize = 20.sp, fontWeight = FontWeight.Bold)
-                    Text(session.title, fontSize = 16.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text(session.name, fontSize = 20.sp, fontWeight = FontWeight.Bold)
+                    if (session.title.isNotBlank()) Text(session.title, fontSize = 16.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
-                Text(if (session.active) "Active" else "Idle", color = if (session.active) ReadyGreen else QuietGray, fontWeight = FontWeight.SemiBold)
+                Text(if (session.activity == "active") "Active" else "Idle", color = if (session.activity == "active") ReadyGreen else QuietGray, fontWeight = FontWeight.SemiBold)
             }
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-                AssistChip(onClick = {}, label = { Text(session.host) })
+                AssistChip(onClick = {}, label = { Text(hostName) })
                 AssistChip(onClick = {}, label = { Text(session.tool) })
             }
             Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -225,6 +280,20 @@ private fun SessionCard(session: SessionFixture, onOpen: () -> Unit) {
                     Text(if (session.attached) "Return" else "Enter", fontSize = 17.sp)
                 }
                 OutlinedButton(onClick = {}, shape = RoundedCornerShape(14.dp)) { Text("More", fontSize = 16.sp) }
+            }
+        }
+    }
+}
+
+@Composable
+private fun FleetUnavailableCard(reason: String, onRefresh: () -> Unit, onOpenTerminal: () -> Unit) {
+    Card(shape = RoundedCornerShape(20.dp), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)) {
+        Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            Text("Fleet is not connected", fontSize = 20.sp, fontWeight = FontWeight.Bold)
+            Text(reason, fontSize = 16.sp, lineHeight = 22.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                Button(onClick = onRefresh, shape = RoundedCornerShape(14.dp)) { Text("Try again", fontSize = 16.sp) }
+                OutlinedButton(onClick = onOpenTerminal, shape = RoundedCornerShape(14.dp)) { Text("Open terminal", fontSize = 16.sp) }
             }
         }
     }
@@ -362,6 +431,18 @@ private val WarningAmber = Color(0xFFB06000)
 private val QuietGray = Color(0xFF6D7280)
 private val TerminalNavy = Color(0xFF11182A)
 
+private val previewFleetSnapshot = FleetSnapshot(
+    revision = "preview",
+    generatedAt = "2026-07-12T05:00:00Z",
+    hosts = listOf(FleetHost("gaming", "Gaming desktop", "healthy", "wsl", null, setOf("sessions.read"))),
+    sessions = listOf(
+        FleetSession("gaming:wtmux", "gaming", "wtmux-main", "wtmux", "Android companion", "wtmux", "codex", "linux", "active", true, null, 0),
+        FleetSession("gaming:agent", "gaming", "agent-main", "agent-fleet", "Terminal tabs", "agent-fleet", "claude", "linux", "idle", false, null, 0)
+    ),
+    schedules = emptyList(),
+    attention = emptyList()
+)
+
 private val FleetLightColors = lightColorScheme(
     primary = FleetBlue,
     onPrimary = Color.White,
@@ -391,5 +472,12 @@ fun AgentFleetTheme(darkTheme: Boolean = isSystemInDarkTheme(), content: @Compos
 @Preview(showBackground = true, widthDp = 393, heightDp = 852)
 @Composable
 private fun AgentFleetPreview() {
-    AgentFleetTheme { AgentFleetApp(onOpenClassicTerminal = {}) }
+    AgentFleetTheme {
+        AgentFleetApp(
+            fleetState = FleetLoadState.Ready(previewFleetSnapshot),
+            onRefresh = {},
+            onOpenSession = {},
+            onOpenClassicTerminal = {}
+        )
+    }
 }
