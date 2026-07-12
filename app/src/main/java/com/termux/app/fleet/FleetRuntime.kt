@@ -29,7 +29,9 @@ class FleetRuntime(private val context: Context) {
     fun loadSnapshot(): FleetSnapshot {
         val bridge = executable("wtmux-bridge")
             ?: throw FleetUnavailableException("Pair or restore wtmux to connect this phone to your fleet.")
-        val process = ProcessBuilder(bridge.absolutePath, "--snapshot")
+        val python = executable("python3")
+            ?: throw FleetUnavailableException("Python is missing from the restored Termux environment.")
+        val process = ProcessBuilder(python.absolutePath, bridge.absolutePath, "--snapshot")
             .directory(userHome)
             .redirectErrorStream(true)
             .apply {
