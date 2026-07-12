@@ -10,9 +10,11 @@ on a controller with the private Agent Fleet key.
    that will host the APK:
    `scripts/release/build-signed-release.sh 0.118.4-agentfleet.1 1003 https://host.example/agent-fleet/latest`.
 3. Verify with `scripts/release/verify-release.sh dist/0.118.4-agentfleet.1`.
-4. Set `AGENT_FLEET_PUBLISH_PRIMARY=user@gaming-desktop:/srv/agent-fleet`
-   and optionally `AGENT_FLEET_PUBLISH_FALLBACK=user@work-m:/srv/agent-fleet`,
-   then run `scripts/release/publish-release.sh DIST_DIRECTORY`.
+4. On the primary controller, set
+   `AGENT_FLEET_PUBLISH_PRIMARY=local:/absolute/private/serve/path`. For a
+   remote primary use `user@gaming-desktop:/srv/agent-fleet`; optionally set
+   `AGENT_FLEET_PUBLISH_FALLBACK=user@work-m:/srv/agent-fleet`. Then run
+   `scripts/release/publish-release.sh DIST_DIRECTORY`.
 5. In the app, open More → App updates → Source and save the HTTPS URL ending
    in `manifest.json`.
 
