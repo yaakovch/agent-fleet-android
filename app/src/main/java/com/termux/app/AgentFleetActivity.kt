@@ -7,6 +7,7 @@ import android.content.Intent
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
+import android.net.Uri
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -33,8 +34,8 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.OutlinedButton
@@ -63,17 +64,23 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.termux.app.fleet.FleetHost
 import com.termux.app.fleet.FleetLoadState
+import com.termux.app.fleet.FleetLimit
+import com.termux.app.fleet.FleetLimitWindow
 import com.termux.app.fleet.FleetRuntime
 import com.termux.app.fleet.FleetSession
+import com.termux.app.fleet.FleetSchedule
 import com.termux.app.fleet.FleetSnapshot
-import com.termux.app.fleet.FleetUnavailableException
 import com.termux.app.fleet.RecentSessionStore
 import java.util.concurrent.Executors
+import java.text.SimpleDateFormat
+import java.util.Locale
+import java.util.TimeZone
 
 class AgentFleetActivity : ComponentActivity() {
     private val fleetState = mutableStateOf<FleetLoadState>(FleetLoadState.Loading)
     private val recentSessions = mutableStateOf<List<FleetSession>>(emptyList())
     private val pendingPairInvitation = mutableStateOf<String?>(null)
+    private val pendingSharedImages = mutableStateOf<List<String>>(emptyList())
     private val fleetExecutor = Executors.newSingleThreadExecutor()
     private val refreshHandler = Handler(Looper.getMainLooper())
     private val refreshRunnable = object : Runnable {
@@ -91,6 +98,7 @@ class AgentFleetActivity : ComponentActivity() {
         recentSessionStore = RecentSessionStore(applicationContext)
         recentSessions.value = recentSessionStore.load()
         acceptPairingIntent(intent)
+        acceptSharedImages(intent)
         setContent {
             AgentFleetTheme {
                 AgentFleetApp(
@@ -98,11 +106,15 @@ class AgentFleetActivity : ComponentActivity() {
                     recentSessions = recentSessions.value,
                     pendingPairInvitation = pendingPairInvitation.value,
                     onPairInvitationHandled = { pendingPairInvitation.value = null },
+                    pendingSharedImages = pendingSharedImages.value,
+                    onSharedImagesHandled = { pendingSharedImages.value = emptyList() },
                     onRefresh = ::refreshFleet,
                     onOpenSession = ::openFleetSession,
+                    onOpenSessionWithImages = ::openFleetSessionWithImages,
                     onCreateSession = ::createFleetSession,
                     onRenameSession = ::renameFleetSession,
                     onScheduleContinue = ::scheduleContinue,
+                    onCancelSchedule = ::cancelSchedule,
                     onKillSession = ::killFleetSession,
                     onCopyAttachCommand = ::copyAttachCommand,
                     onPairInvitation = ::openPairing,
@@ -124,6 +136,7 @@ class AgentFleetActivity : ComponentActivity() {
         super.onNewIntent(intent)
         setIntent(intent)
         acceptPairingIntent(intent)
+        acceptSharedImages(intent)
     }
 
     override fun onStop() {
@@ -153,7 +166,17 @@ class AgentFleetActivity : ComponentActivity() {
             recentSessionStore.record(session)
             recentSessions.value = recentSessionStore.load()
             fleetRuntime.openSession(session)
-        } catch (error: FleetUnavailableException) {
+        } catch (error: Exception) {
+            Toast.makeText(this, error.message, Toast.LENGTH_LONG).show()
+        }
+    }
+
+    private fun openFleetSessionWithImages(session: FleetSession, images: List<String>) {
+        try {
+            recentSessionStore.record(session)
+            recentSessions.value = recentSessionStore.load()
+            fleetRuntime.openSession(session, images)
+        } catch (error: Exception) {
             Toast.makeText(this, error.message, Toast.LENGTH_LONG).show()
         }
     }
@@ -174,6 +197,10 @@ class AgentFleetActivity : ComponentActivity() {
         fleetRuntime.killSession(snapshot, session)
     }
 
+    private fun cancelSchedule(schedule: FleetSchedule) = mutateFleet("Schedule cancelled") { snapshot ->
+        fleetRuntime.cancelSchedule(snapshot, schedule)
+    }
+
     private fun copyAttachCommand(session: FleetSession) {
         val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
         clipboard.setPrimaryClip(ClipData.newPlainText("wtmux attach command", fleetRuntime.attachCommand(session)))
@@ -192,6 +219,24 @@ class AgentFleetActivity : ComponentActivity() {
         val value = intent?.dataString.orEmpty()
         if (value.startsWith("wtmux://pair?") && value.length <= 4_096 && value.none { it.isISOControl() }) {
             pendingPairInvitation.value = value
+        }
+    }
+
+    @Suppress("DEPRECATION")
+    private fun acceptSharedImages(intent: Intent?) {
+        if (intent?.type?.startsWith("image/") != true) return
+        val uris: List<Uri> = when (intent.action) {
+            Intent.ACTION_SEND -> listOfNotNull(intent.getParcelableExtra<Uri>(Intent.EXTRA_STREAM))
+            Intent.ACTION_SEND_MULTIPLE -> intent.getParcelableArrayListExtra<Uri>(Intent.EXTRA_STREAM).orEmpty()
+            else -> emptyList()
+        }
+        val readable = uris.distinct().take(8).filter { uri ->
+            runCatching { contentResolver.getType(uri)?.startsWith("image/") == true }.getOrDefault(false)
+        }
+        if (readable.isNotEmpty()) {
+            pendingSharedImages.value = readable.map(Uri::toString)
+        } else if (uris.isNotEmpty()) {
+            Toast.makeText(this, "The shared image permission is unavailable", Toast.LENGTH_LONG).show()
         }
     }
 
@@ -219,22 +264,6 @@ enum class FleetSection(val label: String, val glyph: String) {
     More("More", "•••")
 }
 
-data class LimitFixture(
-    val label: String,
-    val fiveHourRemaining: Int,
-    val weeklyRemaining: Int,
-    val reset: String,
-    val status: String
-)
-
-object AgentFleetFixtures {
-    val limits = listOf(
-        LimitFixture("Codex 2", 76, 42, "5h resets 14:05", "Ready"),
-        LimitFixture("Codex 3", 0, 68, "Available again 02:05", "Limited"),
-        LimitFixture("Claude Code", 34, 57, "5h resets 16:40", "Ready")
-    )
-}
-
 fun filterSessions(sessions: List<FleetSession>, hosts: Map<String, FleetHost>, query: String): List<FleetSession> {
     val normalized = query.trim()
     if (normalized.isEmpty()) return sessions
@@ -254,11 +283,15 @@ fun AgentFleetApp(
     recentSessions: List<FleetSession>,
     pendingPairInvitation: String?,
     onPairInvitationHandled: () -> Unit,
+    pendingSharedImages: List<String>,
+    onSharedImagesHandled: () -> Unit,
     onRefresh: () -> Unit,
     onOpenSession: (FleetSession) -> Unit,
+    onOpenSessionWithImages: (FleetSession, List<String>) -> Unit,
     onCreateSession: (String, String, String, String) -> Unit,
     onRenameSession: (FleetSession, String) -> Unit,
     onScheduleContinue: (FleetSession, Long) -> Unit,
+    onCancelSchedule: (FleetSchedule) -> Unit,
     onKillSession: (FleetSession) -> Unit,
     onCopyAttachCommand: (FleetSession) -> Unit,
     onPairInvitation: (String) -> Unit,
@@ -307,8 +340,8 @@ fun AgentFleetApp(
         when (section) {
             FleetSection.Sessions -> SessionsScreen(padding, fleetState, onRefresh, onOpenSession, { actionSession = it.id }, { showCreateSession = true }, { showPairing = true }, onOpenClassicTerminal)
             FleetSection.Terminal -> TerminalScreen(padding, recentSessions, onOpenSession, onOpenClassicTerminal)
-            FleetSection.Limits -> LimitsScreen(padding)
-            FleetSection.More -> MoreScreen(padding, { showPairing = true })
+            FleetSection.Limits -> LimitsScreen(padding, fleetState, onScheduleContinue)
+            FleetSection.More -> MoreScreen(padding, fleetState, { showPairing = true }, onCancelSchedule)
         }
     }
 
@@ -358,6 +391,17 @@ fun AgentFleetApp(
             showPairing = false
             onPairInvitationHandled()
             onPairInvitation(invitation)
+        }
+    }
+    if (pendingSharedImages.isNotEmpty() && currentSnapshot != null) {
+        SharedImagesSessionDialog(
+            sessions = currentSnapshot.sessions.filter { it.tool in setOf("codex", "claude", "copilot") },
+            imageCount = pendingSharedImages.size,
+            onDismiss = onSharedImagesHandled
+        ) { session ->
+            val images = pendingSharedImages
+            onSharedImagesHandled()
+            onOpenSessionWithImages(session, images)
         }
     }
 }
@@ -596,6 +640,28 @@ private fun PairingDialog(initialInvitation: String, onDismiss: () -> Unit, onCo
 }
 
 @Composable
+private fun SharedImagesSessionDialog(
+    sessions: List<FleetSession>,
+    imageCount: Int,
+    onDismiss: () -> Unit,
+    onConfirm: (FleetSession) -> Unit
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Send ${if (imageCount == 1) "image" else "$imageCount images"} to…") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                if (sessions.isEmpty()) Text("No open AI sessions are available.", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                sessions.take(8).forEach { session ->
+                    DialogAction("${session.name} · ${session.tool}", { onConfirm(session) })
+                }
+            }
+        },
+        confirmButton = { TextButton(onClick = onDismiss) { Text("Cancel") } }
+    )
+}
+
+@Composable
 private fun FleetUnavailableCard(reason: String, onRefresh: () -> Unit, onPair: () -> Unit, onOpenTerminal: () -> Unit) {
     Card(shape = RoundedCornerShape(20.dp), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)) {
         Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -653,7 +719,14 @@ private fun TerminalScreen(
 }
 
 @Composable
-private fun LimitsScreen(padding: PaddingValues) {
+private fun LimitsScreen(
+    padding: PaddingValues,
+    fleetState: FleetLoadState,
+    onScheduleContinue: (FleetSession, Long) -> Unit
+) {
+    val snapshot = (fleetState as? FleetLoadState.Ready)?.snapshot
+    val sessions = snapshot?.sessions?.associateBy { it.id }.orEmpty()
+    val activeAttention = snapshot?.attention?.filter { it.state in setOf("detected", "offered", "scheduled") }.orEmpty()
     LazyColumn(
         modifier = Modifier.fillMaxSize().padding(padding).testTag("limits-screen"),
         contentPadding = PaddingValues(18.dp),
@@ -661,60 +734,144 @@ private fun LimitsScreen(padding: PaddingValues) {
     ) {
         item {
             Text("AI limits", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
-            Text("Trusted host sources · refreshed just now", fontSize = 16.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text(
+                snapshot?.let { "Trusted host sources · ${formatAge(it.generatedAt)}" } ?: "Waiting for trusted host sources",
+                fontSize = 16.sp,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
         }
-        item {
-            Card(colors = CardDefaults.cardColors(containerColor = WarningAmber.copy(alpha = 0.13f)), shape = RoundedCornerShape(20.dp)) {
-                Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    Text("Codex 3 reached its 5h limit", fontSize = 19.sp, fontWeight = FontWeight.Bold)
-                    Text("Gaming desktop · available again at 02:05", fontSize = 16.sp)
-                    Button(onClick = {}, shape = RoundedCornerShape(14.dp)) { Text("Schedule Continue · 02:06") }
+        when {
+            fleetState is FleetLoadState.Loading -> item { EmptyState("Refreshing limits…") }
+            fleetState is FleetLoadState.Unavailable -> item { EmptyState(fleetState.reason) }
+            activeAttention.isEmpty() -> item {
+                Card(shape = RoundedCornerShape(20.dp), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)) {
+                    Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        Text("No active hard limits", fontSize = 20.sp, fontWeight = FontWeight.Bold, color = ReadyGreen)
+                        Text("Detected Codex and Claude limit events will appear here with a one-tap guarded Continue action.", fontSize = 16.sp, lineHeight = 22.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                }
+            }
+            else -> items(activeAttention, key = { it.id }) { attention ->
+                val session = sessions[attention.sessionId]
+                Card(colors = CardDefaults.cardColors(containerColor = WarningAmber.copy(alpha = 0.13f)), shape = RoundedCornerShape(20.dp)) {
+                    Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                        Text("${attention.agent.replaceFirstChar { it.uppercase() }} reached a limit", fontSize = 20.sp, fontWeight = FontWeight.Bold)
+                        Text(
+                            listOfNotNull(snapshot!!.hosts.firstOrNull { it.id == attention.hostId }?.name, attention.resetAt?.let { "available $it" }).joinToString(" · "),
+                            fontSize = 16.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        if (session != null && attention.resetAt != null) {
+                            val delay = resetDelayMs(attention.resetAt)
+                            Button(onClick = { onScheduleContinue(session, delay) }, enabled = delay > 0, shape = RoundedCornerShape(14.dp)) {
+                                Text("Schedule Continue after reset", fontSize = 16.sp)
+                            }
+                        }
+                    }
                 }
             }
         }
-        items(AgentFleetFixtures.limits, key = { it.label }) { limit -> LimitCard(limit) }
-    }
-}
-
-@Composable
-private fun LimitCard(limit: LimitFixture) {
-    Card(shape = RoundedCornerShape(20.dp), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)) {
-        Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(11.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(limit.label, modifier = Modifier.weight(1f), fontSize = 20.sp, fontWeight = FontWeight.Bold)
-                Text(limit.status, color = if (limit.status == "Ready") ReadyGreen else WarningAmber, fontWeight = FontWeight.Bold)
+        if (snapshot != null) {
+            item { Text("Profiles", fontSize = 20.sp, fontWeight = FontWeight.Bold) }
+            if (snapshot.limits.isEmpty()) {
+                item { FeatureCard("No quota profiles reported", "Choose designated desktop sources and update their wtmux runtime to publish quota windows.") }
+            } else {
+                items(snapshot.limits, key = { it.id }) { limit -> QuotaProfileCard(limit, snapshot.hosts.firstOrNull { it.id == limit.hostId }?.name ?: limit.hostId) }
             }
-            LimitBar("5h", limit.fiveHourRemaining)
-            LimitBar("Weekly", limit.weeklyRemaining)
-            Text(limit.reset, color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 15.sp)
         }
     }
 }
 
 @Composable
-private fun LimitBar(label: String, remaining: Int) {
-    Row(verticalAlignment = Alignment.CenterVertically) {
-        Text(label, modifier = Modifier.size(width = 58.dp, height = 24.dp), fontWeight = FontWeight.SemiBold)
-        LinearProgressIndicator(
-            progress = remaining / 100f,
-            modifier = Modifier.weight(1f).height(9.dp),
-            color = if (remaining == 0) WarningAmber else ReadyGreen,
-            trackColor = MaterialTheme.colorScheme.surfaceVariant
-        )
-        Text("$remaining%", modifier = Modifier.padding(start = 10.dp), fontWeight = FontWeight.Bold)
+private fun QuotaProfileCard(limit: FleetLimit, hostName: String) {
+    Card(shape = RoundedCornerShape(20.dp), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)) {
+        Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(11.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f)) {
+                    Text(limit.profileAlias, fontSize = 20.sp, fontWeight = FontWeight.Bold)
+                    Text(hostName, fontSize = 15.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+                Text(if (limit.status == "limited") "Limited" else "Ready", color = if (limit.status == "limited") WarningAmber else ReadyGreen, fontWeight = FontWeight.Bold)
+            }
+            limit.primary?.let { QuotaWindowRow(it) }
+            limit.secondary?.let { QuotaWindowRow(it) }
+            Text(formatAge(limit.updatedAt), fontSize = 14.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
     }
 }
 
 @Composable
-private fun MoreScreen(padding: PaddingValues, onPair: () -> Unit) {
+private fun QuotaWindowRow(window: FleetLimitWindow) {
+    val label = when (window.windowMinutes) {
+        300 -> "5h"
+        10080 -> "Weekly"
+        else -> "${window.windowMinutes / 60}h"
+    }
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Text(label, modifier = Modifier.size(width = 64.dp, height = 24.dp), fontWeight = FontWeight.SemiBold)
+        LinearProgressIndicator(
+            progress = (window.remainingPercent / 100.0).toFloat(),
+            modifier = Modifier.weight(1f).height(9.dp),
+            color = if (window.remainingPercent <= 0) WarningAmber else ReadyGreen,
+            trackColor = MaterialTheme.colorScheme.surfaceVariant
+        )
+        Text("${window.remainingPercent.toInt()}%", modifier = Modifier.padding(start = 10.dp), fontWeight = FontWeight.Bold)
+    }
+}
+
+private fun resetDelayMs(resetAt: String): Long {
+    val parser = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss'Z'", Locale.US).apply { timeZone = TimeZone.getTimeZone("UTC") }
+    return runCatching { (parser.parse(resetAt)?.time ?: 0L) + 60_000L - System.currentTimeMillis() }.getOrDefault(0L).coerceAtLeast(0L)
+}
+
+private fun formatAge(timestamp: String): String {
+    val parser = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss'Z'", Locale.US).apply { timeZone = TimeZone.getTimeZone("UTC") }
+    val seconds = runCatching { (System.currentTimeMillis() - (parser.parse(timestamp)?.time ?: 0L)).coerceAtLeast(0L) / 1_000L }.getOrDefault(0L)
+    return when {
+        seconds < 60 -> "updated now"
+        seconds < 3_600 -> "updated ${seconds / 60}m ago"
+        seconds < 86_400 -> "updated ${seconds / 3_600}h ago"
+        else -> "updated ${seconds / 86_400}d ago"
+    }
+}
+
+@Composable
+private fun MoreScreen(
+    padding: PaddingValues,
+    fleetState: FleetLoadState,
+    onPair: () -> Unit,
+    onCancelSchedule: (FleetSchedule) -> Unit
+) {
+    val snapshot = (fleetState as? FleetLoadState.Ready)?.snapshot
+    val pendingSchedules = snapshot?.schedules?.count { it.status == "pending" } ?: 0
+    val healthyHosts = snapshot?.hosts?.count { it.status == "healthy" } ?: 0
+    val hostCount = snapshot?.hosts?.size ?: 0
     LazyColumn(
         modifier = Modifier.fillMaxSize().padding(padding).testTag("more-screen"),
         contentPadding = PaddingValues(18.dp),
         verticalArrangement = Arrangement.spacedBy(14.dp)
     ) {
         item { Text("More", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold) }
-        item { FeatureCard("Schedules", "2 pending · guarded delivery runs on the destination host") }
-        item { FeatureCard("Fleet health", "2 of 2 hosts healthy · registry synced 1 minute ago") }
+        item { FeatureCard("Schedules", "$pendingSchedules pending · guarded delivery runs on the destination host") }
+        if (snapshot != null) {
+            items(snapshot.schedules.filter { it.status == "pending" }, key = { it.id }) { schedule ->
+                Card(shape = RoundedCornerShape(18.dp), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)) {
+                    Row(Modifier.fillMaxWidth().padding(18.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Column(Modifier.weight(1f)) {
+                            Text("Continue", fontSize = 18.sp, fontWeight = FontWeight.Bold)
+                            Text("${schedule.sessionId.substringAfter(':')} · ${schedule.deliverAt}", fontSize = 15.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                        OutlinedButton(onClick = { onCancelSchedule(schedule) }, shape = RoundedCornerShape(14.dp)) { Text("Cancel") }
+                    }
+                }
+            }
+        }
+        item { FeatureCard("Fleet health", "$healthyHosts of $hostCount hosts healthy${snapshot?.generatedAt?.let { " · $it" }.orEmpty()}") }
+        if (snapshot != null) {
+            items(snapshot.hosts.filter { it.status != "healthy" }, key = { it.id }) { host ->
+                FeatureCard(host.name, "${host.status} · last seen ${host.lastSeenAt ?: "unknown"}")
+            }
+        }
         item {
             Card(shape = RoundedCornerShape(18.dp), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)) {
                 Row(Modifier.fillMaxWidth().padding(18.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -804,11 +961,15 @@ private fun AgentFleetPreview() {
             recentSessions = previewFleetSnapshot.sessions,
             pendingPairInvitation = null,
             onPairInvitationHandled = {},
+            pendingSharedImages = emptyList(),
+            onSharedImagesHandled = {},
             onRefresh = {},
             onOpenSession = {},
+            onOpenSessionWithImages = { _, _ -> },
             onCreateSession = { _, _, _, _ -> },
             onRenameSession = { _, _ -> },
             onScheduleContinue = { _, _ -> },
+            onCancelSchedule = {},
             onKillSession = {},
             onCopyAttachCommand = {},
             onPairInvitation = {},

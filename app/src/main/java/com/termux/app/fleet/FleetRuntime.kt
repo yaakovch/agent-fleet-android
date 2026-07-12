@@ -66,7 +66,7 @@ class FleetRuntime(private val context: Context) {
         return FleetSnapshotParser.parse(output.toString(Charsets.UTF_8))
     }
 
-    fun openSession(session: FleetSession) {
+    fun openSession(session: FleetSession, sharedImages: List<String> = emptyList()) {
         val wtmux = executable("wtmux")
             ?: throw FleetUnavailableException("wtmux is not installed in this Agent Fleet terminal.")
         val arguments = arrayOf(
@@ -75,7 +75,15 @@ class FleetRuntime(private val context: Context) {
             "--project", session.project,
             "--session", session.internalName
         )
-        openTerminalCommand(wtmux, arguments, "Agent Fleet · ${session.name}", session.name)
+        openTerminalCommand(
+            wtmux,
+            arguments,
+            "Agent Fleet · ${session.name}",
+            session.name,
+            session.tool in setOf("codex", "claude", "copilot"),
+            session,
+            sharedImages
+        )
     }
 
     fun openPairing(invitation: String) {
@@ -84,10 +92,18 @@ class FleetRuntime(private val context: Context) {
         }
         val client = executable("wtmux-pair-client")
             ?: throw FleetUnavailableException("The wtmux pairing client is not installed. Restore it in the terminal first.")
-        openTerminalCommand(client, arrayOf("pair", "--invitation", invitation), "Agent Fleet pairing", "Pair Agent Fleet")
+        openTerminalCommand(client, arrayOf("pair", "--invitation", invitation), "Agent Fleet pairing", "Pair Agent Fleet", false, null, emptyList())
     }
 
-    private fun openTerminalCommand(executable: File, arguments: Array<String>, label: String, sessionName: String) {
+    private fun openTerminalCommand(
+        executable: File,
+        arguments: Array<String>,
+        label: String,
+        sessionName: String,
+        composeInput: Boolean,
+        session: FleetSession?,
+        sharedImages: List<String>
+    ) {
         val uri = Uri.Builder().scheme(TERMUX_SERVICE.URI_SCHEME_SERVICE_EXECUTE).path(executable.absolutePath).build()
         val intent = Intent(TERMUX_SERVICE.ACTION_SERVICE_EXECUTE, uri, context, TermuxService::class.java).apply {
             putExtra(TERMUX_SERVICE.EXTRA_ARGUMENTS, arguments)
@@ -98,7 +114,16 @@ class FleetRuntime(private val context: Context) {
             putExtra(AgentFleetContract.EXTRA_SESSION_NAME, sessionName)
         }
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) context.startForegroundService(intent) else context.startService(intent)
-        context.startActivity(Intent(context, TermuxActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+        context.startActivity(Intent(context, TermuxActivity::class.java).apply {
+            putExtra(AgentFleetContract.EXTRA_COMPOSE_INPUT, composeInput)
+            if (session != null) {
+                putExtra(AgentFleetContract.EXTRA_HOST_ID, session.hostId)
+                putExtra(AgentFleetContract.EXTRA_PROJECT, session.project)
+                putExtra(AgentFleetContract.EXTRA_INTERNAL_SESSION, session.internalName)
+            }
+            if (sharedImages.isNotEmpty()) putStringArrayListExtra(AgentFleetContract.EXTRA_SHARED_IMAGES, ArrayList(sharedImages.take(8)))
+            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        })
     }
 
     fun renameSession(snapshot: FleetSnapshot, session: FleetSession, name: String): FleetSnapshot {
@@ -152,6 +177,15 @@ class FleetRuntime(private val context: Context) {
                 .put("idempotencyKey", UUID.randomUUID().toString())
         )
     }
+
+    fun cancelSchedule(snapshot: FleetSnapshot, schedule: FleetSchedule): FleetSnapshot = mutate(
+        "schedule.cancel",
+        JSONObject()
+            .put("hostId", schedule.hostId)
+            .put("scheduleId", schedule.id)
+            .put("expectedRevision", snapshot.revision)
+            .put("idempotencyKey", UUID.randomUUID().toString())
+    )
 
     fun attachCommand(session: FleetSession): String = listOf(
         "wtmux", "--noninteractive", "--host", session.hostId,

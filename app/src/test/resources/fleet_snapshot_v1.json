@@ -49,5 +49,17 @@
       "outcomeCode": ""
     }
   ],
-  "attention": []
+  "attention": [],
+  "limits": [
+    {
+      "id": "test-host:codex:2",
+      "hostId": "test-host",
+      "provider": "codex",
+      "profileAlias": "Codex 2",
+      "status": "ready",
+      "primary": {"usedPercent": 24.0, "remainingPercent": 76.0, "resetsAt": "2026-07-12T14:05:00Z", "windowMinutes": 300},
+      "secondary": {"usedPercent": 58.0, "remainingPercent": 42.0, "resetsAt": "2026-07-18T00:00:00Z", "windowMinutes": 10080},
+      "updatedAt": "2026-07-12T04:00:00Z"
+    }
+  ]
 }

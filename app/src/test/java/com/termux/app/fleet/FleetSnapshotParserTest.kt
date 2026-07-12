@@ -30,6 +30,15 @@ class FleetSnapshotParserTest {
     }
 
     @Test
+    fun parsesQuotaProfilesFromNewerBridge() {
+        val fixture = requireNotNull(javaClass.classLoader?.getResource("fleet_snapshot_v1.json")).readText()
+        val limit = FleetSnapshotParser.parse(fixture).limits.single()
+        assertEquals("Codex 2", limit.profileAlias)
+        assertEquals(76.0, limit.primary?.remainingPercent)
+        assertEquals(10080, limit.secondary?.windowMinutes)
+    }
+
+    @Test
     fun rejectsSessionForUnknownHost() {
         val invalid = validSnapshot.replace("\"hostId\":\"gaming\"", "\"hostId\":\"unknown\"", ignoreCase = false)
         val error = runCatching { FleetSnapshotParser.parse(invalid) }.exceptionOrNull()

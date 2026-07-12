@@ -63,11 +63,24 @@ object FleetSnapshotParser {
                     resetAt = attention.optionalString("resetAt", 40),
                     state = attention.requiredString("state", 32)
                 )
+            },
+            limits = root.optionalArray("limits").mapObjects { limit ->
+                FleetLimit(
+                    id = limit.requiredString("id", 160),
+                    hostId = limit.requiredString("hostId", 160),
+                    provider = limit.requiredString("provider", 32),
+                    profileAlias = limit.requiredString("profileAlias", 64),
+                    status = limit.requiredString("status", 32),
+                    primary = limit.optionalWindow("primary"),
+                    secondary = limit.optionalWindow("secondary"),
+                    updatedAt = limit.requiredString("updatedAt", 40)
+                )
             }
         ).also { snapshot ->
             val hostIds = snapshot.hosts.map { it.id }.toSet()
             require(snapshot.sessions.all { it.hostId in hostIds }) { "Session references an unknown host" }
             require(snapshot.sessions.map { it.id }.toSet().size == snapshot.sessions.size) { "Duplicate session id" }
+            require(snapshot.limits.all { it.hostId in hostIds }) { "Limit profile references an unknown host" }
         }
     }
 
@@ -77,6 +90,21 @@ object FleetSnapshotParser {
         } catch (error: JSONException) {
             throw IllegalArgumentException("Missing or invalid $name", error)
         }
+
+    private fun JSONObject.optionalArray(name: String): JSONArray = if (has(name)) requiredArray(name) else JSONArray()
+
+    private fun JSONObject.optionalWindow(name: String): FleetLimitWindow? {
+        if (isNull(name)) return null
+        val value = try { getJSONObject(name) } catch (error: JSONException) {
+            throw IllegalArgumentException("Invalid $name window", error)
+        }
+        return FleetLimitWindow(
+            usedPercent = value.requiredDouble("usedPercent", 0.0, 100.0),
+            remainingPercent = value.requiredDouble("remainingPercent", 0.0, 100.0),
+            resetsAt = value.requiredString("resetsAt", 40),
+            windowMinutes = value.requiredInt("windowMinutes", 1, 525_600)
+        )
+    }
 
     private fun JSONObject.requiredString(name: String, max: Int, allowEmpty: Boolean = false): String {
         val value = try { getString(name) } catch (error: JSONException) {
@@ -101,6 +129,14 @@ object FleetSnapshotParser {
 
     private fun JSONObject.requiredInt(name: String, min: Int, max: Int): Int {
         val value = try { getInt(name) } catch (error: JSONException) {
+            throw IllegalArgumentException("Missing or invalid $name", error)
+        }
+        require(value in min..max) { "Invalid $name" }
+        return value
+    }
+
+    private fun JSONObject.requiredDouble(name: String, min: Double, max: Double): Double {
+        val value = try { getDouble(name) } catch (error: JSONException) {
             throw IllegalArgumentException("Missing or invalid $name", error)
         }
         require(value in min..max) { "Invalid $name" }

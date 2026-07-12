@@ -41,13 +41,32 @@ data class FleetAttention(
     val state: String
 )
 
+data class FleetLimitWindow(
+    val usedPercent: Double,
+    val remainingPercent: Double,
+    val resetsAt: String,
+    val windowMinutes: Int
+)
+
+data class FleetLimit(
+    val id: String,
+    val hostId: String,
+    val provider: String,
+    val profileAlias: String,
+    val status: String,
+    val primary: FleetLimitWindow?,
+    val secondary: FleetLimitWindow?,
+    val updatedAt: String
+)
+
 data class FleetSnapshot(
     val revision: String,
     val generatedAt: String,
     val hosts: List<FleetHost>,
     val sessions: List<FleetSession>,
     val schedules: List<FleetSchedule>,
-    val attention: List<FleetAttention>
+    val attention: List<FleetAttention>,
+    val limits: List<FleetLimit> = emptyList()
 )
 
 sealed interface FleetLoadState {
