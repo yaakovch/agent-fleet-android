@@ -24,6 +24,7 @@ import androidx.annotation.Nullable;
 import com.termux.R;
 import com.termux.app.settings.properties.TermuxAppSharedProperties;
 import com.termux.app.terminal.TermuxTerminalSessionClient;
+import com.termux.app.fleet.AgentFleetContract;
 import com.termux.app.utils.PluginUtils;
 import com.termux.shared.data.IntentUtils;
 import com.termux.shared.models.errors.Errno;
@@ -391,7 +392,10 @@ public final class TermuxService extends Service implements TermuxTask.TermuxTas
         if (executionCommand.inBackground) {
             executeTermuxTaskCommand(executionCommand);
         } else {
-            executeTermuxSessionCommand(executionCommand);
+            String requestedSessionName = IntentUtils.getStringExtraIfSet(intent, AgentFleetContract.EXTRA_SESSION_NAME, null);
+            if (requestedSessionName != null && !requestedSessionName.matches("[A-Za-z0-9][A-Za-z0-9._ -]{0,63}"))
+                requestedSessionName = null;
+            executeTermuxSessionCommand(executionCommand, requestedSessionName);
         }
     }
 
@@ -477,15 +481,15 @@ public final class TermuxService extends Service implements TermuxTask.TermuxTas
 
 
     /** Execute a shell command in a foreground {@link TermuxSession}. */
-    private void executeTermuxSessionCommand(ExecutionCommand executionCommand) {
+    private void executeTermuxSessionCommand(ExecutionCommand executionCommand, String requestedSessionName) {
         if (executionCommand == null) return;
 
         Logger.logDebug(LOG_TAG, "Executing foreground \"" + executionCommand.getCommandIdAndLabelLogString() + "\" TermuxSession command");
 
-        String sessionName = null;
+        String sessionName = requestedSessionName;
 
         // Transform executable path to session name, e.g. "/bin/do-something.sh" => "do something.sh".
-        if (executionCommand.executable != null) {
+        if (sessionName == null && executionCommand.executable != null) {
             sessionName = ShellUtils.getExecutableBasename(executionCommand.executable).replace('-', ' ');
         }
 

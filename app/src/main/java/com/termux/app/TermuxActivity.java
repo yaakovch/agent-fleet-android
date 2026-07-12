@@ -2,7 +2,6 @@ package com.termux.app;
 
 import android.Manifest;
 import android.annotation.SuppressLint;
-import android.app.Activity;
 import android.app.AlertDialog;
 import android.content.ActivityNotFoundException;
 import android.content.BroadcastReceiver;
@@ -29,9 +28,12 @@ import android.widget.ImageButton;
 import android.widget.ListView;
 import android.widget.RelativeLayout;
 import android.widget.Toast;
+import androidx.compose.ui.platform.ComposeView;
 
 import com.termux.R;
 import com.termux.app.terminal.TermuxActivityRootView;
+import com.termux.app.fleet.AgentFleetComposer;
+import com.termux.app.fleet.AgentFleetContract;
 import com.termux.shared.activities.ReportActivity;
 import com.termux.shared.packages.PermissionUtils;
 import com.termux.shared.data.DataUtils;
@@ -58,9 +60,13 @@ import com.termux.view.TerminalViewClient;
 
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
+import androidx.activity.ComponentActivity;
 import androidx.core.content.ContextCompat;
+import androidx.core.content.FileProvider;
 import androidx.drawerlayout.widget.DrawerLayout;
 import androidx.viewpager.widget.ViewPager;
+import java.io.File;
+import java.util.UUID;
 
 /**
  * A terminal emulator activity.
@@ -72,7 +78,7 @@ import androidx.viewpager.widget.ViewPager;
  * </ul>
  * about memory leaks.
  */
-public final class TermuxActivity extends Activity implements ServiceConnection {
+public final class TermuxActivity extends ComponentActivity implements ServiceConnection {
 
     /**
      * The connection to the {@link TermuxService}. Requested in {@link #onCreate(Bundle)} with a call to
@@ -173,6 +179,9 @@ public final class TermuxActivity extends Activity implements ServiceConnection 
     private static final int CONTEXT_MENU_REPORT_ID = 9;
 
     private static final String ARG_TERMINAL_TOOLBAR_TEXT_INPUT = "terminal_toolbar_text_input";
+    private static final int REQUEST_AGENT_FLEET_IMAGES = 8401;
+    private static final int REQUEST_AGENT_FLEET_CAMERA = 8402;
+    private Uri mAgentFleetCameraUri;
 
     private static final String LOG_TAG = "TermuxActivity";
 
@@ -230,6 +239,8 @@ public final class TermuxActivity extends Activity implements ServiceConnection 
 
         setTerminalToolbarView(savedInstanceState);
 
+        updateAgentFleetInputMode(getIntent());
+
         setSettingsButtonView();
 
         setNewSessionButtonView();
@@ -272,6 +283,73 @@ public final class TermuxActivity extends Activity implements ServiceConnection 
             addTermuxActivityRootViewGlobalLayoutListener();
 
         registerTermuxActivityBroadcastReceiver();
+    }
+
+    @Override
+    protected void onNewIntent(Intent intent) {
+        super.onNewIntent(intent);
+        setIntent(intent);
+        updateAgentFleetInputMode(intent);
+    }
+
+    private void updateAgentFleetInputMode(Intent intent) {
+        ComposeView composer = findViewById(R.id.agent_fleet_composer);
+        AgentFleetComposer.bind(this, composer,
+            intent != null && intent.getBooleanExtra(AgentFleetContract.EXTRA_COMPOSE_INPUT, false));
+    }
+
+    public boolean sendAgentFleetComposerText(String text) {
+        if (text == null || text.trim().isEmpty() || text.length() > 32768 || text.indexOf('\0') >= 0)
+            return false;
+        TerminalSession session = getCurrentSession();
+        if (session == null || !session.isRunning()) return false;
+        session.getEmulator().paste(text);
+        session.write("\r");
+        return true;
+    }
+
+    public void pickAgentFleetImages() {
+        Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT);
+        intent.addCategory(Intent.CATEGORY_OPENABLE);
+        intent.setType("image/*");
+        intent.putExtra(Intent.EXTRA_ALLOW_MULTIPLE, true);
+        try {
+            startActivityForResult(intent, REQUEST_AGENT_FLEET_IMAGES);
+        } catch (ActivityNotFoundException error) {
+            Toast.makeText(this, "No image picker is available", Toast.LENGTH_LONG).show();
+        }
+    }
+
+    public void pickAgentFleetCamera() {
+        File directory = new File(getCacheDir(), "agent-fleet-camera");
+        if (!directory.exists() && !directory.mkdirs()) {
+            Toast.makeText(this, "Camera staging is unavailable", Toast.LENGTH_LONG).show();
+            return;
+        }
+        File[] staleFiles = directory.listFiles();
+        if (staleFiles != null) {
+            long cutoff = System.currentTimeMillis() - 24L * 60L * 60L * 1000L;
+            for (File file : staleFiles) if (file.lastModified() < cutoff) file.delete();
+        }
+        File output = new File(directory, UUID.randomUUID() + ".jpg");
+        mAgentFleetCameraUri = FileProvider.getUriForFile(this, getPackageName() + ".agentfleet.images", output);
+        Intent intent = new Intent("android.media.action.IMAGE_CAPTURE");
+        intent.putExtra("output", mAgentFleetCameraUri);
+        intent.addFlags(Intent.FLAG_GRANT_WRITE_URI_PERMISSION | Intent.FLAG_GRANT_READ_URI_PERMISSION);
+        try {
+            startActivityForResult(intent, REQUEST_AGENT_FLEET_CAMERA);
+        } catch (ActivityNotFoundException error) {
+            Toast.makeText(this, "No camera is available", Toast.LENGTH_LONG).show();
+        }
+    }
+
+    @Override
+    protected void onActivityResult(int requestCode, int resultCode, Intent data) {
+        super.onActivityResult(requestCode, resultCode, data);
+        if (requestCode == REQUEST_AGENT_FLEET_IMAGES && resultCode == RESULT_OK && data != null)
+            AgentFleetComposer.handleImageResult(this, data);
+        if (requestCode == REQUEST_AGENT_FLEET_CAMERA && resultCode == RESULT_OK && mAgentFleetCameraUri != null)
+            AgentFleetComposer.handleCapturedImage(this, mAgentFleetCameraUri);
     }
 
     @Override

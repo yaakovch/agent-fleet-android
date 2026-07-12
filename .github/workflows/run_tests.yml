@@ -3,19 +3,29 @@ name: Unit tests
 on:
   push:
     branches:
-      - master
+      - agent-fleet-main
       - android-10
   pull_request:
     branches:
-      - master
+      - agent-fleet-main
       - android-10
 
 jobs:
   testing:
     runs-on: ubuntu-latest
     steps:
-    - name: Clone repository
-      uses: actions/checkout@v4
-    - name: Execute tests
-      run: |
-        ./gradlew test
+      - name: Clone repository
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: Execute tests
+        run: ./gradlew test
+
+      - name: Rehearse encrypted backup rollback
+        run: |
+          bash -n scripts/release/*.sh scripts/migration/*.sh
+          scripts/migration/rehearse-backup-rollback.sh

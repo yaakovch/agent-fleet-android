@@ -1,0 +1,7 @@
+#!/data/data/com.termux/files/usr/bin/sh
+if [ "$1" = "image" ] && [ "$2" = "send" ]; then
+  printf '%s\n' '{"status":"sent","hostId":"test-host","project":"project","session":"session-1","path":"/home/test/project/.wtmux/images/fixture.png"}'
+  exit 0
+fi
+printf '%s\n' "$@" > "$HOME/.local/share/wtmux/last-session-arguments"
+exec "$PREFIX/bin/sh" -l

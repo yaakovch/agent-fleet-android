@@ -3,11 +3,11 @@ name: Build
 on:
   push:
     branches:
-      - master
+      - agent-fleet-main
       - 'github-releases/**'
   pull_request:
     branches:
-      - master
+      - agent-fleet-main
 
 jobs:
   build:
@@ -15,6 +15,12 @@ jobs:
     steps:
       - name: Clone repository
         uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
 
       - name: Build APKs
         shell: bash {0}

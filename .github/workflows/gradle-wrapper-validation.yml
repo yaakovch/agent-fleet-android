@@ -3,11 +3,11 @@ name: "Validate Gradle Wrapper"
 on:
   push:
     branches:
-      - master
+      - agent-fleet-main
       - android-10
   pull_request:
     branches:
-      - master
+      - agent-fleet-main
       - android-10
 
 jobs:
@@ -16,4 +16,4 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: gradle/wrapper-validation-action@v1
+      - uses: gradle/actions/wrapper-validation@v4
