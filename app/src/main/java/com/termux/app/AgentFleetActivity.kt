@@ -48,6 +48,7 @@ import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -72,6 +73,7 @@ import java.util.concurrent.Executors
 class AgentFleetActivity : ComponentActivity() {
     private val fleetState = mutableStateOf<FleetLoadState>(FleetLoadState.Loading)
     private val recentSessions = mutableStateOf<List<FleetSession>>(emptyList())
+    private val pendingPairInvitation = mutableStateOf<String?>(null)
     private val fleetExecutor = Executors.newSingleThreadExecutor()
     private val refreshHandler = Handler(Looper.getMainLooper())
     private val refreshRunnable = object : Runnable {
@@ -88,17 +90,22 @@ class AgentFleetActivity : ComponentActivity() {
         fleetRuntime = FleetRuntime(applicationContext)
         recentSessionStore = RecentSessionStore(applicationContext)
         recentSessions.value = recentSessionStore.load()
+        acceptPairingIntent(intent)
         setContent {
             AgentFleetTheme {
                 AgentFleetApp(
                     fleetState = fleetState.value,
                     recentSessions = recentSessions.value,
+                    pendingPairInvitation = pendingPairInvitation.value,
+                    onPairInvitationHandled = { pendingPairInvitation.value = null },
                     onRefresh = ::refreshFleet,
                     onOpenSession = ::openFleetSession,
+                    onCreateSession = ::createFleetSession,
                     onRenameSession = ::renameFleetSession,
                     onScheduleContinue = ::scheduleContinue,
                     onKillSession = ::killFleetSession,
                     onCopyAttachCommand = ::copyAttachCommand,
+                    onPairInvitation = ::openPairing,
                     onOpenClassicTerminal = {
                         startActivity(Intent(this, TermuxActivity::class.java))
                     }
@@ -111,6 +118,12 @@ class AgentFleetActivity : ComponentActivity() {
         super.onStart()
         refreshHandler.removeCallbacks(refreshRunnable)
         refreshRunnable.run()
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        acceptPairingIntent(intent)
     }
 
     override fun onStop() {
@@ -149,6 +162,10 @@ class AgentFleetActivity : ComponentActivity() {
         fleetRuntime.renameSession(snapshot, session, name)
     }
 
+    private fun createFleetSession(hostId: String, project: String, backend: String, tool: String) = mutateFleet("Session created") { snapshot ->
+        fleetRuntime.createSession(snapshot, hostId, project, backend, tool)
+    }
+
     private fun scheduleContinue(session: FleetSession, delayMs: Long) = mutateFleet("Continue scheduled") { snapshot ->
         fleetRuntime.scheduleContinue(snapshot, session, System.currentTimeMillis() + delayMs)
     }
@@ -161,6 +178,21 @@ class AgentFleetActivity : ComponentActivity() {
         val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
         clipboard.setPrimaryClip(ClipData.newPlainText("wtmux attach command", fleetRuntime.attachCommand(session)))
         Toast.makeText(this, "Attach command copied", Toast.LENGTH_SHORT).show()
+    }
+
+    private fun openPairing(invitation: String) {
+        try {
+            fleetRuntime.openPairing(invitation.trim())
+        } catch (error: Exception) {
+            Toast.makeText(this, error.message ?: "Pairing could not start", Toast.LENGTH_LONG).show()
+        }
+    }
+
+    private fun acceptPairingIntent(intent: Intent?) {
+        val value = intent?.dataString.orEmpty()
+        if (value.startsWith("wtmux://pair?") && value.length <= 4_096 && value.none { it.isISOControl() }) {
+            pendingPairInvitation.value = value
+        }
     }
 
     private fun mutateFleet(successMessage: String, action: (FleetSnapshot) -> FleetSnapshot) {
@@ -220,12 +252,16 @@ fun filterSessions(sessions: List<FleetSession>, hosts: Map<String, FleetHost>, 
 fun AgentFleetApp(
     fleetState: FleetLoadState,
     recentSessions: List<FleetSession>,
+    pendingPairInvitation: String?,
+    onPairInvitationHandled: () -> Unit,
     onRefresh: () -> Unit,
     onOpenSession: (FleetSession) -> Unit,
+    onCreateSession: (String, String, String, String) -> Unit,
     onRenameSession: (FleetSession, String) -> Unit,
     onScheduleContinue: (FleetSession, Long) -> Unit,
     onKillSession: (FleetSession) -> Unit,
     onCopyAttachCommand: (FleetSession) -> Unit,
+    onPairInvitation: (String) -> Unit,
     onOpenClassicTerminal: () -> Unit
 ) {
     var section by rememberSaveable { mutableStateOf(FleetSection.Sessions) }
@@ -233,8 +269,13 @@ fun AgentFleetApp(
     var renameSession by rememberSaveable { mutableStateOf<String?>(null) }
     var scheduleSession by rememberSaveable { mutableStateOf<String?>(null) }
     var killSession by rememberSaveable { mutableStateOf<String?>(null) }
+    var showCreateSession by rememberSaveable { mutableStateOf(false) }
+    var showPairing by rememberSaveable { mutableStateOf(false) }
     val currentSnapshot = (fleetState as? FleetLoadState.Ready)?.snapshot
     val sessionsById = currentSnapshot?.sessions?.associateBy { it.id }.orEmpty()
+    LaunchedEffect(pendingPairInvitation) {
+        if (pendingPairInvitation != null) showPairing = true
+    }
 
     Scaffold(
         modifier = Modifier.testTag("agent-fleet-shell"),
@@ -264,10 +305,10 @@ fun AgentFleetApp(
         }
     ) { padding ->
         when (section) {
-            FleetSection.Sessions -> SessionsScreen(padding, fleetState, onRefresh, onOpenSession, { actionSession = it.id }, onOpenClassicTerminal)
+            FleetSection.Sessions -> SessionsScreen(padding, fleetState, onRefresh, onOpenSession, { actionSession = it.id }, { showCreateSession = true }, { showPairing = true }, onOpenClassicTerminal)
             FleetSection.Terminal -> TerminalScreen(padding, recentSessions, onOpenSession, onOpenClassicTerminal)
             FleetSection.Limits -> LimitsScreen(padding)
-            FleetSection.More -> MoreScreen(padding)
+            FleetSection.More -> MoreScreen(padding, { showPairing = true })
         }
     }
 
@@ -300,6 +341,25 @@ fun AgentFleetApp(
             onKillSession(session)
         }
     }
+    if (showCreateSession && currentSnapshot != null) {
+        CreateSessionDialog(
+            hosts = currentSnapshot.hosts,
+            onDismiss = { showCreateSession = false }
+        ) { host, project, backend, tool ->
+            showCreateSession = false
+            onCreateSession(host, project, backend, tool)
+        }
+    }
+    if (showPairing) {
+        PairingDialog(pendingPairInvitation.orEmpty(), {
+            showPairing = false
+            onPairInvitationHandled()
+        }) { invitation ->
+            showPairing = false
+            onPairInvitationHandled()
+            onPairInvitation(invitation)
+        }
+    }
 }
 
 @Composable
@@ -309,6 +369,8 @@ private fun SessionsScreen(
     onRefresh: () -> Unit,
     onOpenSession: (FleetSession) -> Unit,
     onMoreSession: (FleetSession) -> Unit,
+    onNewSession: () -> Unit,
+    onPair: () -> Unit,
     onOpenTerminal: () -> Unit
 ) {
     var query by rememberSaveable { mutableStateOf("") }
@@ -331,7 +393,7 @@ private fun SessionsScreen(
                         fontSize = 16.sp
                     )
                 }
-                Button(onClick = onOpenTerminal, shape = RoundedCornerShape(14.dp)) { Text("New", fontSize = 16.sp) }
+                Button(onClick = onNewSession, enabled = snapshot != null, shape = RoundedCornerShape(14.dp)) { Text("New", fontSize = 16.sp) }
             }
         }
         item {
@@ -347,7 +409,7 @@ private fun SessionsScreen(
         when (fleetState) {
             FleetLoadState.Loading -> item { EmptyState("Refreshing fleet…") }
             is FleetLoadState.Unavailable -> item {
-                FleetUnavailableCard(fleetState.reason, onRefresh, onOpenTerminal)
+                FleetUnavailableCard(fleetState.reason, onRefresh, onPair, onOpenTerminal)
             }
             is FleetLoadState.Ready -> {
                 if (filtered.isEmpty()) {
@@ -468,15 +530,82 @@ private fun ConfirmKillDialog(session: FleetSession, onDismiss: () -> Unit, onCo
 }
 
 @Composable
-private fun FleetUnavailableCard(reason: String, onRefresh: () -> Unit, onOpenTerminal: () -> Unit) {
+private fun CreateSessionDialog(
+    hosts: List<FleetHost>,
+    onDismiss: () -> Unit,
+    onConfirm: (String, String, String, String) -> Unit
+) {
+    var hostId by rememberSaveable { mutableStateOf(hosts.firstOrNull { it.status == "healthy" }?.id ?: hosts.firstOrNull()?.id.orEmpty()) }
+    var project by rememberSaveable { mutableStateOf("") }
+    var backend by rememberSaveable { mutableStateOf("linux") }
+    var tool by rememberSaveable { mutableStateOf("shell") }
+    val valid = hostId.isNotBlank() && project.matches(Regex("[A-Za-z0-9][A-Za-z0-9._ -]{0,127}"))
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("New session") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Text("Machine", fontWeight = FontWeight.SemiBold)
+                hosts.forEach { host ->
+                    AssistChip(onClick = { hostId = host.id }, label = { Text(if (host.id == hostId) "✓ ${host.name}" else host.name) })
+                }
+                OutlinedTextField(project, { project = it }, label = { Text("Project") }, singleLine = true)
+                Text("Tool", fontWeight = FontWeight.SemiBold)
+                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    listOf("shell", "codex", "claude").forEach { choice ->
+                        AssistChip(onClick = { tool = choice }, label = { Text(if (tool == choice) "✓ $choice" else choice) })
+                    }
+                }
+                Text("Backend", fontWeight = FontWeight.SemiBold)
+                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    listOf("linux", "windows").forEach { choice ->
+                        AssistChip(onClick = { backend = choice }, label = { Text(if (backend == choice) "✓ $choice" else choice) })
+                    }
+                }
+            }
+        },
+        confirmButton = { TextButton(onClick = { onConfirm(hostId, project, backend, tool) }, enabled = valid) { Text("Create") } },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } }
+    )
+}
+
+@Composable
+private fun PairingDialog(initialInvitation: String, onDismiss: () -> Unit, onConfirm: (String) -> Unit) {
+    var invitation by rememberSaveable(initialInvitation) { mutableStateOf(initialInvitation) }
+    val valid = invitation.trim().startsWith("wtmux://pair?") && invitation.length <= 4_096
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Pair or restore") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Text("Paste the invitation created by your Agent Fleet controller.", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                OutlinedTextField(
+                    value = invitation,
+                    onValueChange = { invitation = it },
+                    modifier = Modifier.fillMaxWidth(),
+                    label = { Text("wtmux invitation") },
+                    minLines = 3,
+                    maxLines = 5
+                )
+                Text("The controller still has to approve this phone.", fontSize = 14.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+        },
+        confirmButton = { TextButton(onClick = { onConfirm(invitation.trim()) }, enabled = valid) { Text("Continue in terminal") } },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } }
+    )
+}
+
+@Composable
+private fun FleetUnavailableCard(reason: String, onRefresh: () -> Unit, onPair: () -> Unit, onOpenTerminal: () -> Unit) {
     Card(shape = RoundedCornerShape(20.dp), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)) {
         Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Text("Fleet is not connected", fontSize = 20.sp, fontWeight = FontWeight.Bold)
             Text(reason, fontSize = 16.sp, lineHeight = 22.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
             Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                Button(onClick = onRefresh, shape = RoundedCornerShape(14.dp)) { Text("Try again", fontSize = 16.sp) }
-                OutlinedButton(onClick = onOpenTerminal, shape = RoundedCornerShape(14.dp)) { Text("Open terminal", fontSize = 16.sp) }
+                Button(onClick = onPair, shape = RoundedCornerShape(14.dp)) { Text("Pair", fontSize = 16.sp) }
+                OutlinedButton(onClick = onRefresh, shape = RoundedCornerShape(14.dp)) { Text("Retry", fontSize = 16.sp) }
             }
+            TextButton(onClick = onOpenTerminal) { Text("Open terminal for manual restore") }
         }
     }
 }
@@ -577,7 +706,7 @@ private fun LimitBar(label: String, remaining: Int) {
 }
 
 @Composable
-private fun MoreScreen(padding: PaddingValues) {
+private fun MoreScreen(padding: PaddingValues, onPair: () -> Unit) {
     LazyColumn(
         modifier = Modifier.fillMaxSize().padding(padding).testTag("more-screen"),
         contentPadding = PaddingValues(18.dp),
@@ -586,7 +715,17 @@ private fun MoreScreen(padding: PaddingValues) {
         item { Text("More", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold) }
         item { FeatureCard("Schedules", "2 pending · guarded delivery runs on the destination host") }
         item { FeatureCard("Fleet health", "2 of 2 hosts healthy · registry synced 1 minute ago") }
-        item { FeatureCard("Pair or restore", "Scan an invitation or verify restored wtmux state") }
+        item {
+            Card(shape = RoundedCornerShape(18.dp), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)) {
+                Row(Modifier.fillMaxWidth().padding(18.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Column(Modifier.weight(1f)) {
+                        Text("Pair or restore", fontSize = 18.sp, fontWeight = FontWeight.Bold)
+                        Text("Connect this phone to the fleet", fontSize = 16.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                    Button(onClick = onPair, shape = RoundedCornerShape(14.dp)) { Text("Open") }
+                }
+            }
+        }
         item { FeatureCard("Terminal appearance", "System theme · 16sp · Android Compose for AI") }
         item { FeatureCard("Diagnostics", "Runtime, bridge, package, transport, and update checks") }
     }
@@ -663,12 +802,16 @@ private fun AgentFleetPreview() {
         AgentFleetApp(
             fleetState = FleetLoadState.Ready(previewFleetSnapshot),
             recentSessions = previewFleetSnapshot.sessions,
+            pendingPairInvitation = null,
+            onPairInvitationHandled = {},
             onRefresh = {},
             onOpenSession = {},
+            onCreateSession = { _, _, _, _ -> },
             onRenameSession = { _, _ -> },
             onScheduleContinue = { _, _ -> },
             onKillSession = {},
             onCopyAttachCommand = {},
+            onPairInvitation = {},
             onOpenClassicTerminal = {}
         )
     }

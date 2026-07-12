@@ -75,14 +75,27 @@ class FleetRuntime(private val context: Context) {
             "--project", session.project,
             "--session", session.internalName
         )
-        val uri = Uri.Builder().scheme(TERMUX_SERVICE.URI_SCHEME_SERVICE_EXECUTE).path(wtmux.absolutePath).build()
+        openTerminalCommand(wtmux, arguments, "Agent Fleet · ${session.name}", session.name)
+    }
+
+    fun openPairing(invitation: String) {
+        require(invitation.startsWith("wtmux://pair?") && invitation.length <= 4_096 && invitation.none { it.isISOControl() }) {
+            "Paste a valid wtmux pairing invitation."
+        }
+        val client = executable("wtmux-pair-client")
+            ?: throw FleetUnavailableException("The wtmux pairing client is not installed. Restore it in the terminal first.")
+        openTerminalCommand(client, arrayOf("pair", "--invitation", invitation), "Agent Fleet pairing", "Pair Agent Fleet")
+    }
+
+    private fun openTerminalCommand(executable: File, arguments: Array<String>, label: String, sessionName: String) {
+        val uri = Uri.Builder().scheme(TERMUX_SERVICE.URI_SCHEME_SERVICE_EXECUTE).path(executable.absolutePath).build()
         val intent = Intent(TERMUX_SERVICE.ACTION_SERVICE_EXECUTE, uri, context, TermuxService::class.java).apply {
             putExtra(TERMUX_SERVICE.EXTRA_ARGUMENTS, arguments)
             putExtra(TERMUX_SERVICE.EXTRA_WORKDIR, userHome.absolutePath)
             putExtra(TERMUX_SERVICE.EXTRA_BACKGROUND, false)
             putExtra(TERMUX_SERVICE.EXTRA_SESSION_ACTION, TERMUX_SERVICE.VALUE_EXTRA_SESSION_ACTION_SWITCH_TO_NEW_SESSION_AND_DONT_OPEN_ACTIVITY.toString())
-            putExtra(TERMUX_SERVICE.EXTRA_COMMAND_LABEL, "Agent Fleet · ${session.name}")
-            putExtra(AgentFleetContract.EXTRA_SESSION_NAME, session.name)
+            putExtra(TERMUX_SERVICE.EXTRA_COMMAND_LABEL, label)
+            putExtra(AgentFleetContract.EXTRA_SESSION_NAME, sessionName)
         }
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) context.startForegroundService(intent) else context.startService(intent)
         context.startActivity(Intent(context, TermuxActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
@@ -96,6 +109,22 @@ class FleetRuntime(private val context: Context) {
                 .put("hostId", session.hostId)
                 .put("sessionId", session.id)
                 .put("name", name)
+                .put("expectedRevision", snapshot.revision)
+                .put("idempotencyKey", UUID.randomUUID().toString())
+        )
+    }
+
+    fun createSession(snapshot: FleetSnapshot, hostId: String, project: String, backend: String, tool: String): FleetSnapshot {
+        require(project.matches(Regex("[A-Za-z0-9][A-Za-z0-9._ -]{0,127}"))) { "Enter a valid project name." }
+        require(backend in setOf("linux", "windows")) { "Choose a valid backend." }
+        require(tool in setOf("shell", "codex", "claude", "copilot")) { "Choose a valid tool." }
+        return mutate(
+            "session.create",
+            JSONObject()
+                .put("hostId", hostId)
+                .put("project", project)
+                .put("backend", backend)
+                .put("tool", tool)
                 .put("expectedRevision", snapshot.revision)
                 .put("idempotencyKey", UUID.randomUUID().toString())
         )
