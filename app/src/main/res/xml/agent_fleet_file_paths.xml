@@ -1,4 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
 <paths xmlns:android="http://schemas.android.com/apk/res/android">
     <cache-path name="agent_fleet_camera" path="agent-fleet-camera/" />
+    <cache-path name="agent_fleet_updates" path="agent-fleet-updates/" />
 </paths>

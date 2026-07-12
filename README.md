@@ -11,6 +11,8 @@ in [MIGRATION.md](MIGRATION.md) have passed.
 - [Upstream provenance](PROVENANCE.md)
 - [Privacy](PRIVACY.md)
 - [Security](SECURITY.md)
+- [Private release runbook](docs/PRIVATE_RELEASES.md)
+- [Migration and rollback runbook](docs/MIGRATION_AND_ROLLBACK.md)
 
 The upstream Termux documentation is preserved below because its package,
 terminal, plugin-signing, and troubleshooting details remain applicable.

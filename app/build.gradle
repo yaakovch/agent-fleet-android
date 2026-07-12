@@ -8,6 +8,7 @@ android {
     compileSdkVersion project.properties.compileSdkVersion.toInteger()
     ndkVersion = System.getenv("JITPACK_NDK_VERSION") ?: project.properties.ndkVersion
     def appVersionName = System.getenv("TERMUX_APP_VERSION_NAME") ?: ""
+    def appVersionCode = System.getenv("TERMUX_APP_VERSION_CODE") ?: ""
     def apkVersionTag = System.getenv("TERMUX_APK_VERSION_TAG") ?: ""
     def splitAPKsForDebugBuilds = System.getenv("TERMUX_SPLIT_APKS_FOR_DEBUG_BUILDS") ?: "1"
     def splitAPKsForReleaseBuilds = System.getenv("TERMUX_SPLIT_APKS_FOR_RELEASE_BUILDS") ?: "0" // F-Droid does not support split APKs #1904
@@ -42,6 +43,7 @@ android {
         versionName "0.118.3"
 
         if (appVersionName) versionName = appVersionName
+        if (appVersionCode) versionCode = appVersionCode.toInteger()
         validateVersionName(versionName)
 
         manifestPlaceholders.TERMUX_PACKAGE_NAME = "com.termux"

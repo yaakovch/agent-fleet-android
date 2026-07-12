@@ -24,3 +24,8 @@ jobs:
           java-version: '17'
       - name: Execute tests
         run: ./gradlew test
+
+      - name: Rehearse encrypted backup rollback
+        run: |
+          bash -n scripts/release/*.sh scripts/migration/*.sh
+          scripts/migration/rehearse-backup-rollback.sh

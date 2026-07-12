@@ -71,6 +71,9 @@ import com.termux.app.fleet.FleetSession
 import com.termux.app.fleet.FleetSchedule
 import com.termux.app.fleet.FleetSnapshot
 import com.termux.app.fleet.RecentSessionStore
+import com.termux.app.fleet.AgentFleetUpdate
+import com.termux.app.fleet.AgentFleetUpdateManager
+import com.termux.app.fleet.UpdateUiState
 import java.util.concurrent.Executors
 import java.text.SimpleDateFormat
 import java.util.Locale
@@ -81,7 +84,10 @@ class AgentFleetActivity : ComponentActivity() {
     private val recentSessions = mutableStateOf<List<FleetSession>>(emptyList())
     private val pendingPairInvitation = mutableStateOf<String?>(null)
     private val pendingSharedImages = mutableStateOf<List<String>>(emptyList())
+    private val updateState = mutableStateOf<UpdateUiState>(UpdateUiState.Idle)
+    private val updateManifestUrl = mutableStateOf("")
     private val fleetExecutor = Executors.newSingleThreadExecutor()
+    private val updateExecutor = Executors.newSingleThreadExecutor()
     private val refreshHandler = Handler(Looper.getMainLooper())
     private val refreshRunnable = object : Runnable {
         override fun run() {
@@ -91,11 +97,15 @@ class AgentFleetActivity : ComponentActivity() {
     }
     private lateinit var fleetRuntime: FleetRuntime
     private lateinit var recentSessionStore: RecentSessionStore
+    private lateinit var updateManager: AgentFleetUpdateManager
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         fleetRuntime = FleetRuntime(applicationContext)
         recentSessionStore = RecentSessionStore(applicationContext)
+        updateManager = AgentFleetUpdateManager(applicationContext)
+        updateManifestUrl.value = getSharedPreferences("agent-fleet-updates", Context.MODE_PRIVATE)
+            .getString("manifest-url", "").orEmpty()
         recentSessions.value = recentSessionStore.load()
         acceptPairingIntent(intent)
         acceptSharedImages(intent)
@@ -107,6 +117,8 @@ class AgentFleetActivity : ComponentActivity() {
                     pendingPairInvitation = pendingPairInvitation.value,
                     onPairInvitationHandled = { pendingPairInvitation.value = null },
                     pendingSharedImages = pendingSharedImages.value,
+                    updateState = updateState.value,
+                    updateManifestUrl = updateManifestUrl.value,
                     onSharedImagesHandled = { pendingSharedImages.value = emptyList() },
                     onRefresh = ::refreshFleet,
                     onOpenSession = ::openFleetSession,
@@ -118,6 +130,9 @@ class AgentFleetActivity : ComponentActivity() {
                     onKillSession = ::killFleetSession,
                     onCopyAttachCommand = ::copyAttachCommand,
                     onPairInvitation = ::openPairing,
+                    onConfigureUpdates = ::configureUpdates,
+                    onCheckUpdate = ::checkForUpdate,
+                    onInstallUpdate = ::installUpdate,
                     onOpenClassicTerminal = {
                         startActivity(Intent(this, TermuxActivity::class.java))
                     }
@@ -146,6 +161,7 @@ class AgentFleetActivity : ComponentActivity() {
 
     override fun onDestroy() {
         fleetExecutor.shutdownNow()
+        updateExecutor.shutdownNow()
         super.onDestroy()
     }
 
@@ -212,6 +228,50 @@ class AgentFleetActivity : ComponentActivity() {
             fleetRuntime.openPairing(invitation.trim())
         } catch (error: Exception) {
             Toast.makeText(this, error.message ?: "Pairing could not start", Toast.LENGTH_LONG).show()
+        }
+    }
+
+    private fun configureUpdates(manifestUrl: String) {
+        val normalized = manifestUrl.trim()
+        updateManifestUrl.value = normalized
+        getSharedPreferences("agent-fleet-updates", Context.MODE_PRIVATE).edit()
+            .putString("manifest-url", normalized).apply()
+        updateState.value = UpdateUiState.Idle
+    }
+
+    private fun checkForUpdate() {
+        val url = updateManifestUrl.value
+        if (url.isBlank()) {
+            updateState.value = UpdateUiState.Error("Configure the private HTTPS update manifest first")
+            return
+        }
+        updateState.value = UpdateUiState.Checking
+        updateExecutor.execute {
+            val result = runCatching { updateManager.check(url) }
+            runOnUiThread {
+                updateState.value = result.fold(
+                    onSuccess = { update ->
+                        if (update == null) UpdateUiState.Current(updateManager.installedVersionName())
+                        else UpdateUiState.Available(update)
+                    },
+                    onFailure = { UpdateUiState.Error(it.message ?: "Update check failed") }
+                )
+            }
+        }
+    }
+
+    private fun installUpdate(update: AgentFleetUpdate) {
+        updateState.value = UpdateUiState.Downloading
+        updateExecutor.execute {
+            val result = runCatching { updateManager.downloadAndVerify(update) }
+            runOnUiThread {
+                result.onSuccess { apk ->
+                    updateState.value = UpdateUiState.Available(update)
+                    startActivity(updateManager.installerIntent(apk))
+                }.onFailure {
+                    updateState.value = UpdateUiState.Error(it.message ?: "Update verification failed")
+                }
+            }
         }
     }
 
@@ -284,6 +344,8 @@ fun AgentFleetApp(
     pendingPairInvitation: String?,
     onPairInvitationHandled: () -> Unit,
     pendingSharedImages: List<String>,
+    updateState: UpdateUiState,
+    updateManifestUrl: String,
     onSharedImagesHandled: () -> Unit,
     onRefresh: () -> Unit,
     onOpenSession: (FleetSession) -> Unit,
@@ -295,6 +357,9 @@ fun AgentFleetApp(
     onKillSession: (FleetSession) -> Unit,
     onCopyAttachCommand: (FleetSession) -> Unit,
     onPairInvitation: (String) -> Unit,
+    onConfigureUpdates: (String) -> Unit,
+    onCheckUpdate: () -> Unit,
+    onInstallUpdate: (AgentFleetUpdate) -> Unit,
     onOpenClassicTerminal: () -> Unit
 ) {
     var section by rememberSaveable { mutableStateOf(FleetSection.Sessions) }
@@ -304,6 +369,7 @@ fun AgentFleetApp(
     var killSession by rememberSaveable { mutableStateOf<String?>(null) }
     var showCreateSession by rememberSaveable { mutableStateOf(false) }
     var showPairing by rememberSaveable { mutableStateOf(false) }
+    var showUpdateSettings by rememberSaveable { mutableStateOf(false) }
     val currentSnapshot = (fleetState as? FleetLoadState.Ready)?.snapshot
     val sessionsById = currentSnapshot?.sessions?.associateBy { it.id }.orEmpty()
     LaunchedEffect(pendingPairInvitation) {
@@ -341,7 +407,17 @@ fun AgentFleetApp(
             FleetSection.Sessions -> SessionsScreen(padding, fleetState, onRefresh, onOpenSession, { actionSession = it.id }, { showCreateSession = true }, { showPairing = true }, onOpenClassicTerminal)
             FleetSection.Terminal -> TerminalScreen(padding, recentSessions, onOpenSession, onOpenClassicTerminal)
             FleetSection.Limits -> LimitsScreen(padding, fleetState, onScheduleContinue)
-            FleetSection.More -> MoreScreen(padding, fleetState, { showPairing = true }, onCancelSchedule)
+            FleetSection.More -> MoreScreen(
+                padding,
+                fleetState,
+                updateState,
+                updateManifestUrl,
+                { showPairing = true },
+                onCancelSchedule,
+                { showUpdateSettings = true },
+                onCheckUpdate,
+                onInstallUpdate
+            )
         }
     }
 
@@ -391,6 +467,12 @@ fun AgentFleetApp(
             showPairing = false
             onPairInvitationHandled()
             onPairInvitation(invitation)
+        }
+    }
+    if (showUpdateSettings) {
+        UpdateSettingsDialog(updateManifestUrl, { showUpdateSettings = false }) { value ->
+            showUpdateSettings = false
+            onConfigureUpdates(value)
         }
     }
     if (pendingSharedImages.isNotEmpty() && currentSnapshot != null) {
@@ -640,6 +722,32 @@ private fun PairingDialog(initialInvitation: String, onDismiss: () -> Unit, onCo
 }
 
 @Composable
+private fun UpdateSettingsDialog(initialUrl: String, onDismiss: () -> Unit, onConfirm: (String) -> Unit) {
+    var url by rememberSaveable(initialUrl) { mutableStateOf(initialUrl) }
+    val valid = url.isBlank() || (url.startsWith("https://") && url.length <= 2_048 && url.none { it.isISOControl() })
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Private updates") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Text("Use the HTTPS URL of the signed Agent Fleet manifest. Leave blank to disable checks.", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                OutlinedTextField(
+                    value = url,
+                    onValueChange = { if (it.length <= 2_048) url = it },
+                    modifier = Modifier.fillMaxWidth(),
+                    label = { Text("Manifest URL") },
+                    minLines = 2,
+                    maxLines = 4
+                )
+                Text("The APK must match both its SHA-256 and this app's signing certificate.", fontSize = 14.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+        },
+        confirmButton = { TextButton(onClick = { onConfirm(url.trim()) }, enabled = valid) { Text("Save") } },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } }
+    )
+}
+
+@Composable
 private fun SharedImagesSessionDialog(
     sessions: List<FleetSession>,
     imageCount: Int,
@@ -839,8 +947,13 @@ private fun formatAge(timestamp: String): String {
 private fun MoreScreen(
     padding: PaddingValues,
     fleetState: FleetLoadState,
+    updateState: UpdateUiState,
+    updateManifestUrl: String,
     onPair: () -> Unit,
-    onCancelSchedule: (FleetSchedule) -> Unit
+    onCancelSchedule: (FleetSchedule) -> Unit,
+    onConfigureUpdate: () -> Unit,
+    onCheckUpdate: () -> Unit,
+    onInstallUpdate: (AgentFleetUpdate) -> Unit
 ) {
     val snapshot = (fleetState as? FleetLoadState.Ready)?.snapshot
     val pendingSchedules = snapshot?.schedules?.count { it.status == "pending" } ?: 0
@@ -880,6 +993,30 @@ private fun MoreScreen(
                         Text("Connect this phone to the fleet", fontSize = 16.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                     Button(onClick = onPair, shape = RoundedCornerShape(14.dp)) { Text("Open") }
+                }
+            }
+        }
+        item {
+            val detail = when (updateState) {
+                UpdateUiState.Idle -> if (updateManifestUrl.isBlank()) "Private source not configured" else "Ready to check"
+                UpdateUiState.Checking -> "Checking signed manifest…"
+                UpdateUiState.Downloading -> "Downloading and verifying…"
+                is UpdateUiState.Current -> "${updateState.versionName} is current"
+                is UpdateUiState.Available -> "${updateState.update.versionName} is available"
+                is UpdateUiState.Error -> updateState.message
+            }
+            Card(shape = RoundedCornerShape(18.dp), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)) {
+                Column(Modifier.fillMaxWidth().padding(18.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Text("App updates", fontSize = 18.sp, fontWeight = FontWeight.Bold)
+                    Text(detail, fontSize = 16.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                        OutlinedButton(onClick = onConfigureUpdate, shape = RoundedCornerShape(14.dp)) { Text("Source") }
+                        when (updateState) {
+                            is UpdateUiState.Available -> Button(onClick = { onInstallUpdate(updateState.update) }, shape = RoundedCornerShape(14.dp)) { Text("Install") }
+                            UpdateUiState.Checking, UpdateUiState.Downloading -> Button(onClick = {}, enabled = false, shape = RoundedCornerShape(14.dp)) { Text("Please wait") }
+                            else -> Button(onClick = onCheckUpdate, enabled = updateManifestUrl.isNotBlank(), shape = RoundedCornerShape(14.dp)) { Text("Check") }
+                        }
+                    }
                 }
             }
         }
@@ -962,6 +1099,8 @@ private fun AgentFleetPreview() {
             pendingPairInvitation = null,
             onPairInvitationHandled = {},
             pendingSharedImages = emptyList(),
+            updateState = UpdateUiState.Idle,
+            updateManifestUrl = "",
             onSharedImagesHandled = {},
             onRefresh = {},
             onOpenSession = {},
@@ -973,6 +1112,9 @@ private fun AgentFleetPreview() {
             onKillSession = {},
             onCopyAttachCommand = {},
             onPairInvitation = {},
+            onConfigureUpdates = {},
+            onCheckUpdate = {},
+            onInstallUpdate = {},
             onOpenClassicTerminal = {}
         )
     }
