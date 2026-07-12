@@ -1,2 +1,13 @@
 #!/data/data/com.termux/files/usr/bin/sh
-exec cat "$HOME/.local/share/wtmux/fleet-snapshot.json"
+snapshot="$HOME/.local/share/wtmux/fleet-snapshot.json"
+if [ "$1" = "--snapshot" ]; then
+  exec cat "$snapshot"
+fi
+if [ "$1" = "--stdio" ]; then
+  IFS= read -r request
+  request_id="$(printf '%s' "$request" | sed -n 's/.*"requestId":"\([^"]*\)".*/\1/p')"
+  compact_snapshot="$(tr -d '\n' < "$snapshot")"
+  printf '{"protocolVersion":1,"type":"response","requestId":"%s","timestamp":"2026-07-12T04:00:00Z","ok":true,"result":{"operationId":"fixture","status":"ok","snapshot":%s}}\n' "$request_id" "$compact_snapshot"
+  exit 0
+fi
+exit 2

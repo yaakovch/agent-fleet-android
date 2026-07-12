@@ -5,6 +5,8 @@ import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -64,20 +66,33 @@ import com.termux.app.fleet.FleetRuntime
 import com.termux.app.fleet.FleetSession
 import com.termux.app.fleet.FleetSnapshot
 import com.termux.app.fleet.FleetUnavailableException
+import com.termux.app.fleet.RecentSessionStore
 import java.util.concurrent.Executors
 
 class AgentFleetActivity : ComponentActivity() {
     private val fleetState = mutableStateOf<FleetLoadState>(FleetLoadState.Loading)
+    private val recentSessions = mutableStateOf<List<FleetSession>>(emptyList())
     private val fleetExecutor = Executors.newSingleThreadExecutor()
+    private val refreshHandler = Handler(Looper.getMainLooper())
+    private val refreshRunnable = object : Runnable {
+        override fun run() {
+            refreshFleet()
+            refreshHandler.postDelayed(this, 10_000)
+        }
+    }
     private lateinit var fleetRuntime: FleetRuntime
+    private lateinit var recentSessionStore: RecentSessionStore
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         fleetRuntime = FleetRuntime(applicationContext)
+        recentSessionStore = RecentSessionStore(applicationContext)
+        recentSessions.value = recentSessionStore.load()
         setContent {
             AgentFleetTheme {
                 AgentFleetApp(
                     fleetState = fleetState.value,
+                    recentSessions = recentSessions.value,
                     onRefresh = ::refreshFleet,
                     onOpenSession = ::openFleetSession,
                     onRenameSession = ::renameFleetSession,
@@ -94,7 +109,13 @@ class AgentFleetActivity : ComponentActivity() {
 
     override fun onStart() {
         super.onStart()
-        refreshFleet()
+        refreshHandler.removeCallbacks(refreshRunnable)
+        refreshRunnable.run()
+    }
+
+    override fun onStop() {
+        refreshHandler.removeCallbacks(refreshRunnable)
+        super.onStop()
     }
 
     override fun onDestroy() {
@@ -116,6 +137,8 @@ class AgentFleetActivity : ComponentActivity() {
 
     private fun openFleetSession(session: FleetSession) {
         try {
+            recentSessionStore.record(session)
+            recentSessions.value = recentSessionStore.load()
             fleetRuntime.openSession(session)
         } catch (error: FleetUnavailableException) {
             Toast.makeText(this, error.message, Toast.LENGTH_LONG).show()
@@ -196,6 +219,7 @@ fun filterSessions(sessions: List<FleetSession>, hosts: Map<String, FleetHost>, 
 @Composable
 fun AgentFleetApp(
     fleetState: FleetLoadState,
+    recentSessions: List<FleetSession>,
     onRefresh: () -> Unit,
     onOpenSession: (FleetSession) -> Unit,
     onRenameSession: (FleetSession, String) -> Unit,
@@ -241,7 +265,7 @@ fun AgentFleetApp(
     ) { padding ->
         when (section) {
             FleetSection.Sessions -> SessionsScreen(padding, fleetState, onRefresh, onOpenSession, { actionSession = it.id }, onOpenClassicTerminal)
-            FleetSection.Terminal -> TerminalScreen(padding, onOpenClassicTerminal)
+            FleetSection.Terminal -> TerminalScreen(padding, recentSessions, onOpenSession, onOpenClassicTerminal)
             FleetSection.Limits -> LimitsScreen(padding)
             FleetSection.More -> MoreScreen(padding)
         }
@@ -458,36 +482,43 @@ private fun FleetUnavailableCard(reason: String, onRefresh: () -> Unit, onOpenTe
 }
 
 @Composable
-private fun TerminalScreen(padding: PaddingValues, onOpenClassicTerminal: () -> Unit) {
+private fun TerminalScreen(
+    padding: PaddingValues,
+    recentSessions: List<FleetSession>,
+    onOpenSession: (FleetSession) -> Unit,
+    onOpenClassicTerminal: () -> Unit
+) {
     LazyColumn(
         modifier = Modifier.fillMaxSize().padding(padding).testTag("terminal-screen"),
         contentPadding = PaddingValues(18.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
         item {
-            Text("Terminal workspace", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
-            Text("Persistent local and remote tabs will live here.", fontSize = 16.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f)) {
+                    Text("Terminal", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
+                    Text("Recent local and fleet tabs", fontSize = 16.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+                Button(onClick = onOpenClassicTerminal, shape = RoundedCornerShape(14.dp)) { Text("New shell", fontSize = 16.sp) }
+            }
         }
-        item {
-            Card(shape = RoundedCornerShape(22.dp), colors = CardDefaults.cardColors(containerColor = TerminalNavy)) {
-                Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        StatusDot(ReadyGreen)
-                        Spacer(Modifier.size(10.dp))
-                        Text("wtmux · Android companion", color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.Bold)
-                    }
-                    Text("$ codex\n› Continue building the mobile shell_", color = Color(0xFFD8E3FF), fontSize = 17.sp, lineHeight = 25.sp)
-                    Button(onClick = onOpenClassicTerminal, modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(14.dp)) {
-                        Text("Open Classic Terminal", fontSize = 17.sp)
+        if (recentSessions.isEmpty()) {
+            item { EmptyState("Your opened fleet sessions will appear here.") }
+        } else {
+            items(recentSessions, key = { it.id }) { session ->
+                Card(shape = RoundedCornerShape(18.dp), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)) {
+                    Row(Modifier.fillMaxWidth().padding(18.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Column(Modifier.weight(1f)) {
+                            Text(session.name, fontSize = 19.sp, fontWeight = FontWeight.Bold)
+                            Text("${session.hostId} · ${session.tool}", fontSize = 15.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                        Button(onClick = { onOpenSession(session) }, shape = RoundedCornerShape(14.dp)) { Text("Open", fontSize = 16.sp) }
                     }
                 }
             }
         }
         item {
-            FeatureCard("Android Compose input", "Multiline editing, voice input, image attachments, and an explicit Send action.")
-        }
-        item {
-            FeatureCard("Classic Terminal input", "Direct PTY keys, extra rows, modifiers, gestures, hardware keyboard, and mouse.")
+            Text("Shell tabs use direct terminal input. AI tabs will use the multiline mobile composer.", fontSize = 15.sp, lineHeight = 21.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
     }
 }
@@ -587,8 +618,6 @@ private val FleetBlue = Color(0xFF315DDE)
 private val ReadyGreen = Color(0xFF14845B)
 private val WarningAmber = Color(0xFFB06000)
 private val QuietGray = Color(0xFF6D7280)
-private val TerminalNavy = Color(0xFF11182A)
-
 private val previewFleetSnapshot = FleetSnapshot(
     revision = "preview",
     generatedAt = "2026-07-12T05:00:00Z",
@@ -633,6 +662,7 @@ private fun AgentFleetPreview() {
     AgentFleetTheme {
         AgentFleetApp(
             fleetState = FleetLoadState.Ready(previewFleetSnapshot),
+            recentSessions = previewFleetSnapshot.sessions,
             onRefresh = {},
             onOpenSession = {},
             onRenameSession = { _, _ -> },

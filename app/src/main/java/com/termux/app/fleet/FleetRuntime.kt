@@ -82,6 +82,7 @@ class FleetRuntime(private val context: Context) {
             putExtra(TERMUX_SERVICE.EXTRA_BACKGROUND, false)
             putExtra(TERMUX_SERVICE.EXTRA_SESSION_ACTION, TERMUX_SERVICE.VALUE_EXTRA_SESSION_ACTION_SWITCH_TO_NEW_SESSION_AND_DONT_OPEN_ACTIVITY.toString())
             putExtra(TERMUX_SERVICE.EXTRA_COMMAND_LABEL, "Agent Fleet · ${session.name}")
+            putExtra(AgentFleetContract.EXTRA_SESSION_NAME, session.name)
         }
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) context.startForegroundService(intent) else context.startService(intent)
         context.startActivity(Intent(context, TermuxActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
