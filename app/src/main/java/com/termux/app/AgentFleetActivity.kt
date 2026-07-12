@@ -1,5 +1,8 @@
 package com.termux.app
 
+import android.content.ClipData
+import android.content.ClipboardManager
+import android.content.Context
 import android.content.Intent
 import android.os.Bundle
 import android.widget.Toast
@@ -23,6 +26,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.material3.AssistChip
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -36,6 +40,7 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.darkColorScheme
@@ -75,6 +80,10 @@ class AgentFleetActivity : ComponentActivity() {
                     fleetState = fleetState.value,
                     onRefresh = ::refreshFleet,
                     onOpenSession = ::openFleetSession,
+                    onRenameSession = ::renameFleetSession,
+                    onScheduleContinue = ::scheduleContinue,
+                    onKillSession = ::killFleetSession,
+                    onCopyAttachCommand = ::copyAttachCommand,
                     onOpenClassicTerminal = {
                         startActivity(Intent(this, TermuxActivity::class.java))
                     }
@@ -110,6 +119,40 @@ class AgentFleetActivity : ComponentActivity() {
             fleetRuntime.openSession(session)
         } catch (error: FleetUnavailableException) {
             Toast.makeText(this, error.message, Toast.LENGTH_LONG).show()
+        }
+    }
+
+    private fun renameFleetSession(session: FleetSession, name: String) = mutateFleet("Session renamed") { snapshot ->
+        fleetRuntime.renameSession(snapshot, session, name)
+    }
+
+    private fun scheduleContinue(session: FleetSession, delayMs: Long) = mutateFleet("Continue scheduled") { snapshot ->
+        fleetRuntime.scheduleContinue(snapshot, session, System.currentTimeMillis() + delayMs)
+    }
+
+    private fun killFleetSession(session: FleetSession) = mutateFleet("Session stopped") { snapshot ->
+        fleetRuntime.killSession(snapshot, session)
+    }
+
+    private fun copyAttachCommand(session: FleetSession) {
+        val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+        clipboard.setPrimaryClip(ClipData.newPlainText("wtmux attach command", fleetRuntime.attachCommand(session)))
+        Toast.makeText(this, "Attach command copied", Toast.LENGTH_SHORT).show()
+    }
+
+    private fun mutateFleet(successMessage: String, action: (FleetSnapshot) -> FleetSnapshot) {
+        val snapshot = (fleetState.value as? FleetLoadState.Ready)?.snapshot ?: return refreshFleet()
+        fleetExecutor.execute {
+            val result = runCatching { action(snapshot) }
+            runOnUiThread {
+                result.onSuccess {
+                    fleetState.value = FleetLoadState.Ready(it)
+                    Toast.makeText(this, successMessage, Toast.LENGTH_SHORT).show()
+                }.onFailure {
+                    Toast.makeText(this, it.message ?: "Fleet action failed", Toast.LENGTH_LONG).show()
+                    refreshFleet()
+                }
+            }
         }
     }
 }
@@ -155,9 +198,19 @@ fun AgentFleetApp(
     fleetState: FleetLoadState,
     onRefresh: () -> Unit,
     onOpenSession: (FleetSession) -> Unit,
+    onRenameSession: (FleetSession, String) -> Unit,
+    onScheduleContinue: (FleetSession, Long) -> Unit,
+    onKillSession: (FleetSession) -> Unit,
+    onCopyAttachCommand: (FleetSession) -> Unit,
     onOpenClassicTerminal: () -> Unit
 ) {
     var section by rememberSaveable { mutableStateOf(FleetSection.Sessions) }
+    var actionSession by rememberSaveable { mutableStateOf<String?>(null) }
+    var renameSession by rememberSaveable { mutableStateOf<String?>(null) }
+    var scheduleSession by rememberSaveable { mutableStateOf<String?>(null) }
+    var killSession by rememberSaveable { mutableStateOf<String?>(null) }
+    val currentSnapshot = (fleetState as? FleetLoadState.Ready)?.snapshot
+    val sessionsById = currentSnapshot?.sessions?.associateBy { it.id }.orEmpty()
 
     Scaffold(
         modifier = Modifier.testTag("agent-fleet-shell"),
@@ -187,10 +240,40 @@ fun AgentFleetApp(
         }
     ) { padding ->
         when (section) {
-            FleetSection.Sessions -> SessionsScreen(padding, fleetState, onRefresh, onOpenSession, onOpenClassicTerminal)
+            FleetSection.Sessions -> SessionsScreen(padding, fleetState, onRefresh, onOpenSession, { actionSession = it.id }, onOpenClassicTerminal)
             FleetSection.Terminal -> TerminalScreen(padding, onOpenClassicTerminal)
             FleetSection.Limits -> LimitsScreen(padding)
             FleetSection.More -> MoreScreen(padding)
+        }
+    }
+
+    sessionsById[actionSession]?.let { session ->
+        SessionActionsDialog(
+            session = session,
+            onDismiss = { actionSession = null },
+            onOpen = { actionSession = null; onOpenSession(session) },
+            onRename = { actionSession = null; renameSession = session.id },
+            onSchedule = { actionSession = null; scheduleSession = session.id },
+            onCopy = { actionSession = null; onCopyAttachCommand(session) },
+            onKill = { actionSession = null; killSession = session.id }
+        )
+    }
+    sessionsById[renameSession]?.let { session ->
+        RenameSessionDialog(session, { renameSession = null }) { name ->
+            renameSession = null
+            onRenameSession(session, name)
+        }
+    }
+    sessionsById[scheduleSession]?.let { session ->
+        ScheduleContinueDialog(session, { scheduleSession = null }) { delay ->
+            scheduleSession = null
+            onScheduleContinue(session, delay)
+        }
+    }
+    sessionsById[killSession]?.let { session ->
+        ConfirmKillDialog(session, { killSession = null }) {
+            killSession = null
+            onKillSession(session)
         }
     }
 }
@@ -201,6 +284,7 @@ private fun SessionsScreen(
     fleetState: FleetLoadState,
     onRefresh: () -> Unit,
     onOpenSession: (FleetSession) -> Unit,
+    onMoreSession: (FleetSession) -> Unit,
     onOpenTerminal: () -> Unit
 ) {
     var query by rememberSaveable { mutableStateOf("") }
@@ -246,7 +330,7 @@ private fun SessionsScreen(
                     item { EmptyState(if (query.isBlank()) "No managed sessions are open." else "No sessions match “$query”.") }
                 } else {
                     items(filtered, key = { it.id }) { session ->
-                        SessionCard(session, hosts[session.hostId]?.name ?: session.hostId) { onOpenSession(session) }
+                        SessionCard(session, hosts[session.hostId]?.name ?: session.hostId, { onOpenSession(session) }, { onMoreSession(session) })
                     }
                 }
             }
@@ -255,7 +339,7 @@ private fun SessionsScreen(
 }
 
 @Composable
-private fun SessionCard(session: FleetSession, hostName: String, onOpen: () -> Unit) {
+private fun SessionCard(session: FleetSession, hostName: String, onOpen: () -> Unit, onMore: () -> Unit) {
     Card(
         modifier = Modifier.fillMaxWidth().testTag("session-${session.id}"),
         shape = RoundedCornerShape(20.dp),
@@ -279,10 +363,84 @@ private fun SessionCard(session: FleetSession, hostName: String, onOpen: () -> U
                 Button(onClick = onOpen, modifier = Modifier.weight(1f), shape = RoundedCornerShape(14.dp)) {
                     Text(if (session.attached) "Return" else "Enter", fontSize = 17.sp)
                 }
-                OutlinedButton(onClick = {}, shape = RoundedCornerShape(14.dp)) { Text("More", fontSize = 16.sp) }
+                OutlinedButton(onClick = onMore, shape = RoundedCornerShape(14.dp)) { Text("More", fontSize = 16.sp) }
             }
         }
     }
+}
+
+@Composable
+private fun SessionActionsDialog(
+    session: FleetSession,
+    onDismiss: () -> Unit,
+    onOpen: () -> Unit,
+    onRename: () -> Unit,
+    onSchedule: () -> Unit,
+    onCopy: () -> Unit,
+    onKill: () -> Unit
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(session.name, fontWeight = FontWeight.Bold) },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                DialogAction("Open terminal", onOpen)
+                DialogAction("Rename", onRename)
+                DialogAction("Schedule Continue", onSchedule)
+                DialogAction("Copy attach command", onCopy)
+                DialogAction("Stop session…", onKill, WarningAmber)
+            }
+        },
+        confirmButton = { TextButton(onClick = onDismiss) { Text("Done") } }
+    )
+}
+
+@Composable
+private fun DialogAction(label: String, onClick: () -> Unit, color: Color = MaterialTheme.colorScheme.primary) {
+    TextButton(onClick = onClick, modifier = Modifier.fillMaxWidth()) {
+        Text(label, modifier = Modifier.fillMaxWidth(), color = color, fontSize = 17.sp)
+    }
+}
+
+@Composable
+private fun RenameSessionDialog(session: FleetSession, onDismiss: () -> Unit, onConfirm: (String) -> Unit) {
+    var name by rememberSaveable(session.id) { mutableStateOf(session.name) }
+    val valid = name.matches(Regex("[A-Za-z0-9][A-Za-z0-9._ -]{0,63}"))
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Rename session") },
+        text = { OutlinedTextField(name, { name = it }, singleLine = true, label = { Text("Name") }) },
+        confirmButton = { TextButton(onClick = { onConfirm(name) }, enabled = valid) { Text("Rename") } },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } }
+    )
+}
+
+@Composable
+private fun ScheduleContinueDialog(session: FleetSession, onDismiss: () -> Unit, onConfirm: (Long) -> Unit) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Schedule Continue") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Text("Choose when ${session.name} should receive one guarded Continue message.", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                DialogAction("In 15 minutes", { onConfirm(15 * 60 * 1_000L) })
+                DialogAction("In 1 hour", { onConfirm(60 * 60 * 1_000L) })
+                DialogAction("In 5 hours", { onConfirm(5 * 60 * 60 * 1_000L) })
+            }
+        },
+        confirmButton = { TextButton(onClick = onDismiss) { Text("Cancel") } }
+    )
+}
+
+@Composable
+private fun ConfirmKillDialog(session: FleetSession, onDismiss: () -> Unit, onConfirm: () -> Unit) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Stop ${session.name}?") },
+        text = { Text("This closes the remote tmux session and cancels its pending scheduled messages.") },
+        confirmButton = { TextButton(onClick = onConfirm) { Text("Stop session", color = WarningAmber) } },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } }
+    )
 }
 
 @Composable
@@ -477,6 +635,10 @@ private fun AgentFleetPreview() {
             fleetState = FleetLoadState.Ready(previewFleetSnapshot),
             onRefresh = {},
             onOpenSession = {},
+            onRenameSession = { _, _ -> },
+            onScheduleContinue = { _, _ -> },
+            onKillSession = {},
+            onCopyAttachCommand = {},
             onOpenClassicTerminal = {}
         )
     }
