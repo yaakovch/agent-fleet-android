@@ -820,10 +820,16 @@ private fun TerminalScreen(
             Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 Text("Terminal", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
                 Text("Recent local and fleet tabs", fontSize = 16.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                    Button(onClick = onOpenClassicTerminal, modifier = Modifier.weight(1f), shape = RoundedCornerShape(14.dp)) { Text("New shell", fontSize = 16.sp) }
-                    OutlinedButton(onClick = onOpenAppearance, modifier = Modifier.weight(1f), shape = RoundedCornerShape(14.dp)) { Text("Appearance", fontSize = 16.sp) }
-                }
+                Button(
+                    onClick = onOpenClassicTerminal,
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(14.dp)
+                ) { Text("New shell", fontSize = 16.sp) }
+                OutlinedButton(
+                    onClick = onOpenAppearance,
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(14.dp)
+                ) { Text("Appearance", fontSize = 16.sp) }
             }
         }
         if (recentSessions.isEmpty()) {
