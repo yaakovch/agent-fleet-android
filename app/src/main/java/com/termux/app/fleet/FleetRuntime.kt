@@ -71,14 +71,17 @@ class FleetRuntime(private val context: Context) {
     fun openSession(session: FleetSession, sharedImages: List<String> = emptyList()) {
         val wtmux = executable("wtmux")
             ?: throw FleetUnavailableException("wtmux is not installed in this Agent Fleet terminal.")
+        val bash = executable("bash")
+            ?: throw FleetUnavailableException("Bash is missing from the restored Termux environment.")
         val arguments = arrayOf(
+            wtmux.absolutePath,
             "--noninteractive",
             "--host", session.hostId,
             "--project", session.project,
             "--session", session.internalName
         )
         openTerminalCommand(
-            wtmux,
+            bash,
             arguments,
             "Agent Fleet · ${session.name}",
             session.name,
@@ -94,7 +97,17 @@ class FleetRuntime(private val context: Context) {
         }
         val client = executable("wtmux-pair-client")
             ?: throw FleetUnavailableException("The wtmux pairing client is not installed. Restore it in the terminal first.")
-        openTerminalCommand(client, arrayOf("pair", "--invitation", invitation), "Agent Fleet pairing", "Pair Agent Fleet", false, null, emptyList())
+        val python = executable("python3")
+            ?: throw FleetUnavailableException("Python is missing from the restored Termux environment.")
+        openTerminalCommand(
+            python,
+            arrayOf(client.absolutePath, "pair", "--invitation", invitation),
+            "Agent Fleet pairing",
+            "Pair Agent Fleet",
+            false,
+            null,
+            emptyList()
+        )
     }
 
     private fun openTerminalCommand(
@@ -196,7 +209,8 @@ class FleetRuntime(private val context: Context) {
 
     private fun mutate(method: String, params: JSONObject): FleetSnapshot {
         val bridge = executable("wtmux-bridge") ?: throw FleetUnavailableException("wtmux bridge is not installed.")
-        val process = ProcessBuilder(bridge.absolutePath, "--stdio")
+        val python = executable("python3") ?: throw FleetUnavailableException("Python is missing from the restored Termux environment.")
+        val process = ProcessBuilder(python.absolutePath, bridge.absolutePath, "--stdio")
             .directory(userHome)
             .redirectErrorStream(true)
             .apply { configureEnvironment(environment()) }

@@ -221,8 +221,10 @@ object AgentFleetComposer {
         val prefix = File(appRoot, "files/usr")
         val wtmux = sequenceOf(File(home, ".local/bin/wtmux"), File(prefix, "bin/wtmux")).firstOrNull { it.canExecute() }
             ?: error("wtmux is unavailable")
+        val bash = File(prefix, "bin/bash").takeIf { it.canExecute() }
+            ?: error("bash is unavailable")
         val process = ProcessBuilder(
-            wtmux.absolutePath, "image", "send", local.absolutePath,
+            bash.absolutePath, wtmux.absolutePath, "image", "send", local.absolutePath,
             "--host", host, "--project", project, "--session", session, "--json"
         ).directory(home).apply {
             environment()["HOME"] = home.absolutePath
