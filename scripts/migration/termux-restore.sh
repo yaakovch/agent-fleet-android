@@ -37,7 +37,7 @@ openssl enc -d -aes-256-cbc -pbkdf2 -iter 200000 \
 gzip -t "$temporary"
 
 while IFS= read -r entry; do
-  [[ "$entry" != /* && "$entry" != *"../"* && "$entry" != ".." ]] || { echo "unsafe archive path: $entry" >&2; exit 1; }
+  [[ "$entry" != /* && "$entry" != *"../"* && "$entry" != ".." && "$entry" != */.. ]] || { echo "unsafe archive path: $entry" >&2; exit 1; }
   if [[ "$mode" == home ]]; then
     [[ "$entry" == home || "$entry" == home/* ]] || { echo "unexpected portable archive path: $entry" >&2; exit 1; }
   else
