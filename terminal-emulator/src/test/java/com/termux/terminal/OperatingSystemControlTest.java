@@ -9,6 +9,18 @@ import java.util.Random;
 /** "ESC ]" is the Operating System Command. */
 public class OperatingSystemControlTest extends TerminalTestCase {
 
+	public void testShellIntegrationOsc() {
+		withTerminalSized(10, 10);
+		enterString("\033]7;file://phone/data/data/com.termux/files/home/projects\007");
+		enterString("\033]133;A\007\033]133;C\033\\\033]133;D;7\007");
+		assertEquals(java.util.Collections.singletonList("/data/data/com.termux/files/home/projects"), mOutput.workingDirectories);
+		assertEquals(java.util.Arrays.asList("A:", "C:", "D:7"), mOutput.shellIntegrationEvents);
+
+		enterString("\033]7;https://example.com/not-a-folder\007\033]133;D;not-a-number\007");
+		assertEquals(1, mOutput.workingDirectories.size());
+		assertEquals(3, mOutput.shellIntegrationEvents.size());
+	}
+
 	public void testSetTitle() throws Exception {
 		List<ChangedTitle> expectedTitleChanges = new ArrayList<>();
 

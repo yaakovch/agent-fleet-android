@@ -23,15 +23,37 @@
             android:layout_above="@+id/terminal_input_container"
             android:layout_height="match_parent">
 
-            <com.termux.view.TerminalView
-                android:id="@+id/terminal_view"
+            <FrameLayout
+                android:id="@+id/agent_fleet_session_content"
                 android:layout_width="match_parent"
-                android:layout_height="match_parent"
-                android:defaultFocusHighlightEnabled="false"
-                android:focusableInTouchMode="true"
-                android:scrollbarThumbVertical="@drawable/terminal_scroll_shape"
-                android:scrollbars="vertical"
-                tools:ignore="UnusedAttribute" />
+                android:layout_height="match_parent">
+
+                <com.termux.view.TerminalView
+                    android:id="@+id/terminal_view"
+                    android:layout_width="match_parent"
+                    android:layout_height="match_parent"
+                    android:defaultFocusHighlightEnabled="false"
+                    android:focusableInTouchMode="true"
+                    android:scrollbarThumbVertical="@drawable/terminal_scroll_shape"
+                    android:scrollbars="vertical"
+                    tools:ignore="UnusedAttribute" />
+
+                <androidx.compose.ui.platform.ComposeView
+                    android:id="@+id/agent_fleet_native_session"
+                    android:visibility="gone"
+                    android:layout_width="match_parent"
+                    android:layout_height="match_parent" />
+
+                <Button
+                    android:id="@+id/agent_fleet_native_return"
+                    android:visibility="gone"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_gravity="top|end"
+                    android:layout_margin="10dp"
+                    android:text="Native" />
+
+            </FrameLayout>
 
             <LinearLayout
                 android:id="@+id/left_drawer"

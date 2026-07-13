@@ -58,6 +58,30 @@ Gate: upstream baseline bootstrap, shell, `pkg`, storage, PTY, and tests pass.
 - Build backup/restore tooling and complete emulator migration/rollback.
 - Verify both real backups, perform S23FE cutover, and run a seven-day soak.
 
+## Milestone 7: Native Session View
+
+- Add a dedicated wtmux conversation protocol with cursor-paged history, live
+  follow, typed approvals, current-directory listing, strict validation, and
+  content-free logs. Implement Codex, Claude Code, and Copilot adapters plus a
+  cleaned-pane fallback and exact metadata for newly launched Windows sessions.
+- Layer a Compose session screen over the live `TerminalView`; implement the
+  feed, Markdown/code/diff rendering, tool cards, status, native approvals,
+  cross-device updates, reconnect, bounded in-memory paging, and an explicit
+  Native/Terminal state machine.
+- Move the current AI composer into Native view while preserving Insert,
+  Send/Enter, Ctrl+C, Attach, and Camera. Add Bash/Zsh OSC shell integration,
+  command/result cards, command helpers, breadcrumbs, and a directory-only
+  browser. Unsupported and alternate-screen states fall back automatically.
+- Install two signed previews: first a read-only Linux Codex feed, then the
+  feature-complete build. Deploy the compatible host runtime to gaming-desktop
+  before work-m. Make Native the default in the next signed build immediately
+  after the complete automated and S23FE checklist passes.
+
+Gate: all three AI adapters, Linux and Windows behavior, old-session fallback,
+simultaneous desktop input, shell cards, safe approvals, attachments, takeover,
+offline recovery, large history/font behavior, updater, SSH, and Classic
+Terminal pass without persistent transcript data.
+
 ## Verification
 
 - Preserve upstream terminal/service/file-provider/package tests.
@@ -68,4 +92,3 @@ Gate: upstream baseline bootstrap, shell, `pkg`, storage, PTY, and tests pass.
 - Exercise clean/restored onboarding, process death, reboot, offline cache,
   Tailscale loss, multi-image share, quota failure, and incompatible hosts on
   Android 16 before phone cutover.
-

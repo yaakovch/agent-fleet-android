@@ -113,7 +113,21 @@ public class TermuxTerminalSessionClient extends TermuxTerminalSessionClientBase
     public void onTextChanged(TerminalSession changedSession) {
         if (!mActivity.isVisible()) return;
 
-        if (mActivity.getCurrentSession() == changedSession) mActivity.getTerminalView().onScreenUpdated();
+        if (mActivity.getCurrentSession() == changedSession) {
+            mActivity.getTerminalView().onScreenUpdated();
+            mActivity.onAgentFleetTerminalScreenChanged(changedSession);
+            mActivity.onAgentFleetTerminalTextChanged(changedSession);
+        }
+    }
+
+    @Override
+    public void onWorkingDirectoryChanged(TerminalSession session, String path) {
+        mActivity.onAgentFleetWorkingDirectoryChanged(session, path);
+    }
+
+    @Override
+    public void onShellIntegrationEvent(TerminalSession session, String marker, String data) {
+        mActivity.onAgentFleetShellIntegrationEvent(session, marker, data);
     }
 
     @Override

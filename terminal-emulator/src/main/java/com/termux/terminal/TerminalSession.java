@@ -288,6 +288,16 @@ public final class TerminalSession extends TerminalOutput {
         mClient.onColorsChanged(this);
     }
 
+    @Override
+    public void onWorkingDirectoryChanged(String path) {
+        mClient.onWorkingDirectoryChanged(this, path);
+    }
+
+    @Override
+    public void onShellIntegrationEvent(String marker, String data) {
+        mClient.onShellIntegrationEvent(this, marker, data);
+    }
+
     public int getPid() {
         return mShellPid;
     }

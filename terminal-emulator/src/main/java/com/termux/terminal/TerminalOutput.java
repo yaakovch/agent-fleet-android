@@ -29,4 +29,12 @@ public abstract class TerminalOutput {
 
     public abstract void onColorsChanged();
 
+    /** Notify the client of an OSC 7 working-directory update. */
+    public void onWorkingDirectoryChanged(String path) {
+    }
+
+    /** Notify the client of an OSC 133 shell-integration marker. */
+    public void onShellIntegrationEvent(String marker, String data) {
+    }
+
 }

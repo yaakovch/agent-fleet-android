@@ -34,6 +34,7 @@ import com.termux.R;
 import com.termux.app.terminal.TermuxActivityRootView;
 import com.termux.app.fleet.AgentFleetComposer;
 import com.termux.app.fleet.AgentFleetContract;
+import com.termux.app.fleet.NativeSessionController;
 import com.termux.shared.activities.ReportActivity;
 import com.termux.shared.packages.PermissionUtils;
 import com.termux.shared.data.DataUtils;
@@ -182,6 +183,7 @@ public final class TermuxActivity extends ComponentActivity implements ServiceCo
     private static final int REQUEST_AGENT_FLEET_IMAGES = 8401;
     private static final int REQUEST_AGENT_FLEET_CAMERA = 8402;
     private Uri mAgentFleetCameraUri;
+    private NativeSessionController mAgentFleetNativeSession;
 
     private static final String LOG_TAG = "TermuxActivity";
 
@@ -239,6 +241,11 @@ public final class TermuxActivity extends ComponentActivity implements ServiceCo
 
         setTerminalToolbarView(savedInstanceState);
 
+        mAgentFleetNativeSession = new NativeSessionController(this,
+            findViewById(R.id.agent_fleet_native_session));
+        findViewById(R.id.agent_fleet_native_return).setOnClickListener(v -> {
+            if (mAgentFleetNativeSession != null) mAgentFleetNativeSession.showNative();
+        });
         updateAgentFleetInputMode(getIntent());
 
         setSettingsButtonView();
@@ -285,6 +292,9 @@ public final class TermuxActivity extends ComponentActivity implements ServiceCo
             addTermuxActivityRootViewGlobalLayoutListener();
 
         registerTermuxActivityBroadcastReceiver();
+
+        if (mAgentFleetNativeSession != null)
+            mAgentFleetNativeSession.onStart();
     }
 
     @Override
@@ -298,6 +308,8 @@ public final class TermuxActivity extends ComponentActivity implements ServiceCo
         ComposeView composer = findViewById(R.id.agent_fleet_composer);
         AgentFleetComposer.bind(this, composer,
             intent != null && intent.getBooleanExtra(AgentFleetContract.EXTRA_COMPOSE_INPUT, false));
+        if (mAgentFleetNativeSession != null)
+            mAgentFleetNativeSession.bind(intent);
     }
 
     public boolean sendAgentFleetComposerText(String text) {
@@ -319,6 +331,63 @@ public final class TermuxActivity extends ComponentActivity implements ServiceCo
         if (session == null || !session.isRunning()) return false;
         session.write("\u0003");
         return true;
+    }
+
+    public boolean sendAgentFleetKey(String key) {
+        TerminalSession session = getCurrentSession();
+        if (session == null || !session.isRunning()) return false;
+        if ("TAB".equals(key)) session.write("\t");
+        else if ("UP".equals(key)) session.write("\033[A");
+        else if ("DOWN".equals(key)) session.write("\033[B");
+        else return false;
+        return true;
+    }
+
+    public void setAgentFleetNativeView(boolean nativeAvailable, boolean nativeView, boolean automaticTerminal, boolean aiComposer) {
+        if (mTerminalView != null) {
+            mTerminalView.setAlpha(nativeView ? 0f : 1f);
+            mTerminalView.setEnabled(!nativeView);
+            mTerminalView.setImportantForAccessibility(nativeView
+                ? View.IMPORTANT_FOR_ACCESSIBILITY_NO_HIDE_DESCENDANTS
+                : View.IMPORTANT_FOR_ACCESSIBILITY_AUTO);
+        }
+
+        View composer = findViewById(R.id.agent_fleet_composer);
+        if (composer != null)
+            composer.setVisibility(aiComposer && !automaticTerminal ? View.VISIBLE : View.GONE);
+
+        View toolbar = getTerminalToolbarViewPager();
+        if (toolbar != null)
+            toolbar.setVisibility(!nativeView && mPreferences.shouldShowTerminalToolbar() ? View.VISIBLE : View.GONE);
+
+        View returnButton = findViewById(R.id.agent_fleet_native_return);
+        if (returnButton != null)
+            returnButton.setVisibility(nativeAvailable && !nativeView ? View.VISIBLE : View.GONE);
+    }
+
+    public void onAgentFleetTerminalScreenChanged(TerminalSession changedSession) {
+        if (mAgentFleetNativeSession == null || changedSession == null ||
+            changedSession != getCurrentSession() || changedSession.getEmulator() == null) return;
+        mAgentFleetNativeSession.onTerminalScreenChanged(changedSession.getEmulator().isAlternateBufferActive());
+    }
+
+    public void onAgentFleetTerminalTextChanged(TerminalSession changedSession) {
+        if (mAgentFleetNativeSession == null || changedSession == null ||
+            !mAgentFleetNativeSession.wantsLocalTerminalText() ||
+            changedSession != getCurrentSession() || changedSession.getEmulator() == null) return;
+        String transcript = changedSession.getEmulator().getScreen().getTranscriptTextWithoutJoinedLines();
+        if (transcript.length() > 131072) transcript = transcript.substring(transcript.length() - 131072);
+        mAgentFleetNativeSession.onLocalTerminalTextChanged(transcript);
+    }
+
+    public void onAgentFleetWorkingDirectoryChanged(TerminalSession changedSession, String path) {
+        if (mAgentFleetNativeSession != null && changedSession == getCurrentSession())
+            mAgentFleetNativeSession.onWorkingDirectoryChanged(path);
+    }
+
+    public void onAgentFleetShellIntegrationEvent(TerminalSession changedSession, String marker, String data) {
+        if (mAgentFleetNativeSession != null && changedSession == getCurrentSession())
+            mAgentFleetNativeSession.onShellIntegrationEvent(marker, data);
     }
 
     public void pickAgentFleetImages() {
@@ -402,6 +471,9 @@ public final class TermuxActivity extends ComponentActivity implements ServiceCo
 
         unregisterTermuxActivityBroadcastReceiever();
         getDrawer().closeDrawers();
+
+        if (mAgentFleetNativeSession != null)
+            mAgentFleetNativeSession.onStop();
     }
 
     @Override
@@ -411,6 +483,11 @@ public final class TermuxActivity extends ComponentActivity implements ServiceCo
         Logger.logDebug(LOG_TAG, "onDestroy");
 
         if (mIsInvalidState) return;
+
+        if (mAgentFleetNativeSession != null) {
+            mAgentFleetNativeSession.close();
+            mAgentFleetNativeSession = null;
+        }
 
         if (mTermuxService != null) {
             // Do not leave service and session clients with references to activity.

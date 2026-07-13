@@ -21,6 +21,12 @@ public interface TerminalSessionClient {
 
     void onColorsChanged(TerminalSession session);
 
+    default void onWorkingDirectoryChanged(TerminalSession session, String path) {
+    }
+
+    default void onShellIntegrationEvent(TerminalSession session, String marker, String data) {
+    }
+
     void onTerminalCursorStateChange(boolean state);
 
 

@@ -33,6 +33,29 @@ trusted fleet.
   behavior, image chips, and explicit literal Send. Default shells to classic
   direct PTY input. Keep a one-tap per-tab mode toggle.
 
+### Native Session View
+
+- Replace the visible character-grid terminal with a conversation-first
+  Material 3 view after staged validation, while keeping the same Termux PTY,
+  tmux attachment, and `TerminalView` alive underneath as the source of truth
+  and recovery path.
+- Render Codex, Claude Code, and Copilot as a live feed of user and assistant
+  turns, Markdown, code, diffs, compact status, collapsed tool activity,
+  attachments, errors, and safely recognized approvals.
+- Load the complete current conversation progressively from the host and follow
+  turns entered from any attached phone or desktop. Keep feed contents in
+  memory only and re-fetch them after process death.
+- Render ordinary Bash and Zsh use as command/result cards only while no AI
+  tool is active. Provide a command bar, history, Tab, Ctrl+C, common command
+  helpers, current-path breadcrumbs, and a lightweight directory-only browser.
+- Open Native by default after the full validation checklist passes. Always
+  expose a one-tap Native/Terminal switch. Automatically enter Terminal for an
+  alternate-screen program or an interaction that cannot be represented
+  safely, then return only when the app initiated that takeover.
+- Degrade in order from structured feed, to a cleaned live transcript, to the
+  real terminal. Existing and older Windows-backed sessions remain usable even
+  when they cannot be mapped to a structured transcript.
+
 ## Limits, Scheduling, and Health
 
 - Android is client-only and reads no phone-local quota profiles.
@@ -57,13 +80,19 @@ trusted fleet.
 
 ## Security and Distribution
 
-- Use a Kotlin/Material 3 shell embedding the existing Java `TerminalView` and
-  bound `TermuxService` rather than rewriting the emulator.
+- Use a Kotlin/Material 3 shell layering a native session view over the existing
+  Java `TerminalView` and bound `TermuxService` rather than rewriting the
+  emulator. The hidden terminal remains laid out and attached.
 - Run a verified repo-less wtmux runtime inside Termux and strictly validate its
   JSONL protocol, revisions, idempotency keys, capabilities, and safe aliases.
-- Add no arbitrary command endpoint. Credentials, auth files, prompts,
-  responses, transcripts, and terminal contents never enter bridge frames,
-  caches, logs, or diagnostics.
+- Add no arbitrary command endpoint. The metadata bridge still rejects prompts,
+  responses, transcripts, terminal output, and credentials. A separate,
+  capability-gated session stream may transmit only the actively opened
+  session's normalized visible content over the authenticated fleet transport.
+  It never stores content in bridge caches, phone storage, logs, or diagnostics.
+- Native approval responses are typed, revision-bound operations that validate
+  the active process and prompt before injecting an allowed choice. Directory
+  reads are restricted to listing the active session's current directory.
 - Keep host alias paths and credentials in untracked host-local configuration.
 - Public CI builds unsigned artifacts. A controller signs using an offline key
   and publishes APK/manifest/checksum to gaming-desktop; work-m is fallback.
@@ -95,8 +124,15 @@ trusted fleet.
   customization, Compose input, all safe fleet actions, reconnect, limits,
   profile launch, scheduling, and multiple-image attachment work end to end.
 - A signed fleet-host update installs after verification.
+- Codex, Claude Code, and Copilot render complete progressive history and live
+  cross-device activity in Native view on supported Linux sessions. Newly
+  launched Windows sessions map exactly and older sessions fall back cleanly.
+- Local and remote shells produce bounded command cards and directory
+  navigation; editors and other alternate-screen programs take over with the
+  real terminal and return correctly.
+- Feed contents do not survive process death, do not appear in metadata caches
+  or diagnostics, and reconnect without duplicate turns.
 - Backup, emulator rollback rehearsal, and phone rollback instructions pass
   before cutover.
 - Critical soak defects are hotfixed in place and restart the clock; corruption,
   security exposure, unusable terminals, or inability to hotfix trigger rollback.
-

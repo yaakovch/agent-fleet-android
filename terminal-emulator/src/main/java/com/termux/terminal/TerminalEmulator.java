@@ -3,6 +3,7 @@ package com.termux.terminal;
 import android.util.Base64;
 
 import java.nio.charset.StandardCharsets;
+import java.net.URI;
 import java.util.Arrays;
 import java.util.Locale;
 import java.util.Objects;
@@ -2069,6 +2070,17 @@ public final class TerminalEmulator {
                     if (endOfInput) break;
                 }
                 break;
+            case 7: // Working directory, conventionally file://host/path.
+                if (textParameter.length() <= 4096 && textParameter.indexOf('\0') < 0) {
+                    try {
+                        URI uri = new URI(textParameter);
+                        String path = uri.getPath();
+                        if ("file".equalsIgnoreCase(uri.getScheme()) && path != null && path.startsWith("/"))
+                            mSession.onWorkingDirectoryChanged(path);
+                    } catch (Exception ignored) {
+                    }
+                }
+                break;
             case 10: // Set foreground color.
             case 11: // Set background color.
             case 12: // Set cursor color.
@@ -2144,6 +2156,14 @@ public final class TerminalEmulator {
                 mSession.onColorsChanged();
                 break;
             case 119: // Reset highlight color.
+                break;
+            case 133: // FinalTerm shell integration: A/B/C/D[;exit-status].
+                if (textParameter.length() <= 128 && textParameter.matches("[ABCD](;[0-9]{1,4})?")) {
+                    int separator = textParameter.indexOf(';');
+                    String marker = textParameter.substring(0, 1);
+                    String data = separator < 0 ? "" : textParameter.substring(separator + 1);
+                    mSession.onShellIntegrationEvent(marker, data);
+                }
                 break;
             default:
                 unknownParameter(value);

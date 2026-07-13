@@ -42,6 +42,7 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
@@ -71,6 +72,7 @@ import com.termux.app.fleet.FleetRuntime
 import com.termux.app.fleet.FleetSession
 import com.termux.app.fleet.FleetSchedule
 import com.termux.app.fleet.FleetSnapshot
+import com.termux.app.fleet.NativeSessionSettings
 import com.termux.app.fleet.RecentSessionStore
 import com.termux.app.fleet.AgentFleetUpdate
 import com.termux.app.fleet.AgentFleetUpdateManager
@@ -138,7 +140,11 @@ class AgentFleetActivity : ComponentActivity() {
                         startActivity(Intent(this, TerminalAppearanceActivity::class.java))
                     },
                     onOpenClassicTerminal = {
-                        startActivity(Intent(this, TermuxActivity::class.java))
+                        try {
+                            fleetRuntime.openLocalShell()
+                        } catch (error: Exception) {
+                            Toast.makeText(this, error.message, Toast.LENGTH_LONG).show()
+                        }
                     }
                 )
             }
@@ -989,6 +995,10 @@ private fun MoreScreen(
     onInstallUpdate: (AgentFleetUpdate) -> Unit,
     onOpenAppearance: () -> Unit
 ) {
+    val context = androidx.compose.ui.platform.LocalContext.current
+    var nativeSessionEnabled by rememberSaveable {
+        mutableStateOf(NativeSessionSettings.isEnabled(context))
+    }
     val snapshot = (fleetState as? FleetLoadState.Ready)?.snapshot
     val pendingSchedules = snapshot?.schedules?.count { it.status == "pending" } ?: 0
     val healthyHosts = snapshot?.hosts?.count { it.status == "healthy" } ?: 0
@@ -999,6 +1009,23 @@ private fun MoreScreen(
         verticalArrangement = Arrangement.spacedBy(14.dp)
     ) {
         item { Text("More", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold) }
+        item {
+            Card(shape = RoundedCornerShape(18.dp), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)) {
+                Row(Modifier.fillMaxWidth().padding(18.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Column(Modifier.weight(1f)) {
+                        Text("Native session view", fontSize = 18.sp, fontWeight = FontWeight.Bold)
+                        Text("Conversation-first view with one-tap Terminal fallback", fontSize = 16.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                    Switch(
+                        checked = nativeSessionEnabled,
+                        onCheckedChange = {
+                            nativeSessionEnabled = it
+                            NativeSessionSettings.setEnabled(context, it)
+                        }
+                    )
+                }
+            }
+        }
         item { FeatureCard("Schedules", "$pendingSchedules pending · guarded delivery runs on the destination host") }
         if (snapshot != null) {
             items(snapshot.schedules.filter { it.status == "pending" }, key = { it.id }) { schedule ->

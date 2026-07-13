@@ -91,6 +91,21 @@ class FleetRuntime(private val context: Context) {
         )
     }
 
+    fun openLocalShell() {
+        val shell = executable("wtmux-shell") ?: executable("bash")
+            ?: throw FleetUnavailableException("A local shell is unavailable.")
+        openTerminalCommand(
+            shell,
+            emptyArray(),
+            "Agent Fleet · Local shell",
+            "Local shell",
+            false,
+            null,
+            emptyList(),
+            localNative = true
+        )
+    }
+
     fun openPairing(invitation: String) {
         require(invitation.startsWith("wtmux://pair?") && invitation.length <= 4_096 && invitation.none { it.isISOControl() }) {
             "Paste a valid wtmux pairing invitation."
@@ -117,7 +132,8 @@ class FleetRuntime(private val context: Context) {
         sessionName: String,
         composeInput: Boolean,
         session: FleetSession?,
-        sharedImages: List<String>
+        sharedImages: List<String>,
+        localNative: Boolean = false
     ) {
         val uri = Uri.Builder().scheme(TERMUX_SERVICE.URI_SCHEME_SERVICE_EXECUTE).path(executable.absolutePath).build()
         val intent = Intent(TERMUX_SERVICE.ACTION_SERVICE_EXECUTE, uri, context, TermuxService::class.java).apply {
@@ -131,6 +147,8 @@ class FleetRuntime(private val context: Context) {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) context.startForegroundService(intent) else context.startService(intent)
         context.startActivity(Intent(context, TermuxActivity::class.java).apply {
             putExtra(AgentFleetContract.EXTRA_COMPOSE_INPUT, composeInput)
+            putExtra(AgentFleetContract.EXTRA_NATIVE_SESSION, session != null || localNative)
+            putExtra(AgentFleetContract.EXTRA_LOCAL_SESSION, localNative)
             if (session != null) {
                 putExtra(AgentFleetContract.EXTRA_HOST_ID, session.hostId)
                 putExtra(AgentFleetContract.EXTRA_PROJECT, session.project)

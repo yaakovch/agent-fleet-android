@@ -1,10 +1,16 @@
 # Agent Fleet for Android
 
 Agent Fleet for Android is a GPLv3 derivative of Termux that is being built as
-a mobile terminal and companion for the Agent Fleet/wtmux ecosystem. The first
-alpha targets one Samsung S23FE and is not ready to install. In particular, do
-not replace an existing Termux installation until the backup and rollback gates
-in [MIGRATION.md](MIGRATION.md) have passed.
+a mobile terminal and companion for the Agent Fleet/wtmux ecosystem. The private
+alpha targets one Samsung S23FE and is distributed through the trusted fleet.
+
+Fleet sessions can open in a conversation-first Native view for Codex, Claude
+Code, Copilot, and ordinary Bash/Zsh work. It progressively loads the current
+conversation, follows desktop input live, collapses tool activity, exposes only
+safely recognized approvals, and keeps Terminal one tap away. Shell sessions
+use command cards, a compact command bar, and directory-only navigation. Native
+feed content remains in memory and is re-fetched after process death; the live
+Termux PTY and terminal emulator remain the source of truth underneath.
 
 - [Product specification](SPEC.md)
 - [Implementation plan](implementation_plan.md)
