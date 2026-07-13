@@ -197,15 +197,7 @@ class NativeSessionController(
                 val process = environment(ProcessBuilder(conversationCommand("stream", listOf("--limit", HISTORY_PAGE_SIZE.toString())))).start()
                 streamProcess = process
                 thread(name = "native-session-stderr", isDaemon = true) {
-                    process.errorStream.use { input ->
-                        val buffer = ByteArray(4 * 1024)
-                        var total = 0
-                        while (total < 64 * 1024) {
-                            val count = input.read(buffer)
-                            if (count < 0) break
-                            total += count
-                        }
-                    }
+                    drainErrorStream(process)
                 }
                 process.inputStream.bufferedReader().use { reader ->
                     while (token == generation) {
@@ -470,15 +462,7 @@ class NativeSessionController(
             val output = runCatching {
                 val process = environment(ProcessBuilder(command)).redirectErrorStream(false).start()
                 val errorReader = thread(name = "native-session-action-stderr", isDaemon = true) {
-                    process.errorStream.use { input ->
-                        val chunk = ByteArray(4 * 1024)
-                        var total = 0
-                        while (total < 64 * 1024) {
-                            val count = input.read(chunk)
-                            if (count < 0) break
-                            total += count
-                        }
-                    }
+                    drainErrorStream(process)
                 }
                 val buffer = ByteArrayOutputStream()
                 process.inputStream.use { input ->
@@ -494,6 +478,20 @@ class NativeSessionController(
                 buffer.toString(Charsets.UTF_8.name())
             }.getOrDefault("")
             main.post { if (token == generation) onResult(output) }
+        }
+    }
+
+    private fun drainErrorStream(process: Process) {
+        runCatching {
+            process.errorStream.use { input ->
+                val chunk = ByteArray(4 * 1024)
+                var total = 0
+                while (total < 64 * 1024) {
+                    val count = input.read(chunk)
+                    if (count < 0) break
+                    total += count
+                }
+            }
         }
     }
 }
