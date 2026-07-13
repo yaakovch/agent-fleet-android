@@ -36,9 +36,12 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -55,6 +58,7 @@ import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import io.noties.markwon.Markwon
+import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -101,15 +105,17 @@ fun NativeSessionScreen(
             }
         }
     ) { padding ->
-        ConversationFeed(
-            state = state,
-            padding = padding,
-            onRetry = onRetry,
-            onLoadOlder = onLoadOlder,
-            onApproval = onApproval,
-            onDirectory = onDirectory,
-            onRefreshDirectory = onRefreshDirectory
-        )
+        key(state.hostId, state.internalSession) {
+            ConversationFeed(
+                state = state,
+                padding = padding,
+                onRetry = onRetry,
+                onLoadOlder = onLoadOlder,
+                onApproval = onApproval,
+                onDirectory = onDirectory,
+                onRefreshDirectory = onRefreshDirectory
+            )
+        }
     }
 }
 
@@ -124,50 +130,128 @@ private fun ConversationFeed(
     onRefreshDirectory: () -> Unit
 ) {
     val listState = rememberLazyListState()
-    val wasNearBottom = listState.layoutInfo.visibleItemsInfo.lastOrNull()?.index?.let { it >= state.items.lastIndex - 2 } ?: true
-    LaunchedEffect(state.items.size) {
-        if (wasNearBottom && state.items.isNotEmpty()) listState.animateScrollToItem(state.items.lastIndex)
+    val scope = rememberCoroutineScope()
+    var handledLiveSerial by remember { mutableStateOf(state.liveEventSerial) }
+    var showNewMessages by rememberSaveable { mutableStateOf(false) }
+    val nearBottom by remember {
+        derivedStateOf { nearConversationBottom(listState.firstVisibleItemIndex) }
     }
-    LazyColumn(
-        modifier = Modifier.fillMaxSize().padding(padding),
-        state = listState,
-        contentPadding = PaddingValues(horizontal = 14.dp, vertical = 12.dp),
-        verticalArrangement = Arrangement.spacedBy(10.dp)
-    ) {
-        if (state.hasMore) {
-            item("older") {
-                TextButton(onClick = onLoadOlder, enabled = !state.loadingOlder, modifier = Modifier.fillMaxWidth()) {
-                    Text(if (state.loadingOlder) "Loading…" else "Load earlier conversation")
+    val nearHistoryStart by remember {
+        derivedStateOf {
+            val layout = listState.layoutInfo
+            nearConversationHistoryStart(layout.visibleItemsInfo.lastOrNull()?.index ?: -1, layout.totalItemsCount)
+        }
+    }
+
+    LaunchedEffect(state.revision) {
+        if (state.revision.isNotBlank()) {
+            listState.scrollToItem(0)
+            handledLiveSerial = state.liveEventSerial
+            showNewMessages = false
+        }
+    }
+    LaunchedEffect(state.liveEventSerial) {
+        if (state.liveEventSerial > handledLiveSerial) {
+            handledLiveSerial = state.liveEventSerial
+            if (nearBottom) listState.animateScrollToItem(0)
+            else showNewMessages = true
+        }
+    }
+    LaunchedEffect(nearBottom) {
+        if (nearBottom) showNewMessages = false
+    }
+    LaunchedEffect(nearHistoryStart, state.hasMore, state.loadingOlder, state.olderLoadError, state.historyLimitReached) {
+        if (shouldRequestOlderMessages(nearHistoryStart, state.hasMore, state.loadingOlder, state.olderLoadError, state.historyLimitReached)) {
+            onLoadOlder()
+        }
+    }
+
+    Box(Modifier.fillMaxSize().padding(padding)) {
+        LazyColumn(
+            modifier = Modifier.fillMaxSize(),
+            state = listState,
+            reverseLayout = true,
+            contentPadding = PaddingValues(horizontal = 14.dp, vertical = 12.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp, Alignment.Bottom)
+        ) {
+            item("bottom-space") { Spacer(Modifier.height(6.dp)) }
+            items(state.items.asReversed(), key = { "conversation:${it.id}" }) { value ->
+                ConversationItemCard(value, onApproval)
+            }
+            if (state.items.isEmpty() && state.error == null) {
+                item("empty") {
+                    Box(Modifier.fillMaxWidth().padding(vertical = 48.dp), contentAlignment = Alignment.Center) {
+                        Text(if (state.connection == "Live") "No visible conversation yet" else state.connection, color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 17.sp)
+                    }
                 }
             }
-        }
-        if (state.sourceMode == "shell") {
-            item("folders") { DirectoryCard(state, onDirectory, onRefreshDirectory) }
-        }
-        state.error?.let { message ->
-            item("error") {
-                Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer), shape = RoundedCornerShape(18.dp)) {
-                    Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Text(message, fontSize = 16.sp)
-                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            Button(onClick = onRetry) { Text("Retry") }
-                            Text("Terminal remains available", modifier = Modifier.align(Alignment.CenterVertically), fontSize = 14.sp)
+            state.error?.let { message ->
+                item("error") {
+                    Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer), shape = RoundedCornerShape(18.dp)) {
+                        Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Text(message, fontSize = 16.sp)
+                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                Button(onClick = onRetry) { Text("Retry") }
+                                Text("Terminal remains available", modifier = Modifier.align(Alignment.CenterVertically), fontSize = 14.sp)
+                            }
                         }
                     }
                 }
             }
-        }
-        if (state.items.isEmpty() && state.error == null) {
-            item("empty") {
-                Box(Modifier.fillMaxWidth().padding(vertical = 48.dp), contentAlignment = Alignment.Center) {
-                    Text(if (state.connection == "Live") "No visible conversation yet" else state.connection, color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 17.sp)
+            if (state.sourceMode == "shell") {
+                item("folders") { DirectoryCard(state, onDirectory, onRefreshDirectory) }
+            }
+            if (state.hasMore || state.loadingOlder || state.olderLoadError != null || state.historyLimitReached) {
+                item("history-trigger") {
+                    when {
+                        state.loadingOlder -> Box(Modifier.fillMaxWidth().padding(8.dp), contentAlignment = Alignment.Center) {
+                            Text("Loading earlier messages…", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 14.sp)
+                        }
+                        state.olderLoadError != null -> Card(
+                            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer),
+                            shape = RoundedCornerShape(14.dp)
+                        ) {
+                            Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+                                Text(state.olderLoadError, Modifier.weight(1f), fontSize = 14.sp)
+                                TextButton(onClick = onLoadOlder) { Text("Retry") }
+                            }
+                        }
+                        state.historyLimitReached -> Text(
+                            "Native history limit reached. Terminal has the complete transcript.",
+                            Modifier.fillMaxWidth().padding(8.dp),
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            fontSize = 14.sp
+                        )
+                        else -> Spacer(Modifier.height(1.dp))
+                    }
                 }
             }
         }
-        items(state.items, key = { it.id }) { value -> ConversationItemCard(value, onApproval) }
-        item("bottom-space") { Spacer(Modifier.height(6.dp)) }
+        if (showNewMessages) {
+            Button(
+                onClick = {
+                    showNewMessages = false
+                    scope.launch { listState.animateScrollToItem(0) }
+                },
+                modifier = Modifier.align(Alignment.BottomCenter).padding(14.dp),
+                shape = RoundedCornerShape(18.dp)
+            ) { Text("New messages ↓", fontSize = 15.sp) }
+        }
     }
 }
+
+internal fun nearConversationBottom(firstVisibleItemIndex: Int): Boolean = firstVisibleItemIndex <= 2
+
+internal fun nearConversationHistoryStart(lastVisibleItemIndex: Int, totalItems: Int): Boolean =
+    totalItems > 0 && lastVisibleItemIndex >= (totalItems - 3).coerceAtLeast(0)
+
+internal fun shouldRequestOlderMessages(
+    nearHistoryStart: Boolean,
+    hasMore: Boolean,
+    loading: Boolean,
+    error: String?,
+    limitReached: Boolean
+): Boolean = nearHistoryStart && hasMore && !loading && error == null && !limitReached
 
 @Composable
 private fun ConversationItemCard(value: ConversationItem, onApproval: (ConversationItem, ConversationChoice) -> Unit) {

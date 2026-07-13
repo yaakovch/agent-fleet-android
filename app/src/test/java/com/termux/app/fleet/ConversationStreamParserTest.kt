@@ -73,4 +73,16 @@ class ConversationStreamParserTest {
         assertEquals(NativeViewMode.Native, terminalScreenViewMode("shell", false, NativeViewMode.AutomaticTerminal))
         assertEquals(NativeViewMode.ManualTerminal, terminalScreenViewMode("shell", false, NativeViewMode.ManualTerminal))
     }
+
+    @Test
+    fun conversationPagingTriggersNearHistoryStartButNotWhileBusyOrFailed() {
+        assertTrue(nearConversationBottom(2))
+        assertFalse(nearConversationBottom(3))
+        assertTrue(nearConversationHistoryStart(17, 20))
+        assertFalse(nearConversationHistoryStart(16, 20))
+        assertTrue(shouldRequestOlderMessages(true, true, false, null, false))
+        assertFalse(shouldRequestOlderMessages(true, true, true, null, false))
+        assertFalse(shouldRequestOlderMessages(true, true, false, "offline", false))
+        assertFalse(shouldRequestOlderMessages(true, true, false, null, true))
+    }
 }

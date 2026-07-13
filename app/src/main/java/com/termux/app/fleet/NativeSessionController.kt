@@ -20,6 +20,11 @@ class NativeSessionController(
     private val activity: TermuxActivity,
     private val composeView: ComposeView
 ) {
+    private companion object {
+        const val HISTORY_PAGE_SIZE = 20
+        const val MAX_LOADED_ITEMS = 2_000
+    }
+
     private val main = Handler(Looper.getMainLooper())
     private val appRoot = activity.filesDir.parentFile ?: File("/data/data/com.termux")
     private val prefix = File(appRoot, "files/usr")
@@ -189,7 +194,7 @@ class NativeSessionController(
         uiState.value = uiState.value.copy(connection = if (retryIndex == 0) "Connecting…" else "Reconnecting…", error = null)
         thread(name = "native-session-stream", isDaemon = true) {
             try {
-                val process = environment(ProcessBuilder(conversationCommand("stream", listOf("--limit", "100")))).start()
+                val process = environment(ProcessBuilder(conversationCommand("stream", listOf("--limit", HISTORY_PAGE_SIZE.toString())))).start()
                 streamProcess = process
                 thread(name = "native-session-stderr", isDaemon = true) {
                     process.errorStream.use { input ->
@@ -257,7 +262,13 @@ class NativeSessionController(
         generation++
         stopProcess()
         retryIndex = 0
-        uiState.value = uiState.value.copy(error = null, connection = "Connecting…")
+        uiState.value = uiState.value.copy(
+            error = null,
+            olderLoadError = null,
+            loadingOlder = false,
+            historyLimitReached = false,
+            connection = "Connecting…"
+        )
         if (visible) startStream()
     }
 
@@ -286,6 +297,9 @@ class NativeSessionController(
                     items = mergeConversationItems(emptyList(), incoming),
                     nextCursor = frame.nextCursor,
                     hasMore = frame.hasMore,
+                    loadingOlder = false,
+                    olderLoadError = null,
+                    historyLimitReached = false,
                     error = null
                 )
                 if (frame.mode == "shell") refreshDirectories()
@@ -295,7 +309,12 @@ class NativeSessionController(
                 if (uiState.value.sourceMode == "shell" && frame.item.kind == "fallback") {
                     applyShellFallback(frame.item.text)
                 } else {
-                    uiState.value = uiState.value.copy(items = mergeConversationItems(uiState.value.items, listOf(frame.item)), connection = "Live")
+                    val isNew = uiState.value.items.none { it.id == frame.item.id }
+                    uiState.value = uiState.value.copy(
+                        items = mergeConversationItems(uiState.value.items, listOf(frame.item)),
+                        connection = "Live",
+                        liveEventSerial = uiState.value.liveEventSerial + if (isNew) 1 else 0
+                    )
                 }
             }
             is ConversationFrame.Status -> {
@@ -322,6 +341,7 @@ class NativeSessionController(
                     text = output, detail = "", state = "complete", tool = "shell", attachments = emptyList(), choices = emptyList()
                 )
                 uiState.value = uiState.value.copy(items = mergeConversationItems(uiState.value.items, listOf(result)))
+                uiState.value = uiState.value.copy(liveEventSerial = uiState.value.liveEventSerial + 1)
                 pendingShellId = null
             }
         }
@@ -331,21 +351,39 @@ class NativeSessionController(
     private fun loadOlder() {
         val cursor = uiState.value.nextCursor ?: return
         if (uiState.value.loadingOlder) return
-        uiState.value = uiState.value.copy(loadingOlder = true)
+        val remaining = MAX_LOADED_ITEMS - uiState.value.items.size
+        if (remaining <= 0) {
+            uiState.value = uiState.value.copy(hasMore = false, historyLimitReached = true)
+            return
+        }
+        val requestLimit = minOf(HISTORY_PAGE_SIZE, remaining)
+        uiState.value = uiState.value.copy(loadingOlder = true, olderLoadError = null)
         val token = generation
-        runOneShot(conversationCommand("stream", listOf("--cursor", cursor, "--limit", "100", "--no-follow"))) { output ->
+        runOneShot(conversationCommand("stream", listOf("--cursor", cursor, "--limit", requestLimit.toString(), "--no-follow"))) { output ->
             val frame = runCatching { ConversationStreamParser.parseFrame(output.lineSequence().first { it.isNotBlank() }) }.getOrNull()
             if (token != generation) return@runOneShot
-            if (frame !is ConversationFrame.Snapshot) {
-                uiState.value = uiState.value.copy(loadingOlder = false)
-                return@runOneShot
+            when (frame) {
+                is ConversationFrame.Snapshot -> {
+                    val merged = mergeConversationItems(uiState.value.items, frame.items, prepend = true)
+                    val limitReached = merged.size >= MAX_LOADED_ITEMS && frame.hasMore
+                    uiState.value = uiState.value.copy(
+                        items = merged,
+                        nextCursor = if (limitReached) null else frame.nextCursor,
+                        hasMore = frame.hasMore && !limitReached,
+                        loadingOlder = false,
+                        olderLoadError = null,
+                        historyLimitReached = limitReached
+                    )
+                }
+                is ConversationFrame.Error -> {
+                    if (frame.code == "cursor_expired") restartNow()
+                    else uiState.value = uiState.value.copy(loadingOlder = false, olderLoadError = frame.message)
+                }
+                else -> uiState.value = uiState.value.copy(
+                    loadingOlder = false,
+                    olderLoadError = "Earlier messages could not be loaded."
+                )
             }
-            uiState.value = uiState.value.copy(
-                items = mergeConversationItems(uiState.value.items, frame.items, prepend = true),
-                nextCursor = frame.nextCursor,
-                hasMore = frame.hasMore,
-                loadingOlder = false
-            )
         }
     }
 
@@ -422,6 +460,7 @@ class NativeSessionController(
             text = "", detail = "", state = "running", tool = "shell", attachments = emptyList(), choices = emptyList()
         )
         uiState.value = uiState.value.copy(items = mergeConversationItems(uiState.value.items, listOf(item)))
+        uiState.value = uiState.value.copy(liveEventSerial = uiState.value.liveEventSerial + 1)
         main.postDelayed(::refreshDirectories, 800)
     }
 
