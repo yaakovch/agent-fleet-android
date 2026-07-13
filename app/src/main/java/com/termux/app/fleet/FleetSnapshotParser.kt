@@ -42,7 +42,9 @@ object FleetSnapshotParser {
                     activity = session.requiredString("activity", 32),
                     attached = session.requiredBoolean("attached"),
                     updatedAt = session.optionalString("updatedAt", 40),
-                    pendingScheduleCount = session.requiredInt("pendingScheduleCount", 0, 10_000)
+                    pendingScheduleCount = session.requiredInt("pendingScheduleCount", 0, 10_000),
+                    projectPath = if (session.has("projectPath")) session.requiredString("projectPath", 2_048, allowEmpty = true) else "",
+                    locationKind = if (session.has("locationKind")) session.requiredString("locationKind", 16) else "project"
                 )
             },
             schedules = root.requiredArray("schedules").mapObjects { schedule ->

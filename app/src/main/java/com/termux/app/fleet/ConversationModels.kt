@@ -16,6 +16,15 @@ data class ConversationQuestion(
 
 data class ConversationAnswer(val questionId: String, val choiceIds: List<String>, val text: String)
 
+data class ToolPresentationBlock(val title: String, val kind: String, val content: String)
+data class ToolPresentation(
+    val title: String,
+    val subtitle: String,
+    val previewLines: Int,
+    val inputBlocks: List<ToolPresentationBlock>,
+    val resultBlocks: List<ToolPresentationBlock>
+)
+
 data class ConversationItem(
     val id: String,
     val kind: String,
@@ -36,7 +45,8 @@ data class ConversationItem(
     val startedAt: String = "",
     val completedAt: String = "",
     val questions: List<ConversationQuestion> = emptyList(),
-    val answers: List<ConversationAnswer> = emptyList()
+    val answers: List<ConversationAnswer> = emptyList(),
+    val presentation: ToolPresentation? = null
 )
 
 sealed class ConversationFrame {

@@ -389,8 +389,8 @@ class NativeSessionController(
         val requestLimit = minOf(HISTORY_PAGE_SIZE, remaining)
         uiState.value = uiState.value.copy(loadingOlder = true, olderLoadError = null)
         val token = generation
-        runOneShot(conversationCommand("stream", listOf("--cursor", cursor, "--limit", requestLimit.toString(), "--no-follow"))) { output ->
-            val frame = runCatching { ConversationStreamParser.parseFrame(output.lineSequence().first { it.isNotBlank() }) }.getOrNull()
+        runOneShot(conversationCommand("stream", listOf("--cursor", cursor, "--limit", requestLimit.toString(), "--no-follow"))) { action ->
+            val frame = runCatching { ConversationStreamParser.parseFrame(action.stdout.lineSequence().first { it.isNotBlank() }) }.getOrNull()
             if (token != generation) return@runOneShot
             when (frame) {
                 is ConversationFrame.Snapshot -> {
@@ -426,9 +426,13 @@ class NativeSessionController(
             "--choice", choice.id,
             "--revision", revision,
             "--idempotency-key", UUID.randomUUID().toString()
-        ))) { output ->
-            val delivered = runCatching { JSONObject(output.lineSequence().last { it.isNotBlank() }).optString("status") == "delivered" }.getOrDefault(false)
-            val updated = value.copy(state = if (delivered) "complete" else "error", title = if (delivered) "Approval sent" else "Approval changed—open Terminal")
+        ))) { action ->
+            val delivered = action.exitCode == 0 && runCatching { JSONObject(action.stdout.lineSequence().last { it.isNotBlank() }).optString("status") == "delivered" }.getOrDefault(false)
+            val updated = value.copy(
+                state = if (delivered) "complete" else "error",
+                title = if (delivered) "Approval sent" else "Approval not sent",
+                text = if (delivered) value.text else actionError(action, "The approval was not accepted. Refresh or open Terminal.")
+            )
             uiState.value = uiState.value.copy(items = mergeConversationItems(uiState.value.items, listOf(updated)))
         }
     }
@@ -453,7 +457,7 @@ class NativeSessionController(
             return
         }
         val encoded = Base64.encodeToString(payload.toByteArray(Charsets.UTF_8), Base64.URL_SAFE or Base64.NO_WRAP or Base64.NO_PADDING)
-        val running = value.copy(state = "running", title = "Sending answer…")
+        val running = value.copy(state = "running", title = "Sending answer…", answers = answers, text = "")
         uiState.value = uiState.value.copy(items = mergeConversationItems(uiState.value.items, listOf(running)))
         updateComposerState()
         runOneShot(conversationCommand("answer", listOf(
@@ -461,9 +465,9 @@ class NativeSessionController(
             "--revision", revision,
             "--answers-b64", encoded,
             "--idempotency-key", UUID.randomUUID().toString()
-        )), timeoutSeconds = 30) { output ->
-            val delivered = runCatching {
-                JSONObject(output.lineSequence().last { it.isNotBlank() }).let {
+        )), timeoutSeconds = 30) { action ->
+            val delivered = action.exitCode == 0 && runCatching {
+                JSONObject(action.stdout.lineSequence().last { it.isNotBlank() }).let {
                     it.optString("type") == "question.response" && it.optString("status") == "delivered"
                 }
             }.getOrDefault(false)
@@ -471,7 +475,12 @@ class NativeSessionController(
             if (!delivered && existing.state != "complete") {
                 uiState.value = uiState.value.copy(items = mergeConversationItems(
                     uiState.value.items,
-                    listOf(existing.copy(state = "error", title = "Question changed—open Terminal"))
+                    listOf(existing.copy(
+                        state = "error",
+                        title = "Answer not sent",
+                        text = actionError(action, "The answer was not accepted. Review it, then retry or open Terminal."),
+                        answers = answers
+                    ))
                 ))
                 updateComposerState()
             } else if (delivered) {
@@ -515,8 +524,8 @@ class NativeSessionController(
             return
         }
         val token = generation
-        runOneShot(conversationCommand("directory")) { output ->
-            val snapshot = runCatching { ConversationStreamParser.parseDirectory(output.lineSequence().last { it.isNotBlank() }) }.getOrNull() ?: return@runOneShot
+        runOneShot(conversationCommand("directory")) { action ->
+            val snapshot = runCatching { ConversationStreamParser.parseDirectory(action.stdout.lineSequence().last { it.isNotBlank() }) }.getOrNull() ?: return@runOneShot
             if (token == generation && snapshot.session == uiState.value.internalSession) {
                 uiState.value = uiState.value.copy(cwd = snapshot.cwd, directories = snapshot.entries, directoryTruncated = snapshot.truncated)
             }
@@ -550,13 +559,32 @@ class NativeSessionController(
         main.postDelayed(::refreshDirectories, 800)
     }
 
-    private fun runOneShot(command: List<String>, timeoutSeconds: Long = 12, onResult: (String) -> Unit) {
+    private data class ActionResult(val exitCode: Int, val stdout: String, val stderr: String, val timedOut: Boolean)
+
+    private fun actionError(result: ActionResult, fallback: String): String {
+        val structured = result.stdout.lineSequence().filter { it.isNotBlank() }.mapNotNull { line ->
+            runCatching { JSONObject(line).optJSONObject("error")?.optString("message") }.getOrNull()
+        }.lastOrNull { !it.isNullOrBlank() }
+        val value = structured ?: result.stderr.lineSequence().firstOrNull { it.isNotBlank() }
+            ?: if (result.timedOut) "The host did not confirm the action before it timed out." else fallback
+        return value.filterNot { it.isISOControl() }.take(360).ifBlank { fallback }
+    }
+
+    private fun runOneShot(command: List<String>, timeoutSeconds: Long = 12, onResult: (ActionResult) -> Unit) {
         val token = generation
         thread(name = "native-session-action", isDaemon = true) {
             val output = runCatching {
                 val process = environment(ProcessBuilder(command)).redirectErrorStream(false).start()
+                val errorBuffer = ByteArrayOutputStream()
                 val errorReader = thread(name = "native-session-action-stderr", isDaemon = true) {
-                    drainErrorStream(process)
+                    process.errorStream.use { input ->
+                        val chunk = ByteArray(4 * 1024)
+                        while (errorBuffer.size() <= 64 * 1024) {
+                            val count = input.read(chunk)
+                            if (count < 0) break
+                            errorBuffer.write(chunk, 0, count)
+                        }
+                    }
                 }
                 val buffer = ByteArrayOutputStream()
                 process.inputStream.use { input ->
@@ -567,10 +595,17 @@ class NativeSessionController(
                         buffer.write(chunk, 0, count)
                     }
                 }
-                if (!process.waitFor(timeoutSeconds, TimeUnit.SECONDS)) process.destroyForcibly()
+                val finished = process.waitFor(timeoutSeconds, TimeUnit.SECONDS)
+                if (!finished) process.destroyForcibly()
+                if (!finished) process.waitFor(2, TimeUnit.SECONDS)
                 errorReader.join(1_000)
-                buffer.toString(Charsets.UTF_8.name())
-            }.getOrDefault("")
+                ActionResult(
+                    if (finished) process.exitValue() else -1,
+                    buffer.toString(Charsets.UTF_8.name()),
+                    errorBuffer.toString(Charsets.UTF_8.name()),
+                    !finished
+                )
+            }.getOrElse { ActionResult(-1, "", it.message.orEmpty(), false) }
             main.post { if (token == generation) onResult(output) }
         }
     }

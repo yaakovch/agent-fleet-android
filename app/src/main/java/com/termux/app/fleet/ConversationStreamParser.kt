@@ -64,6 +64,7 @@ object ConversationStreamParser {
         val choices = value.getJSONArray("choices")
         val questions = value.optJSONArray("questions")
         val answers = value.optJSONArray("answers")
+        val presentation = value.optJSONObject("presentation")
         return ConversationItem(
             id = safe(value.getString("id"), 160),
             kind = kind,
@@ -112,7 +113,31 @@ object ConversationStreamParser {
                     if (selected == null) emptyList() else List(selected.length().coerceAtMost(32)) { safe(selected.getString(it), 80) },
                     safe(answer.optString("text"), 8 * 1024, multiline = true)
                 )
+            },
+            presentation = presentation?.let(::parsePresentation)
+        )
+    }
+
+    private fun parsePresentation(value: JSONObject): ToolPresentation {
+        require(value.optInt("version") == 1)
+        fun blocks(name: String): List<ToolPresentationBlock> {
+            val values = value.optJSONArray(name) ?: return emptyList()
+            return List(values.length().coerceAtMost(32)) { index ->
+                values.getJSONObject(index).let { block ->
+                    ToolPresentationBlock(
+                        safe(block.getString("title"), 80),
+                        safe(block.getString("kind"), 16),
+                        safe(block.getString("content"), 24 * 1024, multiline = true)
+                    )
+                }
             }
+        }
+        return ToolPresentation(
+            safe(value.getString("title"), 80),
+            safe(value.optString("subtitle"), 160),
+            value.optInt("previewLines", 12).coerceIn(1, 50),
+            blocks("inputBlocks"),
+            blocks("resultBlocks")
         )
     }
 
@@ -168,6 +193,16 @@ private fun mergeConversationItem(first: ConversationItem, second: ConversationI
         startedAt = value(first.startedAt, second.startedAt),
         completedAt = value(second.completedAt, first.completedAt),
         questions = if (second.questions.isNotEmpty()) second.questions else first.questions,
-        answers = if (second.answers.isNotEmpty()) second.answers else first.answers
+        answers = if (second.answers.isNotEmpty()) second.answers else first.answers,
+        presentation = when {
+            first.presentation == null -> second.presentation
+            second.presentation == null -> first.presentation
+            else -> first.presentation.copy(
+                title = first.presentation.title.ifBlank { second.presentation.title },
+                subtitle = first.presentation.subtitle.ifBlank { second.presentation.subtitle },
+                inputBlocks = if (first.presentation.inputBlocks.isNotEmpty()) first.presentation.inputBlocks else second.presentation.inputBlocks,
+                resultBlocks = if (second.presentation.resultBlocks.isNotEmpty()) second.presentation.resultBlocks else first.presentation.resultBlocks
+            )
+        }
     )
 }

@@ -172,10 +172,20 @@ class FleetRuntime(private val context: Context) {
         )
     }
 
-    fun createSession(snapshot: FleetSnapshot, hostId: String, project: String, backend: String, tool: String): FleetSnapshot {
-        require(project.matches(Regex("[A-Za-z0-9][A-Za-z0-9._ -]{0,127}"))) { "Enter a valid project name." }
+    fun createSession(
+        snapshot: FleetSnapshot,
+        hostId: String,
+        project: String,
+        backend: String,
+        tool: String,
+        path: String,
+        locationKind: String
+    ): FleetSnapshot {
+        require(project.matches(Regex("[A-Za-z0-9][A-Za-z0-9._ -]{0,63}"))) { "Enter a valid session label." }
         require(backend in setOf("linux", "windows")) { "Choose a valid backend." }
         require(tool in setOf("shell", "codex", "claude", "copilot")) { "Choose a valid tool." }
+        require(validDirectoryPath(path, backend, false)) { "Choose a valid folder." }
+        require(locationKind in setOf("project", "custom")) { "Choose a valid location type." }
         return mutate(
             "session.create",
             JSONObject()
@@ -183,9 +193,46 @@ class FleetRuntime(private val context: Context) {
                 .put("project", project)
                 .put("backend", backend)
                 .put("tool", tool)
+                .put("path", path)
+                .put("locationKind", locationKind)
                 .put("expectedRevision", snapshot.revision)
                 .put("idempotencyKey", UUID.randomUUID().toString())
         )
+    }
+
+    fun listDirectory(snapshot: FleetSnapshot, hostId: String, backend: String, path: String): FleetDirectoryListing {
+        require(hostId.isNotBlank() && hostId.length <= 160 && backend in setOf("linux", "windows")) { "Directory request is invalid." }
+        require(validDirectoryPath(path, backend, true)) { "Directory path is invalid." }
+        val result = request(
+            "directory.list",
+            JSONObject()
+                .put("hostId", hostId)
+                .put("backend", backend)
+                .put("path", path)
+                .put("expectedRevision", snapshot.revision)
+                .put("idempotencyKey", UUID.randomUUID().toString())
+        )
+        return parseDirectoryListing(result)
+    }
+
+    fun createDirectory(snapshot: FleetSnapshot, hostId: String, backend: String, parentPath: String, name: String): String {
+        require(validDirectoryPath(parentPath, backend, false)) { "Parent folder is invalid." }
+        require(
+            name.matches(Regex("[^./\\\\][^/\\\\]{0,126}")) &&
+                name.none(Char::isISOControl) && !name.endsWith(" ") && !name.endsWith(".")
+        ) { "Folder name is invalid." }
+        val result = request(
+            "directory.create",
+            JSONObject()
+                .put("hostId", hostId)
+                .put("backend", backend)
+                .put("parentPath", parentPath)
+                .put("name", name)
+                .put("expectedRevision", snapshot.revision)
+                .put("idempotencyKey", UUID.randomUUID().toString())
+        )
+        return result.optString("path").takeIf { validDirectoryPath(it, backend, false) }
+            ?: throw FleetUnavailableException("Host returned an invalid folder path.")
     }
 
     fun killSession(snapshot: FleetSnapshot, session: FleetSession): FleetSnapshot = mutate(
@@ -226,6 +273,12 @@ class FleetRuntime(private val context: Context) {
     ).joinToString(" ") { shellDisplayQuote(it) }
 
     private fun mutate(method: String, params: JSONObject): FleetSnapshot {
+        val snapshot = request(method, params).optJSONObject("snapshot")
+            ?: throw FleetUnavailableException("Fleet action response did not include a snapshot.")
+        return FleetSnapshotParser.parse(snapshot.toString())
+    }
+
+    private fun request(method: String, params: JSONObject): JSONObject {
         val bridge = executable("wtmux-bridge") ?: throw FleetUnavailableException("wtmux bridge is not installed.")
         val python = executable("python3") ?: throw FleetUnavailableException("Python is missing from the restored Termux environment.")
         val process = ProcessBuilder(python.absolutePath, bridge.absolutePath, "--stdio")
@@ -269,13 +322,54 @@ class FleetRuntime(private val context: Context) {
                 val error = response.optJSONObject("error")
                 throw FleetUnavailableException(safeError(error?.optString("message").orEmpty().ifBlank { "Fleet action failed." }))
             }
-            val snapshot = response.optJSONObject("result")?.optJSONObject("snapshot")
-                ?: throw FleetUnavailableException("Fleet action response did not include a snapshot.")
-            return FleetSnapshotParser.parse(snapshot.toString())
+            return response.optJSONObject("result")
+                ?: throw FleetUnavailableException("Fleet action response did not include a result.")
         } finally {
             process.destroy()
             readerExecutor.shutdownNow()
         }
+    }
+
+    private fun parseDirectoryListing(value: JSONObject): FleetDirectoryListing {
+        val backend = value.optString("backend").also { require(it in setOf("linux", "windows")) }
+        val path = value.optString("path").also { require(validDirectoryPath(it, backend, false)) }
+        val entries = value.optJSONArray("entries") ?: throw FleetUnavailableException("Directory entries are missing.")
+        val shortcuts = value.optJSONArray("shortcuts") ?: throw FleetUnavailableException("Directory shortcuts are missing.")
+        require(entries.length() <= 1_000 && shortcuts.length() <= 64)
+        return FleetDirectoryListing(
+            backend = backend,
+            path = path,
+            parentPath = if (value.isNull("parentPath")) null else value.optString("parentPath").also { require(validDirectoryPath(it, backend, false)) },
+            entries = List(entries.length()) { index ->
+                entries.getJSONObject(index).let { entry ->
+                    FleetDirectoryEntry(
+                        entry.getString("name").safeDirectoryLabel(255),
+                        entry.getString("path").also { require(validDirectoryPath(it, backend, false)) }
+                    )
+                }
+            },
+            shortcuts = List(shortcuts.length()) { index ->
+                shortcuts.getJSONObject(index).let { shortcut ->
+                    FleetDirectoryShortcut(
+                        shortcut.getString("id").safeDirectoryLabel(80),
+                        shortcut.getString("label").safeDirectoryLabel(80),
+                        shortcut.getString("path").also { require(validDirectoryPath(it, backend, false)) }
+                    )
+                }
+            },
+            truncated = value.optBoolean("truncated")
+        )
+    }
+
+    private fun String.safeDirectoryLabel(maximum: Int): String = also {
+        require(isNotBlank() && length <= maximum && none(Char::isISOControl))
+    }
+
+    private fun validDirectoryPath(value: String, backend: String, empty: Boolean): Boolean {
+        if (value.length > 2_048 || (!empty && value.isBlank()) || value.any(Char::isISOControl)) return false
+        if (value.isBlank()) return empty
+        return if (backend == "linux") value.startsWith("/")
+        else !value.startsWith("\\\\") && !value.startsWith("//") && value.matches(Regex("[A-Za-z]:[\\\\/].*"))
     }
 
     private fun executable(name: String): File? = sequenceOf(

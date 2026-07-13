@@ -26,6 +26,8 @@ class RecentSessionStore(context: Context) {
                 .put("name", session.name)
                 .put("title", session.title)
                 .put("project", session.project)
+                .put("projectPath", session.projectPath)
+                .put("locationKind", session.locationKind)
                 .put("tool", session.tool)
                 .put("backend", session.backend))
         }
@@ -43,7 +45,9 @@ class RecentSessionStore(context: Context) {
         activity = "idle",
         attached = false,
         updatedAt = null,
-        pendingScheduleCount = 0
+        pendingScheduleCount = 0,
+        projectPath = value.optString("projectPath").safe(2048, allowEmpty = true),
+        locationKind = value.optString("locationKind", "project").safe(16)
     )
 
     private fun String.safe(max: Int, allowEmpty: Boolean = false): String {

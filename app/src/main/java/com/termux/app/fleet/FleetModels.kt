@@ -21,7 +21,20 @@ data class FleetSession(
     val activity: String,
     val attached: Boolean,
     val updatedAt: String?,
-    val pendingScheduleCount: Int
+    val pendingScheduleCount: Int,
+    val projectPath: String = "",
+    val locationKind: String = "project"
+)
+
+data class FleetDirectoryEntry(val name: String, val path: String)
+data class FleetDirectoryShortcut(val id: String, val label: String, val path: String)
+data class FleetDirectoryListing(
+    val backend: String,
+    val path: String,
+    val parentPath: String?,
+    val entries: List<FleetDirectoryEntry>,
+    val shortcuts: List<FleetDirectoryShortcut>,
+    val truncated: Boolean
 )
 
 data class FleetSchedule(

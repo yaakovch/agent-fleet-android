@@ -155,3 +155,24 @@ trusted fleet.
   before cutover.
 - Critical soak defects are hotfixed in place and restart the clock; corruption,
   security exposure, unusable terminals, or inability to hotfix trigger rollback.
+
+## Human Tool Details, Questions, And Session Locations
+
+- Native tool groups open into ordered terminal-themed summaries with meaningful
+  action/target labels. Each call shows a compact semantic preview first, can
+  expand to the complete presentation, offers Copy, and keeps raw JSON behind a
+  separate collapsed disclosure. Unknown tools show readable key/value fields.
+- Safe ANSI styling may be represented with the app terminal palette; raw escape
+  sequences are never rendered or executed.
+- For multi-question prompts, every non-final question advances on the first
+  valid tap or non-empty text. Back revises answers and the final question uses
+  explicit Submit. A failed delivery preserves answers in Native view and shows
+  the exact safe error with Retry and Terminal actions.
+- New Session follows Host, Backend, Projects/Other location, Folder, editable
+  label, and Tool. Projects are real host folders, not inferred active sessions.
+- Other location provides an accessible-directory browser rooted at home/profile
+  with project, filesystem, mount, and drive shortcuts; it hides dot entries,
+  supports safe one-child New Folder, and requires Use this folder.
+- Up to ten recent locations are kept locally per host/backend and can be
+  cleared. Full paths appear only in Session Details and never in routine session
+  titles or lists. Directory listings are transient and never persisted.

@@ -44,4 +44,16 @@ class FleetSnapshotParserTest {
         val error = runCatching { FleetSnapshotParser.parse(invalid) }.exceptionOrNull()
         assertTrue(error is IllegalArgumentException)
     }
+
+    @Test
+    fun acceptsAdditiveSessionPathMetadata() {
+        val updated = validSnapshot.replace(
+            "\"pendingScheduleCount\":1",
+            "\"pendingScheduleCount\":1,\"projectPath\":\"/srv/work\",\"locationKind\":\"custom\""
+        )
+        val session = FleetSnapshotParser.parse(updated).sessions.single()
+        assertEquals("/srv/work", session.projectPath)
+        assertEquals("custom", session.locationKind)
+        assertEquals("wtmux", session.name)
+    }
 }

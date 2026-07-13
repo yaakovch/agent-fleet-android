@@ -443,6 +443,8 @@ private fun ToolCallRow(value: ConversationItem, number: Int?) {
 
 @Composable
 private fun ToolCallDetails(value: ConversationItem) {
+    var showAll by rememberSaveable(value.id, "semantic") { mutableStateOf(false) }
+    var showRaw by rememberSaveable(value.id, "raw") { mutableStateOf(false) }
     val duration = toolDuration(value)
     val status = buildString {
         append(value.tool.ifBlank { toolActionLabel(value.action) })
@@ -450,11 +452,105 @@ private fun ToolCallDetails(value: ConversationItem) {
         if (duration.isNotBlank()) append(" · ").append(duration)
     }
     ToolDetailSection("Tool / status", status, monospace = false, diff = false)
-    value.input.takeIf { it.isNotBlank() }?.let { ToolDetailSection("Input", it, monospace = true, diff = value.action == "edit") }
-    value.result.takeIf { it.isNotBlank() }?.let { ToolDetailSection("Result", it, monospace = true, diff = value.action == "edit") }
-    if (value.input.isBlank() && value.result.isBlank() && value.detail.isNotBlank()) {
-        ToolDetailSection("Details", value.detail, monospace = true, diff = value.action == "edit")
+    value.presentation?.title?.takeIf { it.isNotBlank() }?.let {
+        Text(it, fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
+        if (value.presentation.subtitle.isNotBlank()) Text(value.presentation.subtitle, fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
     }
+    val blocks = remember(value.presentation, value.input, value.result, value.detail) { semanticToolBlocks(value) }
+    val previewLines = value.presentation?.previewLines ?: 12
+    val visible = remember(blocks, showAll, previewLines) { if (showAll) blocks else previewToolBlocks(blocks, previewLines) }
+    visible.forEach { block -> ToolSemanticSection(block) }
+    if (blocks.sumOf { it.content.lines().size } > previewLines) {
+        TextButton(onClick = { showAll = !showAll }) { Text(if (showAll) "Show less" else "Show all") }
+    }
+    val hasRaw = value.input.isNotBlank() || value.result.isNotBlank() || value.detail.isNotBlank()
+    if (hasRaw) {
+        TextButton(onClick = { showRaw = !showRaw }) { Text(if (showRaw) "Hide raw data" else "Raw data") }
+    }
+    if (showRaw) {
+        value.input.takeIf { it.isNotBlank() }?.let { ToolDetailSection("Raw input", it, monospace = true, diff = false) }
+        value.result.takeIf { it.isNotBlank() }?.let { ToolDetailSection("Raw result", it, monospace = true, diff = false) }
+        if (value.input.isBlank() && value.result.isBlank() && value.detail.isNotBlank()) {
+            ToolDetailSection("Raw details", value.detail, monospace = true, diff = false)
+        }
+    }
+}
+
+@Composable
+private fun ToolSemanticSection(block: ToolPresentationBlock) {
+    val clipboard = LocalClipboardManager.current
+    val background = Color(0xFF101820)
+    val foreground = Color(0xFFD7E1EA)
+    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(block.title, Modifier.weight(1f), fontSize = 13.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            TextButton(onClick = { clipboard.setText(AnnotatedString(block.content)) }, contentPadding = PaddingValues(horizontal = 7.dp, vertical = 1.dp)) {
+                Text("Copy", fontSize = 12.sp)
+            }
+        }
+        Surface(shape = RoundedCornerShape(10.dp), color = background) {
+            if (block.kind == "diff") {
+                Text(diffText(block.content), Modifier.fillMaxWidth().padding(11.dp), fontFamily = FontFamily.Monospace, fontSize = 13.sp, lineHeight = 18.sp)
+            } else {
+                Text(
+                    block.content,
+                    Modifier.fillMaxWidth().padding(11.dp),
+                    color = foreground,
+                    fontFamily = if (block.kind in setOf("code", "terminal", "path")) FontFamily.Monospace else FontFamily.Default,
+                    fontSize = 13.sp,
+                    lineHeight = 18.sp
+                )
+            }
+        }
+    }
+}
+
+private fun semanticToolBlocks(value: ConversationItem): List<ToolPresentationBlock> {
+    val supplied = value.presentation?.let { it.inputBlocks + it.resultBlocks }.orEmpty()
+    if (supplied.isNotEmpty()) return supplied
+    val values = listOf("Input" to value.input, "Result" to value.result, "Details" to value.detail).filter { it.second.isNotBlank() }
+    return values.flatMap { (fallback, raw) ->
+        runCatching {
+            val trimmed = raw.trimStart()
+            if (!trimmed.startsWith("{")) return@runCatching listOf(ToolPresentationBlock(fallback, if (fallback == "Result") "terminal" else "code", raw))
+            val objectValue = JSONObject(raw)
+            objectValue.keys().asSequence().take(32).map { key ->
+                val child = objectValue.get(key)
+                val content = when (child) {
+                    is JSONObject -> child.toString(2)
+                    is JSONArray -> child.toString(2)
+                    else -> child.toString()
+                }
+                val kind = when (key.lowercase()) {
+                    "cmd", "command", "script" -> "code"
+                    "path", "file", "file_path", "filename" -> "path"
+                    else -> if (key.contains("diff", true) || key.contains("patch", true)) "diff" else "text"
+                }
+                ToolPresentationBlock(humanToolField(key), kind, content)
+            }.toList()
+        }.getOrElse { listOf(ToolPresentationBlock(fallback, if (fallback == "Result") "terminal" else "code", raw)) }
+    }
+}
+
+private fun humanToolField(value: String): String = value
+    .replace(Regex("([a-z0-9])([A-Z])"), "$1 $2")
+    .replace('_', ' ')
+    .replace('-', ' ')
+    .split(' ')
+    .filter { it.isNotBlank() }
+    .joinToString(" ") { it.replaceFirstChar(Char::titlecase) }
+
+private fun previewToolBlocks(blocks: List<ToolPresentationBlock>, lineLimit: Int): List<ToolPresentationBlock> {
+    var remaining = lineLimit
+    val result = mutableListOf<ToolPresentationBlock>()
+    for (block in blocks) {
+        if (remaining <= 0) break
+        val lines = block.content.lines()
+        val selected = lines.take(remaining)
+        result += block.copy(content = selected.joinToString("\n") + if (selected.size < lines.size) "\n…" else "")
+        remaining -= selected.size
+    }
+    return result
 }
 
 @Composable
@@ -538,8 +634,9 @@ private fun QuestionCard(
                     OutlinedButton(onClick = onOpenTerminal) { Text("Open Terminal") }
                 }
                 value.state == "error" -> {
-                    Text("The answer was not confirmed. Check the live prompt before trying again.", color = Color(0xFF7A3000), fontSize = 15.sp)
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text(value.text.ifBlank { "The answer was not confirmed. Review it, then retry." }, color = Color(0xFF7A3000), fontSize = 15.sp)
+                    if (value.revision != null && value.questions.isNotEmpty()) QuestionForm(value, onQuestion, onOpenTerminal, retry = true)
+                    else Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         Button(onClick = onCheckAgain) { Text("Check again") }
                         OutlinedButton(onClick = onOpenTerminal) { Text("Open Terminal") }
                     }
@@ -555,9 +652,14 @@ private fun QuestionCard(
 }
 
 @Composable
-private fun QuestionForm(value: ConversationItem, onQuestion: (ConversationItem, List<ConversationAnswer>) -> Unit, onOpenTerminal: () -> Unit) {
+private fun QuestionForm(
+    value: ConversationItem,
+    onQuestion: (ConversationItem, List<ConversationAnswer>) -> Unit,
+    onOpenTerminal: () -> Unit,
+    retry: Boolean = false
+) {
     var page by rememberSaveable(value.id) { mutableStateOf(0) }
-    var draft by rememberSaveable(value.id) { mutableStateOf("{}") }
+    var draft by rememberSaveable(value.id) { mutableStateOf(answersToDraft(value.answers)) }
     val question = value.questions[page.coerceIn(0, value.questions.lastIndex)]
     val current = questionDraft(draft, question.id)
     val options = if (question.type == "boolean" && question.options.isEmpty()) listOf(
@@ -568,13 +670,15 @@ private fun QuestionForm(value: ConversationItem, onQuestion: (ConversationItem,
     Text(question.prompt, color = Color(0xFF352A00), fontSize = 16.sp)
     options.forEach { option ->
         val choose: () -> Unit = {
-            if (question.type == "multi") {
+            val updated = if (question.type == "multi") {
                 val checked = option.id !in current.choiceIds
                 val choices = if (checked) (current.choiceIds + option.id).distinct() else current.choiceIds - option.id
-                draft = updateQuestionDraft(draft, current.copy(choiceIds = choices))
+                current.copy(choiceIds = choices)
             } else {
-                draft = updateQuestionDraft(draft, current.copy(choiceIds = listOf(option.id), text = ""))
+                current.copy(choiceIds = listOf(option.id), text = "")
             }
+            draft = updateQuestionDraft(draft, updated)
+            if (shouldAdvanceQuestion(question, updated, page < value.questions.lastIndex)) page++
         }
         Row(Modifier.fillMaxWidth().clickable(onClick = choose), verticalAlignment = Alignment.CenterVertically) {
             if (question.type == "multi") {
@@ -620,7 +724,13 @@ private fun QuestionForm(value: ConversationItem, onQuestion: (ConversationItem,
     if (question.type == "text" || "__other__" in current.choiceIds) {
         OutlinedTextField(
             value = current.text,
-            onValueChange = { if (it.length <= 8 * 1024 && '\u0000' !in it) draft = updateQuestionDraft(draft, current.copy(text = it)) },
+            onValueChange = {
+                if (it.length <= 8 * 1024 && '\u0000' !in it) {
+                    val updated = current.copy(text = it)
+                    draft = updateQuestionDraft(draft, updated)
+                    if (shouldAdvanceQuestion(question, updated, page < value.questions.lastIndex)) page++
+                }
+            },
             modifier = Modifier.fillMaxWidth(),
             placeholder = { Text("Type your answer…") },
             minLines = 2,
@@ -641,7 +751,7 @@ private fun QuestionForm(value: ConversationItem, onQuestion: (ConversationItem,
         Spacer(Modifier.weight(1f))
         OutlinedButton(onClick = onOpenTerminal) { Text("Terminal") }
         if (page < value.questions.lastIndex) {
-            Button(onClick = { page++ }, enabled = validQuestionAnswer(question, current)) { Text("Next") }
+            Text("Your first valid answer continues", color = Color(0xFF6C5B00), fontSize = 13.sp)
         } else {
             val allAnswers = conversationAnswers(value.questions, draft)
             Button(
@@ -651,10 +761,16 @@ private fun QuestionForm(value: ConversationItem, onQuestion: (ConversationItem,
                     })
                 },
                 enabled = value.questions.zip(allAnswers).all { (item, answer) -> validQuestionAnswer(item, answer) }
-            ) { Text("Submit") }
+            ) { Text(if (retry) "Retry" else "Submit") }
         }
     }
 }
+
+private fun answersToDraft(answers: List<ConversationAnswer>): String = JSONObject().apply {
+    answers.forEach { answer ->
+        put(answer.questionId, JSONObject().put("choices", JSONArray(answer.choiceIds)).put("text", answer.text))
+    }
+}.toString()
 
 private fun questionDraft(value: String, questionId: String): ConversationAnswer = runCatching {
     val objectValue = JSONObject(value).optJSONObject(questionId) ?: JSONObject()
@@ -682,6 +798,9 @@ private fun validQuestionAnswer(question: ConversationQuestion, answer: Conversa
         else -> answer.choiceIds.isNotEmpty() && ("__other__" !in answer.choiceIds || answer.text.isNotBlank())
     }
 }
+
+internal fun shouldAdvanceQuestion(question: ConversationQuestion, answer: ConversationAnswer, hasNext: Boolean): Boolean =
+    hasNext && validQuestionAnswer(question, answer)
 
 private fun questionAnswerSummary(value: ConversationItem): String {
     if (value.answers.isNotEmpty()) return value.answers.joinToString("\n") { answer ->

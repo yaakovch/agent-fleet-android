@@ -105,6 +105,24 @@ class ConversationStreamParserTest {
     }
 
     @Test
+    fun parsesAndMergesHumanToolPresentationWithoutDroppingRawData() {
+        val line = """
+            {"protocolVersion":2,"type":"conversation.event","session":"s","adapter":"codex","item":{"id":"t1","kind":"tool","timestamp":"","role":"","title":"Running exec_command","text":"","detail":"","state":"running","tool":"exec_command","attachments":[],"choices":[],"action":"command","target":"git status","input":"{\"cmd\":\"git status --short\"}","result":"","presentation":{"version":1,"title":"Run command","subtitle":"git status","previewLines":12,"inputBlocks":[{"title":"Cmd","kind":"code","content":"git status --short"}],"resultBlocks":[]}}}
+        """.trimIndent()
+        val start = (ConversationStreamParser.parseFrame(line) as ConversationFrame.Event).item
+        assertEquals("git status --short", start.presentation?.inputBlocks?.single()?.content)
+        assertTrue(start.input.contains("cmd"))
+        val complete = start.copy(
+            state = "complete", input = "", result = "clean", presentation = ToolPresentation(
+                "Tool call", "", 12, emptyList(), listOf(ToolPresentationBlock("Output", "terminal", "clean"))
+            )
+        )
+        val merged = mergeConversationItems(listOf(start), listOf(complete)).single()
+        assertEquals("git status --short", merged.presentation?.inputBlocks?.single()?.content)
+        assertEquals("clean", merged.presentation?.resultBlocks?.single()?.content)
+    }
+
+    @Test
     fun nativeViewSettingPersistsAndDefaultsOn() {
         val context: Context = RuntimeEnvironment.getApplication()
         context.getSharedPreferences("agent-fleet-native-session", Context.MODE_PRIVATE).edit().clear().commit()
@@ -131,5 +149,15 @@ class ConversationStreamParserTest {
         assertFalse(shouldRequestOlderMessages(true, true, true, null, false))
         assertFalse(shouldRequestOlderMessages(true, true, false, "offline", false))
         assertFalse(shouldRequestOlderMessages(true, true, false, null, true))
+    }
+
+    @Test
+    fun everyNonFinalQuestionAdvancesOnItsFirstValidInput() {
+        val option = ConversationQuestion("mode", "", "Mode?", "single", true, true, emptyList())
+        assertTrue(shouldAdvanceQuestion(option, ConversationAnswer("mode", listOf("fast"), ""), true))
+        assertFalse(shouldAdvanceQuestion(option, ConversationAnswer("mode", listOf("fast"), ""), false))
+        val text = option.copy(type = "text")
+        assertFalse(shouldAdvanceQuestion(text, ConversationAnswer("mode", emptyList(), ""), true))
+        assertTrue(shouldAdvanceQuestion(text, ConversationAnswer("mode", emptyList(), "yes"), true))
     }
 }

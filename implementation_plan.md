@@ -100,6 +100,22 @@ Gate: protocol, lifecycle merge, grouping boundaries, pagination, Plan-mode
 reconnect, all question types, stale revisions, concurrent answers, malformed
 frames, and S23FE interaction tests pass without persistent conversation data.
 
+## Milestone 9: Human Tool Cards And Location Browser
+
+- Consume optional semantic tool presentations and build accessible terminal-
+  themed preview/full/raw layers with ordered call groups and Copy actions.
+- Refactor native question forms into provider-aware first-input advancement,
+  Back revision, final Submit, transcript-confirmed completion, and retryable
+  delivery errors that preserve the form.
+- Add directory list/create bridge operations, capability negotiation, a
+  shortcut-aware accessible folder browser, explicit folder confirmation, and
+  locally persisted per-host/backend recents.
+- Replace free-text project launch with Host, Backend, location, folder, label,
+  and tool stages. Keep paths out of titles/lists and expose them in details.
+- Add parser, state-machine, Compose, accessibility, lifecycle, and release
+  upgrade tests; ship signed `.16` (version code 1018) after host/client contract
+  and physical S23FE verification pass.
+
 ## Verification
 
 - Preserve upstream terminal/service/file-provider/package tests.

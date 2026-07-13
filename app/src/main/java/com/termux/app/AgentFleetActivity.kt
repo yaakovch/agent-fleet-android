@@ -12,6 +12,7 @@ import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.background
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -21,6 +22,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
@@ -28,6 +30,8 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.isSystemInDarkTheme
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
@@ -53,18 +57,21 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.termux.app.fleet.FleetHost
+import com.termux.app.fleet.FleetDirectoryListing
 import com.termux.app.fleet.FleetLoadState
 import com.termux.app.fleet.FleetLimit
 import com.termux.app.fleet.FleetLimitWindow
@@ -74,6 +81,7 @@ import com.termux.app.fleet.FleetSchedule
 import com.termux.app.fleet.FleetSnapshot
 import com.termux.app.fleet.NativeSessionSettings
 import com.termux.app.fleet.RecentSessionStore
+import com.termux.app.fleet.RecentLocationStore
 import com.termux.app.fleet.AgentFleetUpdate
 import com.termux.app.fleet.AgentFleetUpdateManager
 import com.termux.app.fleet.UpdateUiState
@@ -127,6 +135,8 @@ class AgentFleetActivity : ComponentActivity() {
                     onOpenSession = ::openFleetSession,
                     onOpenSessionWithImages = ::openFleetSessionWithImages,
                     onCreateSession = ::createFleetSession,
+                    onListDirectory = ::listFleetDirectory,
+                    onCreateDirectory = ::createFleetDirectory,
                     onRenameSession = ::renameFleetSession,
                     onScheduleContinue = ::scheduleContinue,
                     onCancelSchedule = ::cancelSchedule,
@@ -211,8 +221,26 @@ class AgentFleetActivity : ComponentActivity() {
         fleetRuntime.renameSession(snapshot, session, name)
     }
 
-    private fun createFleetSession(hostId: String, project: String, backend: String, tool: String) = mutateFleet("Session created") { snapshot ->
-        fleetRuntime.createSession(snapshot, hostId, project, backend, tool)
+    private fun createFleetSession(hostId: String, project: String, backend: String, tool: String, path: String, locationKind: String) = mutateFleet("Session created") { snapshot ->
+        fleetRuntime.createSession(snapshot, hostId, project, backend, tool, path, locationKind)
+    }
+
+    private fun listFleetDirectory(hostId: String, backend: String, path: String, callback: (Result<FleetDirectoryListing>) -> Unit) {
+        val snapshot = (fleetState.value as? FleetLoadState.Ready)?.snapshot
+            ?: return callback(Result.failure(IllegalStateException("Fleet is still loading.")))
+        fleetExecutor.execute {
+            val result = runCatching { fleetRuntime.listDirectory(snapshot, hostId, backend, path) }
+            runOnUiThread { callback(result) }
+        }
+    }
+
+    private fun createFleetDirectory(hostId: String, backend: String, parentPath: String, name: String, callback: (Result<String>) -> Unit) {
+        val snapshot = (fleetState.value as? FleetLoadState.Ready)?.snapshot
+            ?: return callback(Result.failure(IllegalStateException("Fleet is still loading.")))
+        fleetExecutor.execute {
+            val result = runCatching { fleetRuntime.createDirectory(snapshot, hostId, backend, parentPath, name) }
+            runOnUiThread { callback(result) }
+        }
     }
 
     private fun scheduleContinue(session: FleetSession, delayMs: Long) = mutateFleet("Continue scheduled") { snapshot ->
@@ -360,7 +388,9 @@ fun AgentFleetApp(
     onRefresh: () -> Unit,
     onOpenSession: (FleetSession) -> Unit,
     onOpenSessionWithImages: (FleetSession, List<String>) -> Unit,
-    onCreateSession: (String, String, String, String) -> Unit,
+    onCreateSession: (String, String, String, String, String, String) -> Unit,
+    onListDirectory: (String, String, String, (Result<FleetDirectoryListing>) -> Unit) -> Unit,
+    onCreateDirectory: (String, String, String, String, (Result<String>) -> Unit) -> Unit,
     onRenameSession: (FleetSession, String) -> Unit,
     onScheduleContinue: (FleetSession, Long) -> Unit,
     onCancelSchedule: (FleetSchedule) -> Unit,
@@ -465,10 +495,12 @@ fun AgentFleetApp(
     if (showCreateSession && currentSnapshot != null) {
         CreateSessionDialog(
             hosts = currentSnapshot.hosts,
+            onListDirectory = onListDirectory,
+            onCreateDirectory = onCreateDirectory,
             onDismiss = { showCreateSession = false }
-        ) { host, project, backend, tool ->
+        ) { host, project, backend, tool, path, locationKind ->
             showCreateSession = false
-            onCreateSession(host, project, backend, tool)
+            onCreateSession(host, project, backend, tool, path, locationKind)
         }
     }
     if (showPairing) {
@@ -621,6 +653,9 @@ private fun SessionActionsDialog(
         title = { Text(session.name, fontWeight = FontWeight.Bold) },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Text("Session details", fontWeight = FontWeight.SemiBold)
+                Text("${session.hostId} · ${session.backend} · ${session.tool}", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text(session.projectPath.ifBlank { "Path unavailable for this older session" }, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 DialogAction("Open terminal", onOpen)
                 DialogAction("Rename", onRename)
                 DialogAction("Schedule Continue", onSchedule)
@@ -683,41 +718,143 @@ private fun ConfirmKillDialog(session: FleetSession, onDismiss: () -> Unit, onCo
 @Composable
 private fun CreateSessionDialog(
     hosts: List<FleetHost>,
+    onListDirectory: (String, String, String, (Result<FleetDirectoryListing>) -> Unit) -> Unit,
+    onCreateDirectory: (String, String, String, String, (Result<String>) -> Unit) -> Unit,
     onDismiss: () -> Unit,
-    onConfirm: (String, String, String, String) -> Unit
+    onConfirm: (String, String, String, String, String, String) -> Unit
 ) {
     var hostId by rememberSaveable { mutableStateOf(hosts.firstOrNull { it.status == "healthy" }?.id ?: hosts.firstOrNull()?.id.orEmpty()) }
-    var project by rememberSaveable { mutableStateOf("") }
     var backend by rememberSaveable { mutableStateOf("linux") }
-    var tool by rememberSaveable { mutableStateOf("shell") }
-    val valid = hostId.isNotBlank() && project.matches(Regex("[A-Za-z0-9][A-Za-z0-9._ -]{0,127}"))
+    var locationKind by rememberSaveable { mutableStateOf("project") }
+    var tool by rememberSaveable { mutableStateOf("codex") }
+    var selectedPath by rememberSaveable { mutableStateOf("") }
+    var label by rememberSaveable { mutableStateOf("") }
+    var newFolder by rememberSaveable { mutableStateOf("") }
+    var listing by remember { mutableStateOf<FleetDirectoryListing?>(null) }
+    var loading by remember { mutableStateOf(false) }
+    var error by remember { mutableStateOf("") }
+    var recentVersion by remember { mutableStateOf(0) }
+    val context = LocalContext.current
+    val recentStore = remember(context) { RecentLocationStore(context) }
+    val recents = remember(hostId, backend, recentVersion) { recentStore.load(hostId, backend) }
+
+    fun browse(path: String, preferProjects: Boolean = false, recent: Boolean = false) {
+        loading = true
+        error = ""
+        onListDirectory(hostId, backend, path) { first ->
+            first.onSuccess { value ->
+                if (preferProjects) {
+                    val projects = value.shortcuts.firstOrNull { it.id == "projects" }
+                    if (projects != null && projects.path != value.path) {
+                        browse(projects.path)
+                        return@onSuccess
+                    }
+                }
+                listing = value
+                loading = false
+            }.onFailure { failure ->
+                loading = false
+                error = failure.message ?: "Folder could not be loaded."
+                if (recent && path.isNotBlank()) {
+                    recentStore.remove(hostId, backend, path)
+                    recentVersion++
+                }
+            }
+        }
+    }
+
+    LaunchedEffect(hostId, backend, locationKind) {
+        listing = null
+        selectedPath = ""
+        label = ""
+        browse("", locationKind == "project")
+    }
+    val valid = hostId.isNotBlank() && selectedPath.isNotBlank() && label.matches(Regex("[A-Za-z0-9][A-Za-z0-9._ -]{0,63}"))
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text("New session") },
         text = {
-            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 Text("Machine", fontWeight = FontWeight.SemiBold)
-                hosts.forEach { host ->
-                    AssistChip(onClick = { hostId = host.id }, label = { Text(if (host.id == hostId) "✓ ${host.name}" else host.name) })
-                }
-                OutlinedTextField(project, { project = it }, label = { Text("Project") }, singleLine = true)
-                Text("Tool", fontWeight = FontWeight.SemiBold)
                 Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    listOf("shell", "codex", "claude").forEach { choice ->
-                        AssistChip(onClick = { tool = choice }, label = { Text(if (tool == choice) "✓ $choice" else choice) })
+                    hosts.filter { it.status == "healthy" }.forEach { host ->
+                        AssistChip(onClick = { hostId = host.id }, label = { Text(if (host.id == hostId) "✓ ${host.name}" else host.name) })
                     }
                 }
-                Text("Backend", fontWeight = FontWeight.SemiBold)
                 Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                     listOf("linux", "windows").forEach { choice ->
                         AssistChip(onClick = { backend = choice }, label = { Text(if (backend == choice) "✓ $choice" else choice) })
                     }
                 }
+                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    listOf("project" to "Projects", "custom" to "Other location").forEach { (choice, title) ->
+                        AssistChip(onClick = { locationKind = choice }, label = { Text(if (locationKind == choice) "✓ $title" else title) })
+                    }
+                }
+                if (loading) LinearProgressIndicator(Modifier.fillMaxWidth())
+                if (error.isNotBlank()) {
+                    Text(error, color = MaterialTheme.colorScheme.error)
+                    OutlinedButton(onClick = { browse("", locationKind == "project") }) { Text("Retry") }
+                }
+                listing?.let { directory ->
+                    Text(directory.path, maxLines = 2, overflow = TextOverflow.Ellipsis, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        directory.shortcuts.forEach { shortcut -> AssistChip(onClick = { browse(shortcut.path) }, label = { Text(shortcut.label) }) }
+                    }
+                    if (locationKind == "custom" && recents.isNotEmpty()) {
+                        Text("Recent", fontWeight = FontWeight.SemiBold)
+                        Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                            recents.forEach { path -> AssistChip(onClick = { browse(path, recent = true) }, label = { Text(shortLocation(path)) }) }
+                            AssistChip(onClick = { recentStore.clear(hostId, backend); recentVersion++ }, label = { Text("Clear") })
+                        }
+                    }
+                    Column(Modifier.fillMaxWidth().heightIn(max = 230.dp).verticalScroll(rememberScrollState())) {
+                        directory.parentPath?.let { parent -> TextButton(onClick = { browse(parent) }) { Text("↑ Parent folder") } }
+                        directory.entries.forEach { entry ->
+                            TextButton(onClick = { browse(entry.path) }, modifier = Modifier.fillMaxWidth()) {
+                                Text("📁 ${entry.name}", Modifier.weight(1f), textAlign = androidx.compose.ui.text.style.TextAlign.Start)
+                                Text("›")
+                            }
+                        }
+                    }
+                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        OutlinedTextField(newFolder, { newFolder = it }, Modifier.weight(1f), label = { Text("New folder") }, singleLine = true)
+                        OutlinedButton(onClick = {
+                            val parent = directory.path
+                            onCreateDirectory(hostId, backend, parent, newFolder.trim()) { result ->
+                                result.onSuccess { path -> newFolder = ""; browse(path) }
+                                    .onFailure { error = it.message ?: "Folder could not be created." }
+                            }
+                        }, enabled = newFolder.isNotBlank()) { Text("Create") }
+                    }
+                    Button(onClick = {
+                        selectedPath = directory.path
+                        label = shortLocation(directory.path).substringAfterLast('/').ifBlank { "Session" }
+                    }, Modifier.fillMaxWidth()) { Text("Use this folder") }
+                }
+                if (selectedPath.isNotBlank()) {
+                    OutlinedTextField(label, { label = it }, Modifier.fillMaxWidth(), label = { Text("Session label") }, singleLine = true)
+                    Text("Tool", fontWeight = FontWeight.SemiBold)
+                    Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        listOf("codex", "claude", "copilot", "shell").forEach { choice ->
+                            AssistChip(onClick = { tool = choice }, label = { Text(if (tool == choice) "✓ $choice" else choice) })
+                        }
+                    }
+                }
             }
         },
-        confirmButton = { TextButton(onClick = { onConfirm(hostId, project, backend, tool) }, enabled = valid) { Text("Create") } },
+        confirmButton = { TextButton(onClick = {
+            recentStore.record(hostId, backend, selectedPath)
+            onConfirm(hostId, label.trim(), backend, tool, selectedPath, locationKind)
+        }, enabled = valid) { Text("Create") } },
         dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } }
     )
+}
+
+private fun shortLocation(path: String): String {
+    val normalized = path.replace('\\', '/').trimEnd('/')
+    val parts = normalized.split('/').filter { it.isNotBlank() }
+    return parts.takeLast(2).joinToString("/").ifBlank { path }
 }
 
 @Composable
@@ -1176,7 +1313,9 @@ private fun AgentFleetPreview() {
             onRefresh = {},
             onOpenSession = {},
             onOpenSessionWithImages = { _, _ -> },
-            onCreateSession = { _, _, _, _ -> },
+            onCreateSession = { _, _, _, _, _, _ -> },
+            onListDirectory = { _, _, _, callback -> callback(Result.failure(IllegalStateException("Preview"))) },
+            onCreateDirectory = { _, _, _, _, callback -> callback(Result.failure(IllegalStateException("Preview"))) },
             onRenameSession = { _, _ -> },
             onScheduleContinue = { _, _ -> },
             onCancelSchedule = {},
