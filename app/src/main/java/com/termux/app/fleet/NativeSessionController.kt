@@ -102,10 +102,8 @@ class NativeSessionController(
     fun onTerminalScreenChanged(alternateScreen: Boolean) {
         if (!enabled) return
         main.post {
-            when {
-                alternateScreen && uiState.value.viewMode == NativeViewMode.Native -> applyViewMode(NativeViewMode.AutomaticTerminal)
-                !alternateScreen && uiState.value.viewMode == NativeViewMode.AutomaticTerminal -> applyViewMode(NativeViewMode.Native)
-            }
+            val mode = terminalScreenViewMode(uiState.value.sourceMode, alternateScreen, uiState.value.viewMode)
+            if (mode != uiState.value.viewMode) applyViewMode(mode)
         }
     }
 

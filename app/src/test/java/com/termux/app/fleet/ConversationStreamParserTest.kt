@@ -65,4 +65,12 @@ class ConversationStreamParserTest {
         NativeSessionSettings.setEnabled(context, true)
         assertTrue(NativeSessionSettings.isEnabled(context))
     }
+
+    @Test
+    fun alternateScreenTakeoverAppliesToShellButNotAiTools() {
+        assertEquals(NativeViewMode.Native, terminalScreenViewMode("ai", true, NativeViewMode.Native))
+        assertEquals(NativeViewMode.AutomaticTerminal, terminalScreenViewMode("shell", true, NativeViewMode.Native))
+        assertEquals(NativeViewMode.Native, terminalScreenViewMode("shell", false, NativeViewMode.AutomaticTerminal))
+        assertEquals(NativeViewMode.ManualTerminal, terminalScreenViewMode("shell", false, NativeViewMode.ManualTerminal))
+    }
 }

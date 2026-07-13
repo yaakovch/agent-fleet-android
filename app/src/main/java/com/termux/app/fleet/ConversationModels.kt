@@ -43,6 +43,12 @@ data class NativeDirectorySnapshot(
 
 enum class NativeViewMode { Native, AutomaticTerminal, ManualTerminal }
 
+internal fun terminalScreenViewMode(sourceMode: String, alternateScreen: Boolean, current: NativeViewMode): NativeViewMode = when {
+    alternateScreen && sourceMode == "shell" && current == NativeViewMode.Native -> NativeViewMode.AutomaticTerminal
+    !alternateScreen && current == NativeViewMode.AutomaticTerminal -> NativeViewMode.Native
+    else -> current
+}
+
 data class NativeSessionUiState(
     val sessionLabel: String,
     val hostId: String,
