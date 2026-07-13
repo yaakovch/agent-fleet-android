@@ -16,6 +16,7 @@ import androidx.compose.material3.AssistChip
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.darkColorScheme
@@ -28,6 +29,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.ComposeView
 import androidx.compose.ui.platform.ViewCompositionStrategy
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -43,6 +46,16 @@ object AgentFleetComposer {
     private var uploading by mutableStateOf(false)
     private var uploadError by mutableStateOf<String?>(null)
     private var currentTarget = ""
+    private var nativeTarget by mutableStateOf("")
+    private var interactionMode by mutableStateOf("unknown")
+    private var pendingQuestion by mutableStateOf("")
+
+    @JvmStatic
+    fun updateNativeState(target: String, mode: String, pendingQuestionId: String) {
+        nativeTarget = target
+        interactionMode = mode
+        pendingQuestion = pendingQuestionId
+    }
 
     @JvmStatic
     fun bind(activity: TermuxActivity, view: ComposeView, enabled: Boolean) {
@@ -76,17 +89,34 @@ object AgentFleetComposer {
                         modifier = Modifier.fillMaxWidth().padding(horizontal = 10.dp, vertical = 8.dp),
                         verticalArrangement = Arrangement.spacedBy(7.dp)
                     ) {
+                        if (nativeTarget == target && pendingQuestion.isNotBlank()) {
+                            Button(
+                                onClick = activity::showAgentFleetPendingQuestion,
+                                modifier = Modifier.fillMaxWidth(),
+                                contentPadding = CompactButtonPadding,
+                                shape = RoundedCornerShape(14.dp)
+                            ) { Text("Answer needed · Tap to open", fontSize = 16.sp) }
+                        }
                         val composed = buildAgentFleetComposerText(text, attachments)
                         val hasContent = composed.isNotEmpty()
+                        val planMode = nativeTarget == target && interactionMode == "plan"
                         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                             OutlinedTextField(
                                 value = text,
                                 onValueChange = { if (it.length <= MAX_MESSAGE_CHARS && '\u0000' !in it) text = it },
-                                modifier = Modifier.weight(1f),
-                                placeholder = { Text("Message…", fontSize = 17.sp) },
+                                modifier = Modifier.weight(1f).semantics {
+                                    contentDescription = if (planMode) "Plan mode message input" else "Message input"
+                                },
+                                placeholder = { Text(if (planMode) "Plan message…" else "Message…", fontSize = 17.sp) },
                                 minLines = 3,
                                 maxLines = 6,
-                                shape = RoundedCornerShape(14.dp)
+                                shape = RoundedCornerShape(14.dp),
+                                colors = if (planMode) OutlinedTextFieldDefaults.colors(
+                                    focusedBorderColor = PlanAmber,
+                                    unfocusedBorderColor = PlanAmber,
+                                    focusedPlaceholderColor = PlanAmber,
+                                    unfocusedPlaceholderColor = PlanAmber
+                                ) else OutlinedTextFieldDefaults.colors()
                             )
                             Column(
                                 modifier = Modifier.width(108.dp),
@@ -273,11 +303,12 @@ object AgentFleetComposer {
     private const val MAX_ATTACHMENTS = 8
     private const val MAX_IMAGE_BYTES = 20L * 1024 * 1024
     private val CompactButtonPadding = PaddingValues(horizontal = 8.dp, vertical = 10.dp)
-    private val ComposerColors = darkColorScheme(
+private val ComposerColors = darkColorScheme(
         primary = Color(0xFFAFC6FF),
         surface = Color(0xFF111318),
         onSurface = Color(0xFFE6E8EE)
-    )
+)
+private val PlanAmber = Color(0xFFFFB74D)
 }
 
 internal fun buildAgentFleetComposerText(text: String, attachments: List<String>): String = buildString {

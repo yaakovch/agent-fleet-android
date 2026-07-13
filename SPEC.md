@@ -42,6 +42,20 @@ trusted fleet.
 - Render Codex, Claude Code, and Copilot as a live feed of user and assistant
   turns, Markdown, code, diffs, compact status, collapsed tool activity,
   attachments, errors, and safely recognized approvals.
+- Indicate structured Codex and Claude Plan mode with an amber composer outline
+  and `Plan message…` hint in both Native and manually selected Terminal views.
+  Retain the last verified state while reconnecting, reset it for a new session,
+  and never infer it from terminal text.
+- Group two or more adjacent tool calls into one collapsed, state-aware row.
+  Show useful action/target names and oldest-to-newest numbering; expand first
+  to collapsed calls and then to ordered Tool/Status, Input, Result, and Duration
+  details. Messages, questions, approvals, errors, status, and changes break a
+  group. Long groups reveal 25 calls at a time without moving a reader's feed.
+- Render Codex `request_user_input`, Claude `AskUserQuestion`, and Copilot
+  `ask_user` as focused native question cards with Back/Next, explicit Submit,
+  single choice, multi-select, boolean, and free-form Other controls. Keep an
+  `Answer needed` shortcut above the composer and collapse transcript-confirmed
+  answers. Unknown forms stay readable and open Terminal rather than guessing.
 - Load the complete current conversation progressively from the host and follow
   turns entered from any attached phone or desktop. Keep feed contents in
   memory only and re-fetch them after process death.
@@ -93,6 +107,11 @@ trusted fleet.
 - Native approval responses are typed, revision-bound operations that validate
   the active process and prompt before injecting an allowed choice. Directory
   reads are restricted to listing the active session's current directory.
+- Native question responses are bounded, idempotent, and revision-bound. The
+  host must match the active transcript call and re-verify the visible prompt,
+  options, selection, and pane after every navigation step. Any mismatch stops
+  input and directs the user to Terminal; delivery remains pending until the
+  transcript confirms the result.
 - Keep host alias paths and credentials in untracked host-local configuration.
 - Public CI builds unsigned artifacts. A controller signs using an offline key
   and publishes APK/manifest/checksum to gaming-desktop; work-m is fallback.

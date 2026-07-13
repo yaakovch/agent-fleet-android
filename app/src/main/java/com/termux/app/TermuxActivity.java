@@ -333,6 +333,11 @@ public final class TermuxActivity extends ComponentActivity implements ServiceCo
         return true;
     }
 
+    public void showAgentFleetPendingQuestion() {
+        if (mAgentFleetNativeSession != null)
+            mAgentFleetNativeSession.showPendingQuestion();
+    }
+
     public boolean sendAgentFleetKey(String key) {
         TerminalSession session = getCurrentSession();
         if (session == null || !session.isRunning()) return false;

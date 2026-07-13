@@ -6,8 +6,9 @@ alpha targets one Samsung S23FE and is distributed through the trusted fleet.
 
 Fleet sessions can open in a conversation-first Native view for Codex, Claude
 Code, Copilot, and ordinary Bash/Zsh work. It progressively loads the current
-conversation, follows desktop input live, collapses tool activity, exposes only
-safely recognized approvals, and keeps Terminal one tap away. Shell sessions
+conversation, follows desktop input live, groups and names ordered tool calls,
+marks structured Plan mode in the composer, exposes safely recognized approvals
+and interactive questions, and keeps Terminal one tap away. Shell sessions
 use command cards, a compact command bar, and directory-only navigation. Native
 feed content remains in memory and is re-fetched after process death; the live
 Termux PTY and terminal emulator remain the source of truth underneath.

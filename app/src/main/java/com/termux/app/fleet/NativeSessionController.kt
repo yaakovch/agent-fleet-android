@@ -3,6 +3,7 @@ package com.termux.app.fleet
 import android.content.Intent
 import android.os.Handler
 import android.os.Looper
+import android.util.Base64
 import android.view.View
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.platform.ComposeView
@@ -10,6 +11,7 @@ import androidx.compose.ui.platform.ViewCompositionStrategy
 import com.termux.app.AgentFleetTheme
 import com.termux.app.TermuxActivity
 import org.json.JSONObject
+import org.json.JSONArray
 import java.io.ByteArrayOutputStream
 import java.io.File
 import java.util.UUID
@@ -35,7 +37,9 @@ class NativeSessionController(
     private var enabled = false
     private var aiComposer = false
     private var localSession = false
+    private var composerTarget = ""
     @Volatile private var streamProcess: Process? = null
+    @Volatile private var retryBlocked = false
     private var retryIndex = 0
     private var lastFallbackText = ""
     private var pendingShellId: String? = null
@@ -51,6 +55,7 @@ class NativeSessionController(
                     onRetry = ::restartNow,
                     onLoadOlder = ::loadOlder,
                     onApproval = ::respondApproval,
+                    onQuestion = ::respondQuestion,
                     onShellCommand = ::sendShellCommand,
                     onShellKey = activity::sendAgentFleetKey,
                     onDirectory = ::openDirectory,
@@ -64,11 +69,14 @@ class NativeSessionController(
     fun bind(intent: Intent?) {
         generation++
         stopProcess()
+        retryBlocked = false
         val host = intent?.getStringExtra(AgentFleetContract.EXTRA_HOST_ID).orEmpty()
         val session = intent?.getStringExtra(AgentFleetContract.EXTRA_INTERNAL_SESSION).orEmpty()
         val label = intent?.getStringExtra(AgentFleetContract.EXTRA_SESSION_NAME).orEmpty().ifBlank { session }
         aiComposer = intent?.getBooleanExtra(AgentFleetContract.EXTRA_COMPOSE_INPUT, false) == true
         localSession = intent?.getBooleanExtra(AgentFleetContract.EXTRA_LOCAL_SESSION, false) == true
+        val project = intent?.getStringExtra(AgentFleetContract.EXTRA_PROJECT).orEmpty()
+        composerTarget = listOf(host, project, if (localSession) "local" else session).joinToString(":")
         enabled = intent?.getBooleanExtra(AgentFleetContract.EXTRA_NATIVE_SESSION, false) == true &&
             NativeSessionSettings.isEnabled(activity) && (localSession || (host.isNotBlank() && session.isNotBlank()))
         uiState.value = NativeSessionUiState(
@@ -80,6 +88,7 @@ class NativeSessionController(
             connection = if (localSession) "Live" else "Connecting…",
             cwd = if (localSession) home.absolutePath else ""
         )
+        updateComposerState()
         applyViewMode(if (enabled) NativeViewMode.Native else NativeViewMode.ManualTerminal)
         if (enabled && localSession) refreshDirectories()
         if (visible && enabled && !localSession) startStream()
@@ -159,6 +168,21 @@ class NativeSessionController(
         if (enabled) applyViewMode(NativeViewMode.Native)
     }
 
+    fun showPendingQuestion() {
+        if (!enabled) return
+        val pending = uiState.value.items.lastOrNull { it.kind == "question" && it.state != "complete" } ?: return
+        applyViewMode(NativeViewMode.Native)
+        uiState.value = uiState.value.copy(
+            focusQuestionId = pending.id,
+            focusQuestionSerial = uiState.value.focusQuestionSerial + 1
+        )
+    }
+
+    private fun updateComposerState() {
+        val pending = uiState.value.items.lastOrNull { it.kind == "question" && it.state != "complete" }?.id.orEmpty()
+        AgentFleetComposer.updateNativeState(composerTarget, uiState.value.interactionMode, pending)
+    }
+
     private fun applyViewMode(mode: NativeViewMode) {
         uiState.value = uiState.value.copy(viewMode = mode)
         val native = enabled && mode == NativeViewMode.Native
@@ -209,7 +233,13 @@ class NativeSessionController(
                         }
                         val frame = runCatching { ConversationStreamParser.parseFrame(line) }.getOrNull()
                         if (frame == null) {
-                            postError(token, "The host sent an invalid conversation frame.")
+                            val message = if (line.contains("\"protocolVersion\":1")) {
+                                retryBlocked = true
+                                "Native view upgrade required. Update wtmux on this host; Terminal remains available."
+                            } else {
+                                "The host sent an invalid conversation frame."
+                            }
+                            postError(token, message)
                             process.destroyForcibly()
                             break
                         }
@@ -243,7 +273,7 @@ class NativeSessionController(
     }
 
     private fun scheduleRetry(token: Int) {
-        if (!visible || !enabled || token != generation) return
+        if (!visible || !enabled || retryBlocked || token != generation) return
         val delays = longArrayOf(1_000, 2_000, 5_000, 10_000, 30_000)
         val delay = delays[retryIndex.coerceAtMost(delays.lastIndex)]
         retryIndex = (retryIndex + 1).coerceAtMost(delays.lastIndex)
@@ -253,6 +283,7 @@ class NativeSessionController(
     private fun restartNow() {
         generation++
         stopProcess()
+        retryBlocked = false
         retryIndex = 0
         uiState.value = uiState.value.copy(
             error = null,
@@ -284,6 +315,7 @@ class NativeSessionController(
                 uiState.value = uiState.value.copy(
                     adapter = frame.adapter,
                     sourceMode = frame.mode,
+                    interactionMode = frame.interactionMode,
                     connection = "Live",
                     revision = frame.revision,
                     items = mergeConversationItems(emptyList(), incoming),
@@ -295,6 +327,7 @@ class NativeSessionController(
                     error = null
                 )
                 if (frame.mode == "shell") refreshDirectories()
+                updateComposerState()
             }
             is ConversationFrame.Event -> {
                 if (frame.session != uiState.value.internalSession) return
@@ -307,12 +340,17 @@ class NativeSessionController(
                         connection = "Live",
                         liveEventSerial = uiState.value.liveEventSerial + if (isNew) 1 else 0
                     )
+                    updateComposerState()
                 }
             }
             is ConversationFrame.Status -> {
                 if (frame.session != uiState.value.internalSession) return
                 if (frame.status == "reload_required") restartNow()
-                else uiState.value = uiState.value.copy(connection = if (frame.status == "ready") "Live" else frame.status.replace('_', ' '))
+                else uiState.value = uiState.value.copy(
+                    connection = if (frame.status == "ready") "Live" else frame.status.replace('_', ' '),
+                    interactionMode = frame.interactionMode.takeUnless { it == "unknown" } ?: uiState.value.interactionMode
+                )
+                updateComposerState()
             }
             is ConversationFrame.Error -> {
                 uiState.value = uiState.value.copy(connection = "Unavailable", error = frame.message)
@@ -395,6 +433,62 @@ class NativeSessionController(
         }
     }
 
+    private fun respondQuestion(value: ConversationItem, answers: List<ConversationAnswer>) {
+        val revision = value.revision ?: return
+        val payload = JSONObject().put("answers", JSONArray().apply {
+            answers.forEach { answer ->
+                put(JSONObject().apply {
+                    put("questionId", answer.questionId)
+                    put("choiceIds", JSONArray(answer.choiceIds))
+                    put("text", answer.text)
+                })
+            }
+        }).toString()
+        if (payload.toByteArray().size > 32 * 1024) {
+            uiState.value = uiState.value.copy(items = mergeConversationItems(
+                uiState.value.items,
+                listOf(value.copy(state = "error", title = "Answers are too long—shorten them"))
+            ))
+            updateComposerState()
+            return
+        }
+        val encoded = Base64.encodeToString(payload.toByteArray(Charsets.UTF_8), Base64.URL_SAFE or Base64.NO_WRAP or Base64.NO_PADDING)
+        val running = value.copy(state = "running", title = "Sending answer…")
+        uiState.value = uiState.value.copy(items = mergeConversationItems(uiState.value.items, listOf(running)))
+        updateComposerState()
+        runOneShot(conversationCommand("answer", listOf(
+            "--question", value.id,
+            "--revision", revision,
+            "--answers-b64", encoded,
+            "--idempotency-key", UUID.randomUUID().toString()
+        )), timeoutSeconds = 30) { output ->
+            val delivered = runCatching {
+                JSONObject(output.lineSequence().last { it.isNotBlank() }).let {
+                    it.optString("type") == "question.response" && it.optString("status") == "delivered"
+                }
+            }.getOrDefault(false)
+            val existing = uiState.value.items.firstOrNull { it.id == value.id } ?: value
+            if (!delivered && existing.state != "complete") {
+                uiState.value = uiState.value.copy(items = mergeConversationItems(
+                    uiState.value.items,
+                    listOf(existing.copy(state = "error", title = "Question changed—open Terminal"))
+                ))
+                updateComposerState()
+            } else if (delivered) {
+                main.postDelayed({
+                    val current = uiState.value.items.firstOrNull { it.id == value.id }
+                    if (current?.state == "running") {
+                        uiState.value = uiState.value.copy(items = mergeConversationItems(
+                            uiState.value.items,
+                            listOf(current.copy(state = "error", title = "Answer unconfirmed—check again"))
+                        ))
+                        updateComposerState()
+                    }
+                }, 20_000)
+            }
+        }
+    }
+
     private fun refreshDirectories() {
         if (uiState.value.sourceMode != "shell") return
         if (localSession) {
@@ -456,7 +550,7 @@ class NativeSessionController(
         main.postDelayed(::refreshDirectories, 800)
     }
 
-    private fun runOneShot(command: List<String>, onResult: (String) -> Unit) {
+    private fun runOneShot(command: List<String>, timeoutSeconds: Long = 12, onResult: (String) -> Unit) {
         val token = generation
         thread(name = "native-session-action", isDaemon = true) {
             val output = runCatching {
@@ -473,7 +567,7 @@ class NativeSessionController(
                         buffer.write(chunk, 0, count)
                     }
                 }
-                if (!process.waitFor(12, TimeUnit.SECONDS)) process.destroyForcibly()
+                if (!process.waitFor(timeoutSeconds, TimeUnit.SECONDS)) process.destroyForcibly()
                 errorReader.join(1_000)
                 buffer.toString(Charsets.UTF_8.name())
             }.getOrDefault("")

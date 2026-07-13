@@ -2,6 +2,20 @@ package com.termux.app.fleet
 
 data class ConversationChoice(val id: String, val label: String)
 
+data class ConversationQuestionOption(val id: String, val label: String, val description: String)
+
+data class ConversationQuestion(
+    val id: String,
+    val header: String,
+    val prompt: String,
+    val type: String,
+    val required: Boolean,
+    val allowOther: Boolean,
+    val options: List<ConversationQuestionOption>
+)
+
+data class ConversationAnswer(val questionId: String, val choiceIds: List<String>, val text: String)
+
 data class ConversationItem(
     val id: String,
     val kind: String,
@@ -14,7 +28,15 @@ data class ConversationItem(
     val tool: String,
     val attachments: List<String>,
     val choices: List<ConversationChoice>,
-    val revision: String? = null
+    val revision: String? = null,
+    val action: String = "",
+    val target: String = "",
+    val input: String = "",
+    val result: String = "",
+    val startedAt: String = "",
+    val completedAt: String = "",
+    val questions: List<ConversationQuestion> = emptyList(),
+    val answers: List<ConversationAnswer> = emptyList()
 )
 
 sealed class ConversationFrame {
@@ -22,6 +44,7 @@ sealed class ConversationFrame {
         val session: String,
         val adapter: String,
         val mode: String,
+        val interactionMode: String,
         val revision: String,
         val items: List<ConversationItem>,
         val nextCursor: String?,
@@ -29,7 +52,7 @@ sealed class ConversationFrame {
     ) : ConversationFrame()
 
     data class Event(val session: String, val adapter: String, val item: ConversationItem) : ConversationFrame()
-    data class Status(val session: String, val adapter: String, val status: String) : ConversationFrame()
+    data class Status(val session: String, val adapter: String, val status: String, val interactionMode: String) : ConversationFrame()
     data class Error(val code: String, val message: String) : ConversationFrame()
 }
 
@@ -55,6 +78,7 @@ data class NativeSessionUiState(
     val internalSession: String,
     val adapter: String = "connecting",
     val sourceMode: String = "ai",
+    val interactionMode: String = "unknown",
     val connection: String = "Connecting…",
     val revision: String = "",
     val items: List<ConversationItem> = emptyList(),
@@ -64,6 +88,8 @@ data class NativeSessionUiState(
     val olderLoadError: String? = null,
     val historyLimitReached: Boolean = false,
     val liveEventSerial: Long = 0,
+    val focusQuestionId: String = "",
+    val focusQuestionSerial: Long = 0,
     val viewMode: NativeViewMode = NativeViewMode.Native,
     val error: String? = null,
     val cwd: String = "",

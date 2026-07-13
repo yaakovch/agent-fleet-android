@@ -18,11 +18,12 @@ class ConversationStreamParserTest {
     @Test
     fun parsesConversationSnapshotAndApproval() {
         val line = """
-            {"protocolVersion":1,"type":"conversation.snapshot","session":"wtmux-main","adapter":"codex","mode":"ai","revision":"rev-1","items":[${item("m1")},{"id":"approval-1","kind":"approval","timestamp":"","role":"","title":"Run command?","text":"git status","detail":"","state":"pending","tool":"shell","attachments":[],"choices":[{"id":"approve","label":"Approve"},{"id":"deny","label":"Deny"}],"revision":"approval-rev"}],"nextCursor":"older","hasMore":true}
+            {"protocolVersion":2,"type":"conversation.snapshot","session":"wtmux-main","adapter":"codex","mode":"ai","interactionMode":"plan","revision":"rev-1","items":[${item("m1")},{"id":"approval-1","kind":"approval","timestamp":"","role":"","title":"Run command?","text":"git status","detail":"","state":"pending","tool":"shell","attachments":[],"choices":[{"id":"approve","label":"Approve"},{"id":"deny","label":"Deny"}],"revision":"approval-rev"}],"nextCursor":"older","hasMore":true}
         """.trimIndent()
 
         val frame = ConversationStreamParser.parseFrame(line) as ConversationFrame.Snapshot
         assertEquals("codex", frame.adapter)
+        assertEquals("plan", frame.interactionMode)
         assertEquals(2, frame.items.size)
         assertEquals("approval-rev", frame.items.last().revision)
         assertEquals("deny", frame.items.last().choices.last().id)
@@ -32,15 +33,18 @@ class ConversationStreamParserTest {
     @Test
     fun parsesDirectoryAndRejectsUnknownFrames() {
         val directory = ConversationStreamParser.parseDirectory(
-            """{"protocolVersion":1,"type":"directory.snapshot","session":"s","cwd":"/home/me","entries":[{"name":"projects","symlink":false}],"truncated":false}"""
+            """{"protocolVersion":2,"type":"directory.snapshot","session":"s","cwd":"/home/me","entries":[{"name":"projects","symlink":false}],"truncated":false}"""
         )
         assertEquals("projects", directory.entries.single().name)
         assertFalse(directory.truncated)
 
         val error = runCatching {
-            ConversationStreamParser.parseFrame("""{"protocolVersion":1,"type":"unexpected"}""")
+            ConversationStreamParser.parseFrame("""{"protocolVersion":2,"type":"unexpected"}""")
         }.exceptionOrNull()
         assertTrue(error is IllegalStateException)
+        assertTrue(runCatching {
+            ConversationStreamParser.parseFrame("""{"protocolVersion":1,"type":"conversation.heartbeat"}""")
+        }.isFailure)
     }
 
     @Test
@@ -55,6 +59,49 @@ class ConversationStreamParserTest {
 
         val older = first.copy(id = "zero", text = "older")
         assertEquals(listOf("zero", "one", "two"), mergeConversationItems(merged, listOf(older), prepend = true).map { it.id })
+    }
+
+    @Test
+    fun mergesToolLifecycleAcrossOlderPagesAndGroupsOnlyAdjacentTools() {
+        val start = ConversationItem(
+            "call-1", "tool", "2026-07-13T00:00:00Z", "", "Running Read", "", "input", "running", "Read",
+            emptyList(), emptyList(), action = "read", target = "README.md", input = "{\"path\":\"README.md\"}", startedAt = "2026-07-13T00:00:00Z"
+        )
+        val complete = start.copy(
+            title = "Tool completed", detail = "result", state = "complete", tool = "", action = "other", target = "", input = "",
+            result = "contents", startedAt = "", completedAt = "2026-07-13T00:00:01Z"
+        )
+        val merged = mergeConversationItems(listOf(complete), listOf(start), prepend = true).single()
+        assertEquals("Read", merged.tool)
+        assertEquals("README.md", merged.target)
+        assertEquals("contents", merged.result)
+        assertEquals("complete", merged.state)
+
+        val second = start.copy(id = "call-2", action = "command", target = "git status")
+        val message = start.copy(id = "message", kind = "message", role = "assistant")
+        val rows = buildConversationRows(listOf(start, second, message, start.copy(id = "call-3")), hasMore = true)
+        assertTrue(rows[0] is ConversationRow.ToolGroup)
+        assertTrue((rows[0] as ConversationRow.ToolGroup).continuesIntoOlderHistory)
+        assertTrue(rows[1] is ConversationRow.Item)
+        assertTrue(rows[2] is ConversationRow.Item)
+        assertEquals("2+ tool calls · Command 1, Read 1", toolGroupTitle(rows[0] as ConversationRow.ToolGroup))
+    }
+
+    @Test
+    fun parsesStructuredQuestion() {
+        val line = """
+            {"protocolVersion":2,"type":"conversation.event","session":"s","adapter":"claude","item":{"id":"q1","kind":"question","timestamp":"","role":"","title":"Answer needed","text":"","detail":"","state":"pending","tool":"question","attachments":[],"choices":[],"revision":"r1","questions":[{"id":"files","header":"Files","prompt":"Which files?","type":"multi","required":true,"allowOther":true,"options":[{"id":"readme","label":"README","description":"Docs"}]}],"answers":[]}}
+        """.trimIndent()
+        val item = (ConversationStreamParser.parseFrame(line) as ConversationFrame.Event).item
+        assertEquals("question", item.kind)
+        assertEquals("multi", item.questions.single().type)
+        assertEquals("Docs", item.questions.single().options.single().description)
+
+        val locallyTimedOut = item.copy(state = "error", title = "Answer unconfirmed")
+        val confirmed = item.copy(state = "complete", questions = emptyList())
+        val resolved = mergeConversationItems(listOf(locallyTimedOut), listOf(confirmed)).single()
+        assertEquals("complete", resolved.state)
+        assertEquals("Which files?", resolved.questions.single().prompt)
     }
 
     @Test

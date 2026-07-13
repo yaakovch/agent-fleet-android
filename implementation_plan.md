@@ -82,6 +82,24 @@ simultaneous desktop input, shell cards, safe approvals, attachments, takeover,
 offline recovery, large history/font behavior, updater, SSH, and Classic
 Terminal pass without persistent transcript data.
 
+## Milestone 8: Native Conversation Protocol v2
+
+- Coordinate a protocol-v2 wtmux host runtime, phone client, and Android build.
+  Add structured interaction mode, complete tool lifecycle fields, normalized
+  question schemas, and revision-bound `conversation answer` delivery. Surface
+  version mismatch explicitly while leaving the real terminal available.
+- Connect per-session Plan state to the shared composer. Fold adjacent tools
+  into stable ordered display groups across live updates and history paging,
+  add safe action/target titles, and render formatted Input/Result details.
+- Add one-question-at-a-time native forms for Codex, Claude, and Copilot,
+  including multi-select and Other, a persistent pending shortcut, transcript
+  confirmation, cross-client resolution, timeout recovery, and fail-closed
+  Terminal fallback.
+
+Gate: protocol, lifecycle merge, grouping boundaries, pagination, Plan-mode
+reconnect, all question types, stale revisions, concurrent answers, malformed
+frames, and S23FE interaction tests pass without persistent conversation data.
+
 ## Verification
 
 - Preserve upstream terminal/service/file-provider/package tests.
