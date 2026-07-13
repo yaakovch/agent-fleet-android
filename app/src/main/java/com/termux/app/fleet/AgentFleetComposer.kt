@@ -134,19 +134,18 @@ object AgentFleetComposer {
                                 shape = RoundedCornerShape(14.dp)
                             ) { Text("Ctrl+C", fontSize = 16.sp) }
                             OutlinedButton(
+                                onClick = { activity.sendAgentFleetKey("SHIFT_TAB") },
+                                modifier = Modifier.weight(1f),
+                                contentPadding = CompactButtonPadding,
+                                shape = RoundedCornerShape(14.dp)
+                            ) { Text("Shift+Tab", fontSize = 16.sp) }
+                            OutlinedButton(
                                 onClick = activity::pickAgentFleetImages,
                                 enabled = !uploading && attachments.size < MAX_ATTACHMENTS,
                                 modifier = Modifier.weight(1f),
                                 contentPadding = CompactButtonPadding,
                                 shape = RoundedCornerShape(14.dp)
                             ) { Text(if (uploading) "Wait…" else "Attach", fontSize = 16.sp) }
-                            OutlinedButton(
-                                onClick = activity::pickAgentFleetCamera,
-                                enabled = !uploading && attachments.size < MAX_ATTACHMENTS,
-                                modifier = Modifier.weight(1f),
-                                contentPadding = CompactButtonPadding,
-                                shape = RoundedCornerShape(14.dp)
-                            ) { Text("Camera", fontSize = 16.sp) }
                         }
                     }
                 }

@@ -336,11 +336,18 @@ public final class TermuxActivity extends ComponentActivity implements ServiceCo
     public boolean sendAgentFleetKey(String key) {
         TerminalSession session = getCurrentSession();
         if (session == null || !session.isRunning()) return false;
-        if ("TAB".equals(key)) session.write("\t");
-        else if ("UP".equals(key)) session.write("\033[A");
-        else if ("DOWN".equals(key)) session.write("\033[B");
-        else return false;
+        String sequence = agentFleetKeySequence(key);
+        if (sequence == null) return false;
+        session.write(sequence);
         return true;
+    }
+
+    static String agentFleetKeySequence(String key) {
+        if ("TAB".equals(key)) return "\t";
+        if ("SHIFT_TAB".equals(key)) return "\033[Z";
+        if ("UP".equals(key)) return "\033[A";
+        if ("DOWN".equals(key)) return "\033[B";
+        return null;
     }
 
     public void setAgentFleetNativeView(boolean nativeAvailable, boolean nativeView, boolean automaticTerminal, boolean aiComposer) {

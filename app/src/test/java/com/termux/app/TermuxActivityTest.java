@@ -29,4 +29,13 @@ public class TermuxActivityTest {
             "https://example.com/#bar", "https://example.com/foo#bar");
     }
 
+    @Test
+    public void testAgentFleetKeySequences() {
+        Assert.assertEquals("\t", TermuxActivity.agentFleetKeySequence("TAB"));
+        Assert.assertEquals("\033[Z", TermuxActivity.agentFleetKeySequence("SHIFT_TAB"));
+        Assert.assertEquals("\033[A", TermuxActivity.agentFleetKeySequence("UP"));
+        Assert.assertEquals("\033[B", TermuxActivity.agentFleetKeySequence("DOWN"));
+        Assert.assertNull(TermuxActivity.agentFleetKeySequence("UNKNOWN"));
+    }
+
 }
