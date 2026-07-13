@@ -301,12 +301,23 @@ public final class TermuxActivity extends ComponentActivity implements ServiceCo
     }
 
     public boolean sendAgentFleetComposerText(String text) {
-        if (text == null || text.trim().isEmpty() || text.length() > 32768 || text.indexOf('\0') >= 0)
+        return sendAgentFleetComposerText(text, true);
+    }
+
+    public boolean sendAgentFleetComposerText(String text, boolean appendEnter) {
+        if (text == null || text.length() > 32768 || text.indexOf('\0') >= 0 || (!appendEnter && text.isEmpty()))
             return false;
         TerminalSession session = getCurrentSession();
         if (session == null || !session.isRunning()) return false;
-        session.getEmulator().paste(text);
-        session.write("\r");
+        if (!text.isEmpty()) session.getEmulator().paste(text);
+        if (appendEnter) session.write("\r");
+        return true;
+    }
+
+    public boolean sendAgentFleetControlC() {
+        TerminalSession session = getCurrentSession();
+        if (session == null || !session.isRunning()) return false;
+        session.write("\u0003");
         return true;
     }
 

@@ -5,9 +5,11 @@ import android.net.Uri
 import android.view.View
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Button
 import androidx.compose.material3.AssistChip
@@ -26,6 +28,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.ComposeView
 import androidx.compose.ui.platform.ViewCompositionStrategy
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.termux.app.TermuxActivity
@@ -73,15 +76,48 @@ object AgentFleetComposer {
                         modifier = Modifier.fillMaxWidth().padding(horizontal = 10.dp, vertical = 8.dp),
                         verticalArrangement = Arrangement.spacedBy(7.dp)
                     ) {
-                        OutlinedTextField(
-                            value = text,
-                            onValueChange = { if (it.length <= MAX_MESSAGE_CHARS && '\u0000' !in it) text = it },
-                            modifier = Modifier.fillMaxWidth(),
-                            placeholder = { Text("Message…", fontSize = 17.sp) },
-                            minLines = 2,
-                            maxLines = 6,
-                            shape = RoundedCornerShape(14.dp)
-                        )
+                        val composed = buildAgentFleetComposerText(text, attachments)
+                        val hasContent = composed.isNotEmpty()
+                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            OutlinedTextField(
+                                value = text,
+                                onValueChange = { if (it.length <= MAX_MESSAGE_CHARS && '\u0000' !in it) text = it },
+                                modifier = Modifier.weight(1f),
+                                placeholder = { Text("Message…", fontSize = 17.sp) },
+                                minLines = 3,
+                                maxLines = 6,
+                                shape = RoundedCornerShape(14.dp)
+                            )
+                            Column(
+                                modifier = Modifier.width(108.dp),
+                                verticalArrangement = Arrangement.spacedBy(7.dp)
+                            ) {
+                                OutlinedButton(
+                                    onClick = {
+                                        if (activity.sendAgentFleetComposerText(composed, false)) {
+                                            text = ""
+                                            attachments.clear()
+                                        }
+                                    },
+                                    enabled = !uploading && hasContent,
+                                    modifier = Modifier.fillMaxWidth(),
+                                    contentPadding = CompactButtonPadding,
+                                    shape = RoundedCornerShape(14.dp)
+                                ) { Text("Insert", fontSize = 16.sp, textAlign = TextAlign.Center) }
+                                Button(
+                                    onClick = {
+                                        if (activity.sendAgentFleetComposerText(composed, true)) {
+                                            text = ""
+                                            attachments.clear()
+                                        }
+                                    },
+                                    enabled = !uploading,
+                                    modifier = Modifier.fillMaxWidth(),
+                                    contentPadding = CompactButtonPadding,
+                                    shape = RoundedCornerShape(14.dp)
+                                ) { Text(agentFleetPrimaryActionLabel(hasContent), fontSize = 16.sp, textAlign = TextAlign.Center) }
+                            }
+                        }
                         if (attachments.isNotEmpty()) {
                             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                                 attachments.take(3).forEach { path ->
@@ -92,33 +128,25 @@ object AgentFleetComposer {
                         uploadError?.let { Text(it, color = Color(0xFFFFB86B), fontSize = 14.sp) }
                         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                             OutlinedButton(
+                                onClick = { activity.sendAgentFleetControlC() },
+                                modifier = Modifier.weight(1f),
+                                contentPadding = CompactButtonPadding,
+                                shape = RoundedCornerShape(14.dp)
+                            ) { Text("Ctrl+C", fontSize = 16.sp) }
+                            OutlinedButton(
                                 onClick = activity::pickAgentFleetImages,
                                 enabled = !uploading && attachments.size < MAX_ATTACHMENTS,
+                                modifier = Modifier.weight(1f),
+                                contentPadding = CompactButtonPadding,
                                 shape = RoundedCornerShape(14.dp)
-                            ) { Text(if (uploading) "Sending image…" else "Attach", fontSize = 16.sp) }
+                            ) { Text(if (uploading) "Wait…" else "Attach", fontSize = 16.sp) }
                             OutlinedButton(
                                 onClick = activity::pickAgentFleetCamera,
                                 enabled = !uploading && attachments.size < MAX_ATTACHMENTS,
+                                modifier = Modifier.weight(1f),
+                                contentPadding = CompactButtonPadding,
                                 shape = RoundedCornerShape(14.dp)
                             ) { Text("Camera", fontSize = 16.sp) }
-                            Button(
-                                onClick = {
-                                    val composed = buildString {
-                                        append(text.trimEnd())
-                                        if (attachments.isNotEmpty()) {
-                                            if (isNotEmpty()) append("\n\n")
-                                            attachments.forEach { append(it).append('\n') }
-                                        }
-                                    }.trimEnd()
-                                    if (activity.sendAgentFleetComposerText(composed)) {
-                                        text = ""
-                                        attachments.clear()
-                                    }
-                                },
-                                enabled = !uploading && (text.isNotBlank() || attachments.isNotEmpty()),
-                                modifier = Modifier.weight(1f),
-                                shape = RoundedCornerShape(14.dp)
-                            ) { Text("Send", fontSize = 17.sp) }
                         }
                     }
                 }
@@ -245,9 +273,20 @@ object AgentFleetComposer {
     private const val MAX_MESSAGE_CHARS = 32_768
     private const val MAX_ATTACHMENTS = 8
     private const val MAX_IMAGE_BYTES = 20L * 1024 * 1024
+    private val CompactButtonPadding = PaddingValues(horizontal = 8.dp, vertical = 10.dp)
     private val ComposerColors = darkColorScheme(
         primary = Color(0xFFAFC6FF),
         surface = Color(0xFF111318),
         onSurface = Color(0xFFE6E8EE)
     )
 }
+
+internal fun buildAgentFleetComposerText(text: String, attachments: List<String>): String = buildString {
+    append(text.trimEnd())
+    if (attachments.isNotEmpty()) {
+        if (isNotEmpty()) append("\n\n")
+        attachments.forEach { append(it).append('\n') }
+    }
+}.trimEnd()
+
+internal fun agentFleetPrimaryActionLabel(hasContent: Boolean): String = if (hasContent) "Send" else "Enter"
