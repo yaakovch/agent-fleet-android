@@ -58,7 +58,7 @@ class ConversationStreamParserTest {
     }
 
     @Test
-    fun nativeViewSettingPersistsAndDefaultsOffForPreview() {
+    fun nativeViewSettingPersistsAndDefaultsOn() {
         val context: Context = RuntimeEnvironment.getApplication()
         context.getSharedPreferences("agent-fleet-native-session", Context.MODE_PRIVATE).edit().clear().commit()
         assertTrue(NativeSessionSettings.isEnabled(context))
