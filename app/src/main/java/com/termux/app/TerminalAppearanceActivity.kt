@@ -41,7 +41,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.termux.app.fleet.TerminalAppearance
@@ -201,11 +201,11 @@ private fun TerminalPreview(theme: TerminalThemePreset, appearance: TerminalAppe
 private fun ThemeButton(preset: TerminalThemePreset, selected: Boolean, modifier: Modifier, onClick: () -> Unit) {
     if (selected) {
         Button(onClick = onClick, modifier = modifier, shape = RoundedCornerShape(14.dp)) {
-            Text(preset.name, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text(preset.name, maxLines = 2, textAlign = TextAlign.Center)
         }
     } else {
         OutlinedButton(onClick = onClick, modifier = modifier, shape = RoundedCornerShape(14.dp)) {
-            Text(preset.name, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text(preset.name, maxLines = 2, textAlign = TextAlign.Center)
         }
     }
 }
@@ -233,14 +233,14 @@ private fun ChoiceRow(
     isEnabled: (String) -> Boolean = { true },
     onSelect: (String) -> Unit
 ) {
-    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+    Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(6.dp)) {
         choices.forEach { (value, label) ->
             FilterChip(
                 selected = selected == value,
                 onClick = { onSelect(value) },
                 enabled = isEnabled(value),
-                label = { Text(label, maxLines = 1, overflow = TextOverflow.Ellipsis) },
-                modifier = Modifier.weight(1f)
+                label = { Text(label) },
+                modifier = Modifier.fillMaxWidth()
             )
         }
     }

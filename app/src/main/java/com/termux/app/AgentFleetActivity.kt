@@ -840,7 +840,13 @@ private fun TerminalScreen(
                     Row(Modifier.fillMaxWidth().padding(18.dp), verticalAlignment = Alignment.CenterVertically) {
                         Column(Modifier.weight(1f)) {
                             Text(session.name, fontSize = 19.sp, fontWeight = FontWeight.Bold)
-                            Text("${session.hostId} · ${session.tool}", fontSize = 15.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Text(
+                                session.hostId,
+                                fontSize = 15.sp,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
                         }
                         Button(onClick = { onOpenSession(session) }, shape = RoundedCornerShape(14.dp)) { Text("Open", fontSize = 16.sp) }
                     }
