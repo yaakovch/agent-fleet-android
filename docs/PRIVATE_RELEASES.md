@@ -18,6 +18,12 @@ on a controller with the private Agent Fleet key.
 5. In the app, open More → App updates → Source and save the HTTPS URL ending
    in `manifest.json`.
 
+For a development phone already running Agent Fleet, install a preview only with
+`scripts/release/install-device-update.sh ADB_SERIAL APK`. The script uses Android's
+replace-in-place mode and verifies that `firstInstallTime` did not change. Never
+uninstall Agent Fleet to apply an update: uninstalling also deletes the Termux home,
+packages, keys, and wtmux runtime.
+
 The app refuses redirects, HTTP, oversized files, wrong checksums, mismatched
 package/version metadata, and any APK not signed by the certificate already
 installed on the phone. Android still presents its normal installer confirmation.
