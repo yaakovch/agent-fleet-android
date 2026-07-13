@@ -138,7 +138,7 @@ object AgentFleetComposer {
                                 modifier = Modifier.weight(1f),
                                 contentPadding = CompactButtonPadding,
                                 shape = RoundedCornerShape(14.dp)
-                            ) { Text("Shift+Tab", fontSize = 16.sp) }
+                            ) { Text("⇧ Tab", fontSize = 16.sp, maxLines = 1) }
                             OutlinedButton(
                                 onClick = activity::pickAgentFleetImages,
                                 enabled = !uploading && attachments.size < MAX_ATTACHMENTS,
