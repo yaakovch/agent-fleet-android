@@ -13,6 +13,13 @@ use command cards, a compact command bar, and directory-only navigation. Native
 feed content remains in memory and is re-fetched after process death; the live
 Termux PTY and terminal emulator remain the source of truth underneath.
 
+The private arm64 APK is self-contained: a clean install prepares Bash, Python,
+OpenSSH, tmux, Git, fzf, core terminal tools, and a pinned wtmux baseline
+without a network connection or pasted setup commands. Restored Termux data is
+preserved and repaired only on request. Pairing supplies private app/runtime
+update policy; independently signed wtmux hotfixes retain active, previous, and
+APK-baseline recovery targets.
+
 - [Product specification](SPEC.md)
 - [Implementation plan](implementation_plan.md)
 - [Upstream provenance](PROVENANCE.md)

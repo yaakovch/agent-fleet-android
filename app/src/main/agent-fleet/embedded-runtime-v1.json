@@ -1,0 +1,33 @@
+{
+  "schemaVersion": 1,
+  "baselineVersion": "git-ea0eebe",
+  "wtmuxCommit": "ea0eebeb0fec36df80d271cc692d430d44011e86",
+  "protocolVersion": 2,
+  "supportedAbis": [
+    "arm64-v8a"
+  ],
+  "runtime": {
+    "file": "wtmux-runtime-git-ea0eebe.tar",
+    "sha256": "8a49400ecce42535550b9177c292ddeae48b1018838b3a9faf5ada4bc50a0c7b",
+    "size": 614400
+  },
+  "packageLock": {
+    "file": "termux-packages-aarch64.json",
+    "sha256": "0c05eb1dce868bdad7d765bb6b0ad1d18d088748ffb82a2867ecb3a7d8030ba1",
+    "size": 47966,
+    "packages": 70,
+    "payloadSize": 30271724
+  },
+  "sbom": {
+    "file": "termux-packages-aarch64.spdx.json",
+    "sha256": "63274eccea5708be707b3f0287ba254877394a80e72d78b9ce67277b3f6a2ffd",
+    "size": 62677
+  },
+  "trustedRuntimeKeys": [
+    {
+      "keyId": "ef1aa26c21be89f9ac220e41ae28a865",
+      "file": "trusted-runtime-key-ef1aa26c21be89f9ac220e41ae28a865.pem",
+      "sha256": "a3500746ab5f70c708741dd8f3c41b0dc66fabb7a47b43b726bceb6cf9108364"
+    }
+  ]
+}

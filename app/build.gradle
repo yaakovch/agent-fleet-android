@@ -132,6 +132,10 @@ android {
         }
     }
 
+    sourceSets {
+        main.assets.srcDir "$buildDir/generated/agentFleetAssets"
+    }
+
     applicationVariants.all { variant ->
         variant.outputs.all { output ->
             if (variant.buildType.name == "debug") {
@@ -145,6 +149,85 @@ android {
     }
 
 }
+
+def agentFleetRuntimeSource = file("src/main/agent-fleet")
+def agentFleetGeneratedAssets = file("$buildDir/generated/agentFleetAssets/agent-fleet")
+def agentFleetPackageCache = new File(gradle.gradleUserHomeDir, "caches/agent-fleet-termux-packages/aarch64")
+
+def fileSha256 = { File input ->
+    def digest = java.security.MessageDigest.getInstance("SHA-256")
+    input.withInputStream { stream ->
+        def buffer = new byte[1024 * 1024]
+        while (true) {
+            def count = stream.read(buffer)
+            if (count < 0) break
+            digest.update(buffer, 0, count)
+        }
+    }
+    digest.digest().collect { String.format("%02x", it & 0xff) }.join()
+}
+
+task prepareAgentFleetRuntimeAssets {
+    inputs.dir(agentFleetRuntimeSource)
+    outputs.dir(agentFleetGeneratedAssets)
+    doLast {
+        def descriptorFile = new File(agentFleetRuntimeSource, "embedded-runtime-v1.json")
+        def lockFile = new File(agentFleetRuntimeSource, "termux-packages-aarch64.json")
+        if (!descriptorFile.isFile() || !lockFile.isFile()) {
+            throw new GradleException("Agent Fleet embedded runtime descriptor or package lock is missing")
+        }
+        def descriptor = new groovy.json.JsonSlurper().parse(descriptorFile)
+        def lock = new groovy.json.JsonSlurper().parse(lockFile)
+        if (descriptor.schemaVersion != 1 || lock.schemaVersion != 1 || lock.architecture != "aarch64") {
+            throw new GradleException("Agent Fleet embedded runtime metadata is unsupported")
+        }
+        if (fileSha256(lockFile) != descriptor.packageLock.sha256 || lockFile.length() != descriptor.packageLock.size) {
+            throw new GradleException("Agent Fleet package lock does not match embedded-runtime-v1")
+        }
+        delete(agentFleetGeneratedAssets)
+        agentFleetGeneratedAssets.mkdirs()
+        copy {
+            from agentFleetRuntimeSource
+            into agentFleetGeneratedAssets
+        }
+        def packageOutput = new File(agentFleetGeneratedAssets, "packages")
+        packageOutput.mkdirs()
+        agentFleetPackageCache.mkdirs()
+        lock.packages.each { item ->
+            if (!(item.name instanceof String) || !(item.file instanceof String) || !(item.url instanceof String) ||
+                !(item.sha256 ==~ /^[a-f0-9]{64}$/) || !(item.size instanceof Number)) {
+                throw new GradleException("Agent Fleet package lock contains an invalid record")
+            }
+            def cached = new File(agentFleetPackageCache, item.file)
+            if (!cached.isFile() || cached.length() != item.size || fileSha256(cached) != item.sha256) {
+                cached.delete()
+                def temporary = new File(agentFleetPackageCache, ".${item.file}.${UUID.randomUUID()}")
+                logger.lifecycle("Downloading locked Termux package ${item.name} ${item.version}")
+                try {
+                    new URL(item.url).withInputStream { input ->
+                        temporary.withOutputStream { output -> output << input }
+                    }
+                    if (temporary.length() != item.size || fileSha256(temporary) != item.sha256) {
+                        throw new GradleException("Locked Termux package failed verification: ${item.name}")
+                    }
+                    java.nio.file.Files.move(
+                        temporary.toPath(), cached.toPath(),
+                        java.nio.file.StandardCopyOption.REPLACE_EXISTING,
+                        java.nio.file.StandardCopyOption.ATOMIC_MOVE
+                    )
+                } finally {
+                    temporary.delete()
+                }
+            }
+            java.nio.file.Files.copy(
+                cached.toPath(), new File(packageOutput, item.file).toPath(),
+                java.nio.file.StandardCopyOption.REPLACE_EXISTING
+            )
+        }
+    }
+}
+
+preBuild.dependsOn(prepareAgentFleetRuntimeAssets)
 
 dependencies {
     testImplementation "junit:junit:4.13.2"

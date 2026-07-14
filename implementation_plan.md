@@ -126,3 +126,41 @@ frames, and S23FE interaction tests pass without persistent conversation data.
 - Exercise clean/restored onboarding, process death, reboot, offline cache,
   Tailscale loss, multi-image share, quota failure, and incompatible hosts on
   Android 16 before phone cutover.
+
+## Milestone 10: Built-In Runtime And Offline Repair
+
+1. Add a reproducible arm64 package lock and fetch/verification pipeline for
+   pinned official Termux artifacts. Generate license/source inventory and an
+   SBOM, embed the verified local package set during release builds, and keep
+   unsupported ABIs explicit rather than silently downloading dependencies.
+2. Build a deterministic wtmux archive from the cross-repository pinned commit.
+   Commit an `embedded-runtime-v1` descriptor and make release verification
+   prove the descriptor, archive, package lock, APK assets, and git commits all
+   agree.
+3. Implement an Android provisioner that distinguishes clean and restored
+   prefixes, installs only missing/below-floor packages offline, installs the
+   APK baseline through `wtmux-runtime`, runs a bounded doctor check, and
+   preserves all user-owned state. Add an explicit Repair action and an offline
+   `Preparing terminal` first-launch surface.
+4. Extend wtmux runtime activation with an immutable baseline pointer, bounded
+   active/previous/baseline retention, richer status, and baseline recovery.
+   Keep launcher replacement atomic and retain the current rollback semantics.
+5. Add strict `client-policy-v1` pairing artifacts and parsers. Replace manual
+   Android update-source entry with pairing-provisioned primary/fallback APK
+   and runtime endpoints while preserving a safe migration read of the old app
+   preference for one release.
+6. Add dedicated Ed25519 runtime release-key tooling, `runtime-update-v1`
+   generation/verification, foreground six-hour checks, artifact verification,
+   atomic activation, doctor gating, automatic rollback, replay protection,
+   diagnostics, Check, and Roll Back.
+7. Produce signed `.18` / version code 1020 as arm64-primary and universal
+   recovery artifacts. Validate clean offline arm64 install, restored-prefix
+   preservation, newer-package preservation, tamper/replay/interrupted repair,
+   primary/fallback endpoints, rollback, and Android 16 lifecycle behavior.
+   Upgrade the S23FE in place only after the emulator matrix passes, then begin
+   a seven-day daily-driver soak.
+
+Gate: a clean arm64 install reaches a usable local terminal without network or
+manual Termux commands; a restored phone is never reset or downgraded; a signed
+runtime hotfix activates and a bad one rolls back; diagnostics can recover the
+APK baseline; release artifacts are reproducible and fully traceable.

@@ -1,0 +1,1557 @@
+{
+  "SPDXID": "SPDXRef-DOCUMENT",
+  "creationInfo": {
+    "created": "1970-01-01T00:00:00Z",
+    "creators": [
+      "Tool: lock-termux-packages.py"
+    ]
+  },
+  "dataLicense": "CC0-1.0",
+  "documentNamespace": "https://agent-fleet.local/sbom/termux-aarch64-9de8fe088e47beb78e9eb51466346c3444fc81e374549e55c28c2a7489f7f90c",
+  "name": "Agent-Fleet-Termux-offline-runtime",
+  "packages": [
+    {
+      "SPDXID": "SPDXRef-Package-attr",
+      "checksums": [
+        {
+          "algorithm": "SHA256",
+          "checksumValue": "f81bb14a1ded6c0857b9af94937d68bb2d64ec6c9fb31f3da8c646e54c68dd72"
+        }
+      ],
+      "copyrightText": "NOASSERTION",
+      "downloadLocation": "https://packages.termux.dev/apt/termux-main/pool/main/a/attr/attr_2.5.2-1_aarch64.deb",
+      "filesAnalyzed": false,
+      "licenseConcluded": "NOASSERTION",
+      "licenseDeclared": "GPL-2.0",
+      "name": "attr",
+      "sourceInfo": "Termux recipe: https://raw.githubusercontent.com/termux/termux-packages/master/packages/attr/build.sh; upstream: http://savannah.nongnu.org/projects/attr/",
+      "versionInfo": "2.5.2-1"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-bash",
+      "checksums": [
+        {
+          "algorithm": "SHA256",
+          "checksumValue": "c2369162988d7a76ea9386446a6013be3cfb763bb6283704f6b47759b39de50b"
+        }
+      ],
+      "copyrightText": "NOASSERTION",
+      "downloadLocation": "https://packages.termux.dev/apt/termux-main/pool/main/b/bash/bash_5.3.9-1_aarch64.deb",
+      "filesAnalyzed": false,
+      "licenseConcluded": "NOASSERTION",
+      "licenseDeclared": "GPL-3.0",
+      "name": "bash",
+      "sourceInfo": "Termux recipe: https://raw.githubusercontent.com/termux/termux-packages/master/packages/bash/build.sh; upstream: https://www.gnu.org/software/bash/",
+      "versionInfo": "5.3.9-1"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-bzip2",
+      "checksums": [
+        {
+          "algorithm": "SHA256",
+          "checksumValue": "7b904d820c34b6c043067ca3c8cb67465413ea5eae3f529a0e05a9ae0df2b89a"
+        }
+      ],
+      "copyrightText": "NOASSERTION",
+      "downloadLocation": "https://packages.termux.dev/apt/termux-main/pool/main/b/bzip2/bzip2_1.0.8-8_aarch64.deb",
+      "filesAnalyzed": false,
+      "licenseConcluded": "NOASSERTION",
+      "licenseDeclared": "NOASSERTION",
+      "name": "bzip2",
+      "sourceInfo": "Termux recipe: https://raw.githubusercontent.com/termux/termux-packages/master/packages/bzip2/build.sh; upstream: http://www.bzip.org/",
+      "versionInfo": "1.0.8-8"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-ca-certificates",
+      "checksums": [
+        {
+          "algorithm": "SHA256",
+          "checksumValue": "bd33b67306070679387e3b999590a0645eccce195017e1e10b76df9dd0c81d1d"
+        }
+      ],
+      "copyrightText": "NOASSERTION",
+      "downloadLocation": "https://packages.termux.dev/apt/termux-main/pool/main/c/ca-certificates/ca-certificates_1:2026.05.14_all.deb",
+      "filesAnalyzed": false,
+      "licenseConcluded": "NOASSERTION",
+      "licenseDeclared": "MPL-2.0",
+      "name": "ca-certificates",
+      "sourceInfo": "Termux recipe: https://raw.githubusercontent.com/termux/termux-packages/master/packages/ca-certificates/build.sh; upstream: https://curl.se/docs/caextract.html",
+      "versionInfo": "1:2026.05.14"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-coreutils",
+      "checksums": [
+        {
+          "algorithm": "SHA256",
+          "checksumValue": "5fe326e19256ac2f0a2b278e780e26a848746a43ff37105cbdeddd4c527ccf57"
+        }
+      ],
+      "copyrightText": "NOASSERTION",
+      "downloadLocation": "https://packages.termux.dev/apt/termux-main/pool/main/c/coreutils/coreutils_9.11-1_aarch64.deb",
+      "filesAnalyzed": false,
+      "licenseConcluded": "NOASSERTION",
+      "licenseDeclared": "GPL-3.0",
+      "name": "coreutils",
+      "sourceInfo": "Termux recipe: https://raw.githubusercontent.com/termux/termux-packages/master/packages/coreutils/build.sh; upstream: https://www.gnu.org/software/coreutils/",
+      "versionInfo": "9.11-1"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-curl",
+      "checksums": [
+        {
+          "algorithm": "SHA256",
+          "checksumValue": "6274522e6f172678ffbb70aa9fc82bb547117f3ba56f337735a44d19aaee9f40"
+        }
+      ],
+      "copyrightText": "NOASSERTION",
+      "downloadLocation": "https://packages.termux.dev/apt/termux-main/pool/main/c/curl/curl_8.21.0_aarch64.deb",
+      "filesAnalyzed": false,
+      "licenseConcluded": "NOASSERTION",
+      "licenseDeclared": "NOASSERTION",
+      "name": "curl",
+      "sourceInfo": "Termux recipe: https://raw.githubusercontent.com/termux/termux-packages/master/packages/curl/build.sh; upstream: https://curl.se/",
+      "versionInfo": "8.21.0"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-dash",
+      "checksums": [
+        {
+          "algorithm": "SHA256",
+          "checksumValue": "47d1ffce6c74fd7b3201162f26e7449f69c96bbd0aee4bf60e80ea2ba6708839"
+        }
+      ],
+      "copyrightText": "NOASSERTION",
+      "downloadLocation": "https://packages.termux.dev/apt/termux-main/pool/main/d/dash/dash_0.5.12-2_aarch64.deb",
+      "filesAnalyzed": false,
+      "licenseConcluded": "NOASSERTION",
+      "licenseDeclared": "BSD 3-Clause",
+      "name": "dash",
+      "sourceInfo": "Termux recipe: https://raw.githubusercontent.com/termux/termux-packages/master/packages/dash/build.sh; upstream: http://gondor.apana.org.au/~herbert/dash/",
+      "versionInfo": "0.5.12-2"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-dialog",
+      "checksums": [
+        {
+          "algorithm": "SHA256",
+          "checksumValue": "78a1c4e57ce8dc94b3d8d812d918796168484c18992fafa9f03adec10d7a634c"
+        }
+      ],
+      "copyrightText": "NOASSERTION",
+      "downloadLocation": "https://packages.termux.dev/apt/termux-main/pool/main/d/dialog/dialog_1.3-20260107-1_aarch64.deb",
+      "filesAnalyzed": false,
+      "licenseConcluded": "NOASSERTION",
+      "licenseDeclared": "LGPL-2.1",
+      "name": "dialog",
+      "sourceInfo": "Termux recipe: https://raw.githubusercontent.com/termux/termux-packages/master/packages/dialog/build.sh; upstream: https://invisible-island.net/dialog/",
+      "versionInfo": "1.3-20260107-1"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-diffutils",
+      "checksums": [
+        {
+          "algorithm": "SHA256",
+          "checksumValue": "ab039ac163550ebb73a601f104da2dfb8bbd26f028086821c48edaa2384e68d2"
+        }
+      ],
+      "copyrightText": "NOASSERTION",
+      "downloadLocation": "https://packages.termux.dev/apt/termux-main/pool/main/d/diffutils/diffutils_3.12-2_aarch64.deb",
+      "filesAnalyzed": false,
+      "licenseConcluded": "NOASSERTION",
+      "licenseDeclared": "GPL-3.0",
+      "name": "diffutils",
+      "sourceInfo": "Termux recipe: https://raw.githubusercontent.com/termux/termux-packages/master/packages/diffutils/build.sh; upstream: https://www.gnu.org/software/diffutils/",
+      "versionInfo": "3.12-2"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-findutils",
+      "checksums": [
+        {
+          "algorithm": "SHA256",
+          "checksumValue": "a7e9c3db936370077b5a8b012f4d47e994dd64192cc6e4a12ad9f99e82d3fcb5"
+        }
+      ],
+      "copyrightText": "NOASSERTION",
+      "downloadLocation": "https://packages.termux.dev/apt/termux-main/pool/main/f/findutils/findutils_4.10.0-1_aarch64.deb",
+      "filesAnalyzed": false,
+      "licenseConcluded": "NOASSERTION",
+      "licenseDeclared": "GPL-3.0",
+      "name": "findutils",
+      "sourceInfo": "Termux recipe: https://raw.githubusercontent.com/termux/termux-packages/master/packages/findutils/build.sh; upstream: https://www.gnu.org/software/findutils/",
+      "versionInfo": "4.10.0-1"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-fzf",
+      "checksums": [
+        {
+          "algorithm": "SHA256",
+          "checksumValue": "33b0c79e5c4bee1601d5bf42948395bb65c594a69dc08b78b603ce3b0c3df877"
+        }
+      ],
+      "copyrightText": "NOASSERTION",
+      "downloadLocation": "https://packages.termux.dev/apt/termux-main/pool/main/f/fzf/fzf_0.74.0_aarch64.deb",
+      "filesAnalyzed": false,
+      "licenseConcluded": "NOASSERTION",
+      "licenseDeclared": "MIT",
+      "name": "fzf",
+      "sourceInfo": "Termux recipe: https://raw.githubusercontent.com/termux/termux-packages/master/packages/fzf/build.sh; upstream: https://junegunn.github.io/fzf/",
+      "versionInfo": "0.74.0"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-gawk",
+      "checksums": [
+        {
+          "algorithm": "SHA256",
+          "checksumValue": "4e5c3163cf0e845434f25560db21920bf7970a7d7fb4462bd73360258c879717"
+        }
+      ],
+      "copyrightText": "NOASSERTION",
+      "downloadLocation": "https://packages.termux.dev/apt/termux-main/pool/main/g/gawk/gawk_5.3.2_aarch64.deb",
+      "filesAnalyzed": false,
+      "licenseConcluded": "NOASSERTION",
+      "licenseDeclared": "GPL-3.0",
+      "name": "gawk",
+      "sourceInfo": "Termux recipe: https://raw.githubusercontent.com/termux/termux-packages/master/packages/gawk/build.sh; upstream: https://www.gnu.org/software/gawk/",
+      "versionInfo": "5.3.2"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-gdbm",
+      "checksums": [
+        {
+          "algorithm": "SHA256",
+          "checksumValue": "c378de833aae3cf41f3028491ea11836479d9833ab653edc27d0c0e0e691d5c5"
+        }
+      ],
+      "copyrightText": "NOASSERTION",
+      "downloadLocation": "https://packages.termux.dev/apt/termux-main/pool/main/g/gdbm/gdbm_1.26-1_aarch64.deb",
+      "filesAnalyzed": false,
+      "licenseConcluded": "NOASSERTION",
+      "licenseDeclared": "GPL-3.0",
+      "name": "gdbm",
+      "sourceInfo": "Termux recipe: https://raw.githubusercontent.com/termux/termux-packages/master/packages/gdbm/build.sh; upstream: https://www.gnu.org.ua/software/gdbm/",
+      "versionInfo": "1.26-1"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-git",
+      "checksums": [
+        {
+          "algorithm": "SHA256",
+          "checksumValue": "21b16fa06837e5bf94ad257da532c40eb049c120d21f6cb60a6411c0bcee7197"
+        }
+      ],
+      "copyrightText": "NOASSERTION",
+      "downloadLocation": "https://packages.termux.dev/apt/termux-main/pool/main/g/git/git_2.55.0_aarch64.deb",
+      "filesAnalyzed": false,
+      "licenseConcluded": "NOASSERTION",
+      "licenseDeclared": "GPL-2.0",
+      "name": "git",
+      "sourceInfo": "Termux recipe: https://raw.githubusercontent.com/termux/termux-packages/master/packages/git/build.sh; upstream: https://git-scm.com/",
+      "versionInfo": "2.55.0"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-grep",
+      "checksums": [
+        {
+          "algorithm": "SHA256",
+          "checksumValue": "a2819b49c621b61567e39c5c647d5ed6fe9d51eab71ed73eebf18be76719457d"
+        }
+      ],
+      "copyrightText": "NOASSERTION",
+      "downloadLocation": "https://packages.termux.dev/apt/termux-main/pool/main/g/grep/grep_3.12-3_aarch64.deb",
+      "filesAnalyzed": false,
+      "licenseConcluded": "NOASSERTION",
+      "licenseDeclared": "GPL-3.0",
+      "name": "grep",
+      "sourceInfo": "Termux recipe: https://raw.githubusercontent.com/termux/termux-packages/master/packages/grep/build.sh; upstream: https://www.gnu.org/software/grep/",
+      "versionInfo": "3.12-3"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-gzip",
+      "checksums": [
+        {
+          "algorithm": "SHA256",
+          "checksumValue": "5af23d04f40ef62401ed4f99dbb2087740e44aa8ae8c9f3c0ac2d56aa6551348"
+        }
+      ],
+      "copyrightText": "NOASSERTION",
+      "downloadLocation": "https://packages.termux.dev/apt/termux-main/pool/main/g/gzip/gzip_1.14-1_aarch64.deb",
+      "filesAnalyzed": false,
+      "licenseConcluded": "NOASSERTION",
+      "licenseDeclared": "GPL-3.0",
+      "name": "gzip",
+      "sourceInfo": "Termux recipe: https://raw.githubusercontent.com/termux/termux-packages/master/packages/gzip/build.sh; upstream: https://www.gnu.org/software/gzip/",
+      "versionInfo": "1.14-1"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-krb5",
+      "checksums": [
+        {
+          "algorithm": "SHA256",
+          "checksumValue": "3c97dcc7437616bb4051297822915bd2ff9552e63a5fbee2520db3fc0c5b575d"
+        }
+      ],
+      "copyrightText": "NOASSERTION",
+      "downloadLocation": "https://packages.termux.dev/apt/termux-main/pool/main/k/krb5/krb5_1.22.2_aarch64.deb",
+      "filesAnalyzed": false,
+      "licenseConcluded": "NOASSERTION",
+      "licenseDeclared": "NOASSERTION",
+      "name": "krb5",
+      "sourceInfo": "Termux recipe: https://raw.githubusercontent.com/termux/termux-packages/master/packages/krb5/build.sh; upstream: https://web.mit.edu/kerberos",
+      "versionInfo": "1.22.2"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-ldns",
+      "checksums": [
+        {
+          "algorithm": "SHA256",
+          "checksumValue": "8bd23534a13f8743458bf4c0add9bb30addee5f3f088c0b00c525a404e4097a4"
+        }
+      ],
+      "copyrightText": "NOASSERTION",
+      "downloadLocation": "https://packages.termux.dev/apt/termux-main/pool/main/l/ldns/ldns_1.8.4-1_aarch64.deb",
+      "filesAnalyzed": false,
+      "licenseConcluded": "NOASSERTION",
+      "licenseDeclared": "BSD 3-Clause",
+      "name": "ldns",
+      "sourceInfo": "Termux recipe: https://raw.githubusercontent.com/termux/termux-packages/master/packages/ldns/build.sh; upstream: https://www.nlnetlabs.nl/projects/ldns/",
+      "versionInfo": "1.8.4-1"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-less",
+      "checksums": [
+        {
+          "algorithm": "SHA256",
+          "checksumValue": "350d5ec24969106b5fb43695944aed21e388571a7506d1716b1fa3d9d2110f3a"
+        }
+      ],
+      "copyrightText": "NOASSERTION",
+      "downloadLocation": "https://packages.termux.dev/apt/termux-main/pool/main/l/less/less_704_aarch64.deb",
+      "filesAnalyzed": false,
+      "licenseConcluded": "NOASSERTION",
+      "licenseDeclared": "GPL-3.0, custom",
+      "name": "less",
+      "sourceInfo": "Termux recipe: https://raw.githubusercontent.com/termux/termux-packages/master/packages/less/build.sh; upstream: https://www.greenwoodsoftware.com/less/",
+      "versionInfo": "704"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-libacl",
+      "checksums": [
+        {
+          "algorithm": "SHA256",
+          "checksumValue": "5c6a681edddd0daf1320622d0ef8f79c9f389d0597f5c2bfe9587f4aaa06b29d"
+        }
+      ],
+      "copyrightText": "NOASSERTION",
+      "downloadLocation": "https://packages.termux.dev/apt/termux-main/pool/main/liba/libacl/libacl_2.3.2_aarch64.deb",
+      "filesAnalyzed": false,
+      "licenseConcluded": "NOASSERTION",
+      "licenseDeclared": "LGPL-2.1, GPL-2.0",
+      "name": "libacl",
+      "sourceInfo": "Termux recipe: https://raw.githubusercontent.com/termux/termux-packages/master/packages/libacl/build.sh; upstream: http://savannah.nongnu.org/projects/acl",
+      "versionInfo": "2.3.2"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-libandroid-glob",
+      "checksums": [
+        {
+          "algorithm": "SHA256",
+          "checksumValue": "2276ae8adedf0db76c2f4ffc94cc4cceb2f4f5d78e021b54e2e046d1233e7826"
+        }
+      ],
+      "copyrightText": "NOASSERTION",
+      "downloadLocation": "https://packages.termux.dev/apt/termux-main/pool/main/liba/libandroid-glob/libandroid-glob_0.6-3_aarch64.deb",
+      "filesAnalyzed": false,
+      "licenseConcluded": "NOASSERTION",
+      "licenseDeclared": "BSD 3-Clause",
+      "name": "libandroid-glob",
+      "sourceInfo": "Termux recipe: https://raw.githubusercontent.com/termux/termux-packages/master/packages/libandroid-glob/build.sh; upstream: https://man7.org/linux/man-pages/man3/glob.3.html",
+      "versionInfo": "0.6-3"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-libandroid-posix-semaphore",
+      "checksums": [
+        {
+          "algorithm": "SHA256",
+          "checksumValue": "0efa8677a0166315ba4e685863712eba0ca0a1732827492f38226e2723730c7a"
+        }
+      ],
+      "copyrightText": "NOASSERTION",
+      "downloadLocation": "https://packages.termux.dev/apt/termux-main/pool/main/liba/libandroid-posix-semaphore/libandroid-posix-semaphore_0.1-4_aarch64.deb",
+      "filesAnalyzed": false,
+      "licenseConcluded": "NOASSERTION",
+      "licenseDeclared": "MIT",
+      "name": "libandroid-posix-semaphore",
+      "sourceInfo": "Termux recipe: https://raw.githubusercontent.com/termux/termux-packages/master/packages/libandroid-posix-semaphore/build.sh; upstream: https://man7.org/linux/man-pages/man7/sem_overview.7.html",
+      "versionInfo": "0.1-4"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-libandroid-selinux",
+      "checksums": [
+        {
+          "algorithm": "SHA256",
+          "checksumValue": "00afd8c34087c2864737b51fd9d104dc5e955f6ec3c0f50c0c7ef5b4a56866b9"
+        }
+      ],
+      "copyrightText": "NOASSERTION",
+      "downloadLocation": "https://packages.termux.dev/apt/termux-main/pool/main/liba/libandroid-selinux/libandroid-selinux_14.0.0.11-1_aarch64.deb",
+      "filesAnalyzed": false,
+      "licenseConcluded": "NOASSERTION",
+      "licenseDeclared": "Public Domain",
+      "name": "libandroid-selinux",
+      "sourceInfo": "Termux recipe: https://raw.githubusercontent.com/termux/termux-packages/master/packages/libandroid-selinux/build.sh; upstream: https://selinuxproject.org",
+      "versionInfo": "14.0.0.11-1"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-libandroid-support",
+      "checksums": [
+        {
+          "algorithm": "SHA256",
+          "checksumValue": "f2f145d6135ad4843ac9670153be3e3944dc1e6f1736d46d2306c28f2b86f517"
+        }
+      ],
+      "copyrightText": "NOASSERTION",
+      "downloadLocation": "https://packages.termux.dev/apt/termux-main/pool/main/liba/libandroid-support/libandroid-support_29-1_aarch64.deb",
+      "filesAnalyzed": false,
+      "licenseConcluded": "NOASSERTION",
+      "licenseDeclared": "Apache-2.0, MIT",
+      "name": "libandroid-support",
+      "sourceInfo": "Termux recipe: https://raw.githubusercontent.com/termux/termux-packages/master/packages/libandroid-support/build.sh; upstream: https://github.com/termux/libandroid-support",
+      "versionInfo": "29-1"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-libbz2",
+      "checksums": [
+        {
+          "algorithm": "SHA256",
+          "checksumValue": "4335d7f060650b0aabef545d1334c2f9f280223d5962e13c24a00ec934b794ba"
+        }
+      ],
+      "copyrightText": "NOASSERTION",
+      "downloadLocation": "https://packages.termux.dev/apt/termux-main/pool/main/libb/libbz2/libbz2_1.0.8-8_aarch64.deb",
+      "filesAnalyzed": false,
+      "licenseConcluded": "NOASSERTION",
+      "licenseDeclared": "BSD",
+      "name": "libbz2",
+      "sourceInfo": "Termux recipe: https://raw.githubusercontent.com/termux/termux-packages/master/packages/libbz2/build.sh; upstream: http://www.bzip.org/",
+      "versionInfo": "1.0.8-8"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-libc--",
+      "checksums": [
+        {
+          "algorithm": "SHA256",
+          "checksumValue": "bb9f12113c137aa0e8513bb51cc49fe77a5ce3ca39ab9e92c57d228ecdf00222"
+        }
+      ],
+      "copyrightText": "NOASSERTION",
+      "downloadLocation": "https://packages.termux.dev/apt/termux-main/pool/main/libc/libc++/libc++_29_aarch64.deb",
+      "filesAnalyzed": false,
+      "licenseConcluded": "NOASSERTION",
+      "licenseDeclared": "NCSA",
+      "name": "libc++",
+      "sourceInfo": "Termux recipe: https://raw.githubusercontent.com/termux/termux-packages/master/packages/libc++/build.sh; upstream: https://libcxx.llvm.org/",
+      "versionInfo": "29"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-libcap-ng",
+      "checksums": [
+        {
+          "algorithm": "SHA256",
+          "checksumValue": "4b8085605029eb4a88eacb4850e28a4294bd0bef865dbe00271d98f99234d1e5"
+        }
+      ],
+      "copyrightText": "NOASSERTION",
+      "downloadLocation": "https://packages.termux.dev/apt/termux-main/pool/main/libc/libcap-ng/libcap-ng_2:0.9.3_aarch64.deb",
+      "filesAnalyzed": false,
+      "licenseConcluded": "NOASSERTION",
+      "licenseDeclared": "LGPL-2.1",
+      "name": "libcap-ng",
+      "sourceInfo": "Termux recipe: https://raw.githubusercontent.com/termux/termux-packages/master/packages/libcap-ng/build.sh; upstream: https://people.redhat.com/sgrubb/libcap-ng/",
+      "versionInfo": "2:0.9.3"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-libcrypt",
+      "checksums": [
+        {
+          "algorithm": "SHA256",
+          "checksumValue": "6c283eed576b98cc3568f99638156f8588f77d979579d03bef8683d6eb8601e1"
+        }
+      ],
+      "copyrightText": "NOASSERTION",
+      "downloadLocation": "https://packages.termux.dev/apt/termux-main/pool/main/libc/libcrypt/libcrypt_0.2-6_aarch64.deb",
+      "filesAnalyzed": false,
+      "licenseConcluded": "NOASSERTION",
+      "licenseDeclared": "BSD 2-Clause",
+      "name": "libcrypt",
+      "sourceInfo": "Termux recipe: https://raw.githubusercontent.com/termux/termux-packages/master/packages/libcrypt/build.sh; upstream: http://michael.dipperstein.com/crypt/",
+      "versionInfo": "0.2-6"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-libcurl",
+      "checksums": [
+        {
+          "algorithm": "SHA256",
+          "checksumValue": "ad644c7e16183d40eaf0f55df339021a69b25cc9b390e9634251e681be1ddcb8"
+        }
+      ],
+      "copyrightText": "NOASSERTION",
+      "downloadLocation": "https://packages.termux.dev/apt/termux-main/pool/main/libc/libcurl/libcurl_8.21.0_aarch64.deb",
+      "filesAnalyzed": false,
+      "licenseConcluded": "NOASSERTION",
+      "licenseDeclared": "MIT",
+      "name": "libcurl",
+      "sourceInfo": "Termux recipe: https://raw.githubusercontent.com/termux/termux-packages/master/packages/libcurl/build.sh; upstream: https://curl.se/",
+      "versionInfo": "8.21.0"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-libdb",
+      "checksums": [
+        {
+          "algorithm": "SHA256",
+          "checksumValue": "86be427275c64d8facf7fbfd4fbbc6e86cdd6e865c8fbdecf1a9197a1183b9d8"
+        }
+      ],
+      "copyrightText": "NOASSERTION",
+      "downloadLocation": "https://packages.termux.dev/apt/termux-main/pool/main/libd/libdb/libdb_18.1.40-5_aarch64.deb",
+      "filesAnalyzed": false,
+      "licenseConcluded": "NOASSERTION",
+      "licenseDeclared": "AGPL-V3",
+      "name": "libdb",
+      "sourceInfo": "Termux recipe: https://raw.githubusercontent.com/termux/termux-packages/master/packages/libdb/build.sh; upstream: https://www.oracle.com/database/berkeley-db",
+      "versionInfo": "18.1.40-5"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-libedit",
+      "checksums": [
+        {
+          "algorithm": "SHA256",
+          "checksumValue": "1c16c4da6b5efd9682c1757b5b87761d6f97e7547ac66f70b083488bf2ebe9cf"
+        }
+      ],
+      "copyrightText": "NOASSERTION",
+      "downloadLocation": "https://packages.termux.dev/apt/termux-main/pool/main/libe/libedit/libedit_20240517-3.1-1_aarch64.deb",
+      "filesAnalyzed": false,
+      "licenseConcluded": "NOASSERTION",
+      "licenseDeclared": "BSD 3-Clause",
+      "name": "libedit",
+      "sourceInfo": "Termux recipe: https://raw.githubusercontent.com/termux/termux-packages/master/packages/libedit/build.sh; upstream: https://thrysoee.dk/editline/",
+      "versionInfo": "20240517-3.1-1"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-libevent",
+      "checksums": [
+        {
+          "algorithm": "SHA256",
+          "checksumValue": "cf99e8e6cd1218c0e4956d2ee69efbb26520211b3e03407463eac9016fe55f25"
+        }
+      ],
+      "copyrightText": "NOASSERTION",
+      "downloadLocation": "https://packages.termux.dev/apt/termux-main/pool/main/libe/libevent/libevent_2.1.13_aarch64.deb",
+      "filesAnalyzed": false,
+      "licenseConcluded": "NOASSERTION",
+      "licenseDeclared": "BSD 3-Clause",
+      "name": "libevent",
+      "sourceInfo": "Termux recipe: https://raw.githubusercontent.com/termux/termux-packages/master/packages/libevent/build.sh; upstream: https://libevent.org/",
+      "versionInfo": "2.1.13"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-libexpat",
+      "checksums": [
+        {
+          "algorithm": "SHA256",
+          "checksumValue": "6f5eb2fd14b6fe4d7bb79bf7f0f3d7fc838fea07402477a172b147304366b372"
+        }
+      ],
+      "copyrightText": "NOASSERTION",
+      "downloadLocation": "https://packages.termux.dev/apt/termux-main/pool/main/libe/libexpat/libexpat_2.8.2_aarch64.deb",
+      "filesAnalyzed": false,
+      "licenseConcluded": "NOASSERTION",
+      "licenseDeclared": "MIT",
+      "name": "libexpat",
+      "sourceInfo": "Termux recipe: https://raw.githubusercontent.com/termux/termux-packages/master/packages/libexpat/build.sh; upstream: https://libexpat.github.io/",
+      "versionInfo": "2.8.2"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-libffi",
+      "checksums": [
+        {
+          "algorithm": "SHA256",
+          "checksumValue": "8c8c1d6ffb049d8496a21c1202d9b4dc9145140886fdbb45716684565f4ed3f5"
+        }
+      ],
+      "copyrightText": "NOASSERTION",
+      "downloadLocation": "https://packages.termux.dev/apt/termux-main/pool/main/libf/libffi/libffi_3.5.2_aarch64.deb",
+      "filesAnalyzed": false,
+      "licenseConcluded": "NOASSERTION",
+      "licenseDeclared": "MIT",
+      "name": "libffi",
+      "sourceInfo": "Termux recipe: https://raw.githubusercontent.com/termux/termux-packages/master/packages/libffi/build.sh; upstream: https://sourceware.org/libffi/",
+      "versionInfo": "3.5.2"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-libgmp",
+      "checksums": [
+        {
+          "algorithm": "SHA256",
+          "checksumValue": "5a3c1325638946ca212ddcb89bffb2c4459b4c90757d6e69f820e176534037fa"
+        }
+      ],
+      "copyrightText": "NOASSERTION",
+      "downloadLocation": "https://packages.termux.dev/apt/termux-main/pool/main/libg/libgmp/libgmp_6.3.0-2_aarch64.deb",
+      "filesAnalyzed": false,
+      "licenseConcluded": "NOASSERTION",
+      "licenseDeclared": "LGPL-3.0",
+      "name": "libgmp",
+      "sourceInfo": "Termux recipe: https://raw.githubusercontent.com/termux/termux-packages/master/packages/libgmp/build.sh; upstream: https://gmplib.org/",
+      "versionInfo": "6.3.0-2"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-libiconv",
+      "checksums": [
+        {
+          "algorithm": "SHA256",
+          "checksumValue": "b19e6f348034bb48d2a5590b5cb242769f682c476717374d134d004cc663dc84"
+        }
+      ],
+      "copyrightText": "NOASSERTION",
+      "downloadLocation": "https://packages.termux.dev/apt/termux-main/pool/main/libi/libiconv/libiconv_1.18-1_aarch64.deb",
+      "filesAnalyzed": false,
+      "licenseConcluded": "NOASSERTION",
+      "licenseDeclared": "LGPL-2.1, GPL-3.0",
+      "name": "libiconv",
+      "sourceInfo": "Termux recipe: https://raw.githubusercontent.com/termux/termux-packages/master/packages/libiconv/build.sh; upstream: https://www.gnu.org/software/libiconv/",
+      "versionInfo": "1.18-1"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-liblzma",
+      "checksums": [
+        {
+          "algorithm": "SHA256",
+          "checksumValue": "594925a313879f590fbd24050305551a78eadd9a9319f6e612389b1a521113c6"
+        }
+      ],
+      "copyrightText": "NOASSERTION",
+      "downloadLocation": "https://packages.termux.dev/apt/termux-main/pool/main/libl/liblzma/liblzma_5.8.3_aarch64.deb",
+      "filesAnalyzed": false,
+      "licenseConcluded": "NOASSERTION",
+      "licenseDeclared": "LGPL-2.1, GPL-2.0, GPL-3.0",
+      "name": "liblzma",
+      "sourceInfo": "Termux recipe: https://raw.githubusercontent.com/termux/termux-packages/master/packages/liblzma/build.sh; upstream: https://tukaani.org/xz/",
+      "versionInfo": "5.8.3"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-libmpfr",
+      "checksums": [
+        {
+          "algorithm": "SHA256",
+          "checksumValue": "5edf5a36e6f4773dc827d37ea515db27c242d3631f3030188a3324be2e00e4c6"
+        }
+      ],
+      "copyrightText": "NOASSERTION",
+      "downloadLocation": "https://packages.termux.dev/apt/termux-main/pool/main/libm/libmpfr/libmpfr_4.2.1-1_aarch64.deb",
+      "filesAnalyzed": false,
+      "licenseConcluded": "NOASSERTION",
+      "licenseDeclared": "LGPL-3.0",
+      "name": "libmpfr",
+      "sourceInfo": "Termux recipe: https://raw.githubusercontent.com/termux/termux-packages/master/packages/libmpfr/build.sh; upstream: https://www.mpfr.org/",
+      "versionInfo": "4.2.1-1"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-libnghttp2",
+      "checksums": [
+        {
+          "algorithm": "SHA256",
+          "checksumValue": "4f82ebd9b900b82fddacf9b09bb5b0b2886c20d1f7e5e71a99bfdf69effa4682"
+        }
+      ],
+      "copyrightText": "NOASSERTION",
+      "downloadLocation": "https://packages.termux.dev/apt/termux-main/pool/main/libn/libnghttp2/libnghttp2_1.69.0_aarch64.deb",
+      "filesAnalyzed": false,
+      "licenseConcluded": "NOASSERTION",
+      "licenseDeclared": "MIT",
+      "name": "libnghttp2",
+      "sourceInfo": "Termux recipe: https://raw.githubusercontent.com/termux/termux-packages/master/packages/libnghttp2/build.sh; upstream: https://nghttp2.org/",
+      "versionInfo": "1.69.0"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-libnghttp3",
+      "checksums": [
+        {
+          "algorithm": "SHA256",
+          "checksumValue": "e402b4945abc353299baf5da43ca4cb8a646b15575044b2ad93395d9366da70c"
+        }
+      ],
+      "copyrightText": "NOASSERTION",
+      "downloadLocation": "https://packages.termux.dev/apt/termux-main/pool/main/libn/libnghttp3/libnghttp3_1.17.0_aarch64.deb",
+      "filesAnalyzed": false,
+      "licenseConcluded": "NOASSERTION",
+      "licenseDeclared": "MIT",
+      "name": "libnghttp3",
+      "sourceInfo": "Termux recipe: https://raw.githubusercontent.com/termux/termux-packages/master/packages/libnghttp3/build.sh; upstream: https://nghttp2.org/nghttp3/",
+      "versionInfo": "1.17.0"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-libngtcp2",
+      "checksums": [
+        {
+          "algorithm": "SHA256",
+          "checksumValue": "b218f973dfb2614d19c18878db0035357b03be7ea733a8bf3df5430ee09849e0"
+        }
+      ],
+      "copyrightText": "NOASSERTION",
+      "downloadLocation": "https://packages.termux.dev/apt/termux-main/pool/main/libn/libngtcp2/libngtcp2_1.24.0_aarch64.deb",
+      "filesAnalyzed": false,
+      "licenseConcluded": "NOASSERTION",
+      "licenseDeclared": "MIT",
+      "name": "libngtcp2",
+      "sourceInfo": "Termux recipe: https://raw.githubusercontent.com/termux/termux-packages/master/packages/libngtcp2/build.sh; upstream: https://github.com/ngtcp2/ngtcp2",
+      "versionInfo": "1.24.0"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-libresolv-wrapper",
+      "checksums": [
+        {
+          "algorithm": "SHA256",
+          "checksumValue": "788de09ffcc307bdbaf541dbe06cf79e54d8a2390fef1223727ee33d9bdfee9e"
+        }
+      ],
+      "copyrightText": "NOASSERTION",
+      "downloadLocation": "https://packages.termux.dev/apt/termux-main/pool/main/libr/libresolv-wrapper/libresolv-wrapper_1.1.7-6_aarch64.deb",
+      "filesAnalyzed": false,
+      "licenseConcluded": "NOASSERTION",
+      "licenseDeclared": "BSD 3-Clause",
+      "name": "libresolv-wrapper",
+      "sourceInfo": "Termux recipe: https://raw.githubusercontent.com/termux/termux-packages/master/packages/libresolv-wrapper/build.sh; upstream: https://cwrap.org/resolv_wrapper.html",
+      "versionInfo": "1.1.7-6"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-libsmartcols",
+      "checksums": [
+        {
+          "algorithm": "SHA256",
+          "checksumValue": "94172cad650f192ef00b7d9ab2fb077b079a6204b1c3b96db6f1806e281fbfa3"
+        }
+      ],
+      "copyrightText": "NOASSERTION",
+      "downloadLocation": "https://packages.termux.dev/apt/termux-main/pool/main/libs/libsmartcols/libsmartcols_2.42.1-4_aarch64.deb",
+      "filesAnalyzed": false,
+      "licenseConcluded": "NOASSERTION",
+      "licenseDeclared": "NOASSERTION",
+      "name": "libsmartcols",
+      "sourceInfo": "Termux recipe: https://raw.githubusercontent.com/termux/termux-packages/master/packages/libsmartcols/build.sh; upstream: https://en.wikipedia.org/wiki/Util-linux",
+      "versionInfo": "2.42.1-4"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-libsqlite",
+      "checksums": [
+        {
+          "algorithm": "SHA256",
+          "checksumValue": "147365c5633b571bea063ab6c27022577fca89d73e99a7607030602b0166eded"
+        }
+      ],
+      "copyrightText": "NOASSERTION",
+      "downloadLocation": "https://packages.termux.dev/apt/termux-main/pool/main/libs/libsqlite/libsqlite_3.53.3_aarch64.deb",
+      "filesAnalyzed": false,
+      "licenseConcluded": "NOASSERTION",
+      "licenseDeclared": "Public Domain",
+      "name": "libsqlite",
+      "sourceInfo": "Termux recipe: https://raw.githubusercontent.com/termux/termux-packages/master/packages/libsqlite/build.sh; upstream: https://www.sqlite.org",
+      "versionInfo": "3.53.3"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-libssh2",
+      "checksums": [
+        {
+          "algorithm": "SHA256",
+          "checksumValue": "1add4e0a926b848814e7e2f1817ea28b123c54cabd5bbc4e5cfd65291cbad84e"
+        }
+      ],
+      "copyrightText": "NOASSERTION",
+      "downloadLocation": "https://packages.termux.dev/apt/termux-main/pool/main/libs/libssh2/libssh2_1.11.1-2_aarch64.deb",
+      "filesAnalyzed": false,
+      "licenseConcluded": "NOASSERTION",
+      "licenseDeclared": "BSD 3-Clause",
+      "name": "libssh2",
+      "sourceInfo": "Termux recipe: https://raw.githubusercontent.com/termux/termux-packages/master/packages/libssh2/build.sh; upstream: https://www.libssh2.org",
+      "versionInfo": "1.11.1-2"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-ncurses",
+      "checksums": [
+        {
+          "algorithm": "SHA256",
+          "checksumValue": "f44bbfdc3d42ec0217bffa978309390e59cea5a48a9a83226d4a496c42ad0b99"
+        }
+      ],
+      "copyrightText": "NOASSERTION",
+      "downloadLocation": "https://packages.termux.dev/apt/termux-main/pool/main/n/ncurses/ncurses_6.6.20260307+really6.5.20250830_aarch64.deb",
+      "filesAnalyzed": false,
+      "licenseConcluded": "NOASSERTION",
+      "licenseDeclared": "MIT",
+      "name": "ncurses",
+      "sourceInfo": "Termux recipe: https://raw.githubusercontent.com/termux/termux-packages/master/packages/ncurses/build.sh; upstream: https://invisible-island.net/ncurses/",
+      "versionInfo": "6.6.20260307+really6.5.20250830"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-ncurses-ui-libs",
+      "checksums": [
+        {
+          "algorithm": "SHA256",
+          "checksumValue": "7393f369009be189b3d4ec1f9b16ebd57621d6a1b22949ae07685573950d1f37"
+        }
+      ],
+      "copyrightText": "NOASSERTION",
+      "downloadLocation": "https://packages.termux.dev/apt/termux-main/pool/main/n/ncurses-ui-libs/ncurses-ui-libs_6.6.20260307+really6.5.20250830_aarch64.deb",
+      "filesAnalyzed": false,
+      "licenseConcluded": "NOASSERTION",
+      "licenseDeclared": "NOASSERTION",
+      "name": "ncurses-ui-libs",
+      "sourceInfo": "Termux recipe: https://raw.githubusercontent.com/termux/termux-packages/master/packages/ncurses-ui-libs/build.sh; upstream: https://invisible-island.net/ncurses/",
+      "versionInfo": "6.6.20260307+really6.5.20250830"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-ncurses-utils",
+      "checksums": [
+        {
+          "algorithm": "SHA256",
+          "checksumValue": "6fc33807c23594a2c085780924b87b348b389c6c778588c8f59d8f6669f17d20"
+        }
+      ],
+      "copyrightText": "NOASSERTION",
+      "downloadLocation": "https://packages.termux.dev/apt/termux-main/pool/main/n/ncurses-utils/ncurses-utils_6.6.20260307+really6.5.20250830_aarch64.deb",
+      "filesAnalyzed": false,
+      "licenseConcluded": "NOASSERTION",
+      "licenseDeclared": "NOASSERTION",
+      "name": "ncurses-utils",
+      "sourceInfo": "Termux recipe: https://raw.githubusercontent.com/termux/termux-packages/master/packages/ncurses-utils/build.sh; upstream: https://invisible-island.net/ncurses/",
+      "versionInfo": "6.6.20260307+really6.5.20250830"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-openssh",
+      "checksums": [
+        {
+          "algorithm": "SHA256",
+          "checksumValue": "4d4b9b4c6f45db22ddd3fa1c003519f4a4d9fc41e13555c545f77cd90244eef5"
+        }
+      ],
+      "copyrightText": "NOASSERTION",
+      "downloadLocation": "https://packages.termux.dev/apt/termux-main/pool/main/o/openssh/openssh_10.4p1_aarch64.deb",
+      "filesAnalyzed": false,
+      "licenseConcluded": "NOASSERTION",
+      "licenseDeclared": "BSD",
+      "name": "openssh",
+      "sourceInfo": "Termux recipe: https://raw.githubusercontent.com/termux/termux-packages/master/packages/openssh/build.sh; upstream: https://www.openssh.com/",
+      "versionInfo": "10.4p1"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-openssh-sftp-server",
+      "checksums": [
+        {
+          "algorithm": "SHA256",
+          "checksumValue": "3e722b0ee9607516e66d370b52f69ab4cee764a282b87510fc662b8eeb354501"
+        }
+      ],
+      "copyrightText": "NOASSERTION",
+      "downloadLocation": "https://packages.termux.dev/apt/termux-main/pool/main/o/openssh-sftp-server/openssh-sftp-server_10.4p1_aarch64.deb",
+      "filesAnalyzed": false,
+      "licenseConcluded": "NOASSERTION",
+      "licenseDeclared": "NOASSERTION",
+      "name": "openssh-sftp-server",
+      "sourceInfo": "Termux recipe: https://raw.githubusercontent.com/termux/termux-packages/master/packages/openssh-sftp-server/build.sh; upstream: https://www.openssh.com/",
+      "versionInfo": "10.4p1"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-openssl",
+      "checksums": [
+        {
+          "algorithm": "SHA256",
+          "checksumValue": "86760e9ce736f463236f2c15b1eb3a3fdcfc5778d0fd7077a917448dcc90f3aa"
+        }
+      ],
+      "copyrightText": "NOASSERTION",
+      "downloadLocation": "https://packages.termux.dev/apt/termux-main/pool/main/o/openssl/openssl_1:3.6.3_aarch64.deb",
+      "filesAnalyzed": false,
+      "licenseConcluded": "NOASSERTION",
+      "licenseDeclared": "Apache-2.0",
+      "name": "openssl",
+      "sourceInfo": "Termux recipe: https://raw.githubusercontent.com/termux/termux-packages/master/packages/openssl/build.sh; upstream: https://www.openssl.org/",
+      "versionInfo": "1:3.6.3"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-pcre2",
+      "checksums": [
+        {
+          "algorithm": "SHA256",
+          "checksumValue": "51f915d22de639bfca6ec029ae613987bbe3bc73626eede13319fd2e95f50b63"
+        }
+      ],
+      "copyrightText": "NOASSERTION",
+      "downloadLocation": "https://packages.termux.dev/apt/termux-main/pool/main/p/pcre2/pcre2_10.47_aarch64.deb",
+      "filesAnalyzed": false,
+      "licenseConcluded": "NOASSERTION",
+      "licenseDeclared": "BSD 3-Clause",
+      "name": "pcre2",
+      "sourceInfo": "Termux recipe: https://raw.githubusercontent.com/termux/termux-packages/master/packages/pcre2/build.sh; upstream: https://pcre2project.github.io/pcre2/",
+      "versionInfo": "10.47"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-procps",
+      "checksums": [
+        {
+          "algorithm": "SHA256",
+          "checksumValue": "a55809b0bf5de6c3462fdff18325ebcf27bce79e6cb49cd5b7ba52a8ff45af11"
+        }
+      ],
+      "copyrightText": "NOASSERTION",
+      "downloadLocation": "https://packages.termux.dev/apt/termux-main/pool/main/p/procps/procps_3.3.17-6_aarch64.deb",
+      "filesAnalyzed": false,
+      "licenseConcluded": "NOASSERTION",
+      "licenseDeclared": "LGPL-2.0",
+      "name": "procps",
+      "sourceInfo": "Termux recipe: https://raw.githubusercontent.com/termux/termux-packages/master/packages/procps/build.sh; upstream: https://gitlab.com/procps-ng/procps",
+      "versionInfo": "3.3.17-6"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-psmisc",
+      "checksums": [
+        {
+          "algorithm": "SHA256",
+          "checksumValue": "99d0db5ba934e7fa38e33bebbda82c78be59b90e4ba85a74a6dabc3d5b5939b0"
+        }
+      ],
+      "copyrightText": "NOASSERTION",
+      "downloadLocation": "https://packages.termux.dev/apt/termux-main/pool/main/p/psmisc/psmisc_23.7-1_aarch64.deb",
+      "filesAnalyzed": false,
+      "licenseConcluded": "NOASSERTION",
+      "licenseDeclared": "GPL-2.0",
+      "name": "psmisc",
+      "sourceInfo": "Termux recipe: https://raw.githubusercontent.com/termux/termux-packages/master/packages/psmisc/build.sh; upstream: https://gitlab.com/psmisc/psmisc",
+      "versionInfo": "23.7-1"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-python",
+      "checksums": [
+        {
+          "algorithm": "SHA256",
+          "checksumValue": "3166e56c2b6c03fff41191fbb9d736302978e7c484702814d9f6dc99dd6006bd"
+        }
+      ],
+      "copyrightText": "NOASSERTION",
+      "downloadLocation": "https://packages.termux.dev/apt/termux-main/pool/main/p/python/python_3.14.6-1_aarch64.deb",
+      "filesAnalyzed": false,
+      "licenseConcluded": "NOASSERTION",
+      "licenseDeclared": "NOASSERTION",
+      "name": "python",
+      "sourceInfo": "Termux recipe: https://raw.githubusercontent.com/termux/termux-packages/master/packages/python/build.sh; upstream: https://python.org/",
+      "versionInfo": "3.14.6-1"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-readline",
+      "checksums": [
+        {
+          "algorithm": "SHA256",
+          "checksumValue": "e50fb67f40753247dbb83efb17c7fbee0ac868ffcb5b5555d44d76ec8d90b4b1"
+        }
+      ],
+      "copyrightText": "NOASSERTION",
+      "downloadLocation": "https://packages.termux.dev/apt/termux-main/pool/main/r/readline/readline_8.3.3_aarch64.deb",
+      "filesAnalyzed": false,
+      "licenseConcluded": "NOASSERTION",
+      "licenseDeclared": "GPL-3.0",
+      "name": "readline",
+      "sourceInfo": "Termux recipe: https://raw.githubusercontent.com/termux/termux-packages/master/packages/readline/build.sh; upstream: https://tiswww.case.edu/php/chet/readline/rltop.html",
+      "versionInfo": "8.3.3"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-resolv-conf",
+      "checksums": [
+        {
+          "algorithm": "SHA256",
+          "checksumValue": "ab541abac8e0c81709cd7ca4a02bcfa0d60ba1f4bfe7fd6dce4a694a4a9dfffa"
+        }
+      ],
+      "copyrightText": "NOASSERTION",
+      "downloadLocation": "https://packages.termux.dev/apt/termux-main/pool/main/r/resolv-conf/resolv-conf_1.3_aarch64.deb",
+      "filesAnalyzed": false,
+      "licenseConcluded": "NOASSERTION",
+      "licenseDeclared": "Public Domain",
+      "name": "resolv-conf",
+      "sourceInfo": "Termux recipe: https://raw.githubusercontent.com/termux/termux-packages/master/packages/resolv-conf/build.sh; upstream: https://man7.org/linux/man-pages/man5/resolv.conf.5.html",
+      "versionInfo": "1.3"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-sed",
+      "checksums": [
+        {
+          "algorithm": "SHA256",
+          "checksumValue": "c355057bc410eba0b462210ad12d05e63a5f5593bbfc93d2c9cde1116384eacf"
+        }
+      ],
+      "copyrightText": "NOASSERTION",
+      "downloadLocation": "https://packages.termux.dev/apt/termux-main/pool/main/s/sed/sed_4.9-2_aarch64.deb",
+      "filesAnalyzed": false,
+      "licenseConcluded": "NOASSERTION",
+      "licenseDeclared": "GPL-3.0",
+      "name": "sed",
+      "sourceInfo": "Termux recipe: https://raw.githubusercontent.com/termux/termux-packages/master/packages/sed/build.sh; upstream: https://www.gnu.org/software/sed/",
+      "versionInfo": "4.9-2"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-tar",
+      "checksums": [
+        {
+          "algorithm": "SHA256",
+          "checksumValue": "f7279dd13a80962e2551ad74b7782c0a97286f5c8d0044e5fbc5017f22197b15"
+        }
+      ],
+      "copyrightText": "NOASSERTION",
+      "downloadLocation": "https://packages.termux.dev/apt/termux-main/pool/main/t/tar/tar_1.35-2_aarch64.deb",
+      "filesAnalyzed": false,
+      "licenseConcluded": "NOASSERTION",
+      "licenseDeclared": "GPL-3.0",
+      "name": "tar",
+      "sourceInfo": "Termux recipe: https://raw.githubusercontent.com/termux/termux-packages/master/packages/tar/build.sh; upstream: https://www.gnu.org/software/tar/",
+      "versionInfo": "1.35-2"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-termux-am",
+      "checksums": [
+        {
+          "algorithm": "SHA256",
+          "checksumValue": "c67200a3c1750819e0aef91be6f166395b61be7f7b2e1437a7294643956f5d32"
+        }
+      ],
+      "copyrightText": "NOASSERTION",
+      "downloadLocation": "https://packages.termux.dev/apt/termux-main/pool/main/t/termux-am/termux-am_0.8.0-2_all.deb",
+      "filesAnalyzed": false,
+      "licenseConcluded": "NOASSERTION",
+      "licenseDeclared": "Apache-2.0",
+      "name": "termux-am",
+      "sourceInfo": "Termux recipe: https://raw.githubusercontent.com/termux/termux-packages/master/packages/termux-am/build.sh; upstream: https://github.com/termux/TermuxAm",
+      "versionInfo": "0.8.0-2"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-termux-am-socket",
+      "checksums": [
+        {
+          "algorithm": "SHA256",
+          "checksumValue": "dcf53ccb7e1ac46d50e1de9d5e182b748157ba53fbaf47e7a2d50d78447c550b"
+        }
+      ],
+      "copyrightText": "NOASSERTION",
+      "downloadLocation": "https://packages.termux.dev/apt/termux-main/pool/main/t/termux-am-socket/termux-am-socket_1.5.0-1_aarch64.deb",
+      "filesAnalyzed": false,
+      "licenseConcluded": "NOASSERTION",
+      "licenseDeclared": "GPL-3.0",
+      "name": "termux-am-socket",
+      "sourceInfo": "Termux recipe: https://raw.githubusercontent.com/termux/termux-packages/master/packages/termux-am-socket/build.sh; upstream: https://github.com/termux/termux-am-socket",
+      "versionInfo": "1.5.0-1"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-termux-auth",
+      "checksums": [
+        {
+          "algorithm": "SHA256",
+          "checksumValue": "917f431ae85368deccf3a859e66fa9c9e99d354a0e948fc5ba174ce0359b37a9"
+        }
+      ],
+      "copyrightText": "NOASSERTION",
+      "downloadLocation": "https://packages.termux.dev/apt/termux-main/pool/main/t/termux-auth/termux-auth_1.5.0-1_aarch64.deb",
+      "filesAnalyzed": false,
+      "licenseConcluded": "NOASSERTION",
+      "licenseDeclared": "GPL-3.0",
+      "name": "termux-auth",
+      "sourceInfo": "Termux recipe: https://raw.githubusercontent.com/termux/termux-packages/master/packages/termux-auth/build.sh; upstream: https://github.com/termux/termux-auth",
+      "versionInfo": "1.5.0-1"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-termux-core",
+      "checksums": [
+        {
+          "algorithm": "SHA256",
+          "checksumValue": "4f809d70eff0afa8c1beccbf4b5f65e0f59207867462a3a2f66b3e2fcd64b057"
+        }
+      ],
+      "copyrightText": "NOASSERTION",
+      "downloadLocation": "https://packages.termux.dev/apt/termux-main/pool/main/t/termux-core/termux-core_0.4.0-1_aarch64.deb",
+      "filesAnalyzed": false,
+      "licenseConcluded": "NOASSERTION",
+      "licenseDeclared": "MIT",
+      "name": "termux-core",
+      "sourceInfo": "Termux recipe: https://raw.githubusercontent.com/termux/termux-packages/master/packages/termux-core/build.sh; upstream: https://github.com/termux/termux-core-package",
+      "versionInfo": "0.4.0-1"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-termux-exec",
+      "checksums": [
+        {
+          "algorithm": "SHA256",
+          "checksumValue": "fd6a06a6a74c6fba2d1cec56dc8b5726e6488918322b06fd19fe5cff34b28a5d"
+        }
+      ],
+      "copyrightText": "NOASSERTION",
+      "downloadLocation": "https://packages.termux.dev/apt/termux-main/pool/main/t/termux-exec/termux-exec_1:2.5.0-1_aarch64.deb",
+      "filesAnalyzed": false,
+      "licenseConcluded": "NOASSERTION",
+      "licenseDeclared": "Apache-2.0",
+      "name": "termux-exec",
+      "sourceInfo": "Termux recipe: https://raw.githubusercontent.com/termux/termux-packages/master/packages/termux-exec/build.sh; upstream: https://github.com/termux/termux-exec-package",
+      "versionInfo": "1:2.5.0-1"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-termux-tools",
+      "checksums": [
+        {
+          "algorithm": "SHA256",
+          "checksumValue": "970fb05a835169f218ea73479eda0f2574f5f70c2af54119f42f77e97cee98e1"
+        }
+      ],
+      "copyrightText": "NOASSERTION",
+      "downloadLocation": "https://packages.termux.dev/apt/termux-main/pool/main/t/termux-tools/termux-tools_1.46.0+really1.45.0-1_aarch64.deb",
+      "filesAnalyzed": false,
+      "licenseConcluded": "NOASSERTION",
+      "licenseDeclared": "GPL-3.0",
+      "name": "termux-tools",
+      "sourceInfo": "Termux recipe: https://raw.githubusercontent.com/termux/termux-packages/master/packages/termux-tools/build.sh; upstream: https://termux.dev/",
+      "versionInfo": "1.46.0+really1.45.0-1"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-tmux",
+      "checksums": [
+        {
+          "algorithm": "SHA256",
+          "checksumValue": "e16a06ea230d579a380fcf5925a5f7e953a8ce1001ad8330a9038a9ff3b9bf68"
+        }
+      ],
+      "copyrightText": "NOASSERTION",
+      "downloadLocation": "https://packages.termux.dev/apt/termux-main/pool/main/t/tmux/tmux_3.7b_aarch64.deb",
+      "filesAnalyzed": false,
+      "licenseConcluded": "NOASSERTION",
+      "licenseDeclared": "ISC",
+      "name": "tmux",
+      "sourceInfo": "Termux recipe: https://raw.githubusercontent.com/termux/termux-packages/master/packages/tmux/build.sh; upstream: https://tmux.github.io/",
+      "versionInfo": "3.7b"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-util-linux",
+      "checksums": [
+        {
+          "algorithm": "SHA256",
+          "checksumValue": "d860076365b60b657467b3b393960d070d99d05c5e1c11ce7062612c34571425"
+        }
+      ],
+      "copyrightText": "NOASSERTION",
+      "downloadLocation": "https://packages.termux.dev/apt/termux-main/pool/main/u/util-linux/util-linux_2.42.1-4_aarch64.deb",
+      "filesAnalyzed": false,
+      "licenseConcluded": "NOASSERTION",
+      "licenseDeclared": "GPL-3.0-or-later, GPL-2.0-or-later, LGPL-2.1-or-later, BSD 3-Clause, BSD, ISC",
+      "name": "util-linux",
+      "sourceInfo": "Termux recipe: https://raw.githubusercontent.com/termux/termux-packages/master/packages/util-linux/build.sh; upstream: https://en.wikipedia.org/wiki/Util-linux",
+      "versionInfo": "2.42.1-4"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-xz-utils",
+      "checksums": [
+        {
+          "algorithm": "SHA256",
+          "checksumValue": "7e7999d0b967e4aa4f57c0c8f66dcacd83b310252278047404376d171961f03f"
+        }
+      ],
+      "copyrightText": "NOASSERTION",
+      "downloadLocation": "https://packages.termux.dev/apt/termux-main/pool/main/x/xz-utils/xz-utils_5.8.3_aarch64.deb",
+      "filesAnalyzed": false,
+      "licenseConcluded": "NOASSERTION",
+      "licenseDeclared": "NOASSERTION",
+      "name": "xz-utils",
+      "sourceInfo": "Termux recipe: https://raw.githubusercontent.com/termux/termux-packages/master/packages/xz-utils/build.sh; upstream: https://tukaani.org/xz/",
+      "versionInfo": "5.8.3"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-zlib",
+      "checksums": [
+        {
+          "algorithm": "SHA256",
+          "checksumValue": "75e7d0af17fcc3b40004309fdc00a1ddb9ae08346dce5e269902c34ac3966ac9"
+        }
+      ],
+      "copyrightText": "NOASSERTION",
+      "downloadLocation": "https://packages.termux.dev/apt/termux-main/pool/main/z/zlib/zlib_1.3.2_aarch64.deb",
+      "filesAnalyzed": false,
+      "licenseConcluded": "NOASSERTION",
+      "licenseDeclared": "ZLIB",
+      "name": "zlib",
+      "sourceInfo": "Termux recipe: https://raw.githubusercontent.com/termux/termux-packages/master/packages/zlib/build.sh; upstream: https://www.zlib.net/",
+      "versionInfo": "1.3.2"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-zstd",
+      "checksums": [
+        {
+          "algorithm": "SHA256",
+          "checksumValue": "e1b4a5113648da8de189620ba1fce74c48b2d0833d9043391b9a1c91fb606fd3"
+        }
+      ],
+      "copyrightText": "NOASSERTION",
+      "downloadLocation": "https://packages.termux.dev/apt/termux-main/pool/main/z/zstd/zstd_1.5.7-1_aarch64.deb",
+      "filesAnalyzed": false,
+      "licenseConcluded": "NOASSERTION",
+      "licenseDeclared": "GPL-2.0",
+      "name": "zstd",
+      "sourceInfo": "Termux recipe: https://raw.githubusercontent.com/termux/termux-packages/master/packages/zstd/build.sh; upstream: https://github.com/facebook/zstd",
+      "versionInfo": "1.5.7-1"
+    }
+  ],
+  "relationships": [
+    {
+      "relatedSpdxElement": "SPDXRef-Package-attr",
+      "relationshipType": "DESCRIBES",
+      "spdxElementId": "SPDXRef-DOCUMENT"
+    },
+    {
+      "relatedSpdxElement": "SPDXRef-Package-bash",
+      "relationshipType": "DESCRIBES",
+      "spdxElementId": "SPDXRef-DOCUMENT"
+    },
+    {
+      "relatedSpdxElement": "SPDXRef-Package-bzip2",
+      "relationshipType": "DESCRIBES",
+      "spdxElementId": "SPDXRef-DOCUMENT"
+    },
+    {
+      "relatedSpdxElement": "SPDXRef-Package-ca-certificates",
+      "relationshipType": "DESCRIBES",
+      "spdxElementId": "SPDXRef-DOCUMENT"
+    },
+    {
+      "relatedSpdxElement": "SPDXRef-Package-coreutils",
+      "relationshipType": "DESCRIBES",
+      "spdxElementId": "SPDXRef-DOCUMENT"
+    },
+    {
+      "relatedSpdxElement": "SPDXRef-Package-curl",
+      "relationshipType": "DESCRIBES",
+      "spdxElementId": "SPDXRef-DOCUMENT"
+    },
+    {
+      "relatedSpdxElement": "SPDXRef-Package-dash",
+      "relationshipType": "DESCRIBES",
+      "spdxElementId": "SPDXRef-DOCUMENT"
+    },
+    {
+      "relatedSpdxElement": "SPDXRef-Package-dialog",
+      "relationshipType": "DESCRIBES",
+      "spdxElementId": "SPDXRef-DOCUMENT"
+    },
+    {
+      "relatedSpdxElement": "SPDXRef-Package-diffutils",
+      "relationshipType": "DESCRIBES",
+      "spdxElementId": "SPDXRef-DOCUMENT"
+    },
+    {
+      "relatedSpdxElement": "SPDXRef-Package-findutils",
+      "relationshipType": "DESCRIBES",
+      "spdxElementId": "SPDXRef-DOCUMENT"
+    },
+    {
+      "relatedSpdxElement": "SPDXRef-Package-fzf",
+      "relationshipType": "DESCRIBES",
+      "spdxElementId": "SPDXRef-DOCUMENT"
+    },
+    {
+      "relatedSpdxElement": "SPDXRef-Package-gawk",
+      "relationshipType": "DESCRIBES",
+      "spdxElementId": "SPDXRef-DOCUMENT"
+    },
+    {
+      "relatedSpdxElement": "SPDXRef-Package-gdbm",
+      "relationshipType": "DESCRIBES",
+      "spdxElementId": "SPDXRef-DOCUMENT"
+    },
+    {
+      "relatedSpdxElement": "SPDXRef-Package-git",
+      "relationshipType": "DESCRIBES",
+      "spdxElementId": "SPDXRef-DOCUMENT"
+    },
+    {
+      "relatedSpdxElement": "SPDXRef-Package-grep",
+      "relationshipType": "DESCRIBES",
+      "spdxElementId": "SPDXRef-DOCUMENT"
+    },
+    {
+      "relatedSpdxElement": "SPDXRef-Package-gzip",
+      "relationshipType": "DESCRIBES",
+      "spdxElementId": "SPDXRef-DOCUMENT"
+    },
+    {
+      "relatedSpdxElement": "SPDXRef-Package-krb5",
+      "relationshipType": "DESCRIBES",
+      "spdxElementId": "SPDXRef-DOCUMENT"
+    },
+    {
+      "relatedSpdxElement": "SPDXRef-Package-ldns",
+      "relationshipType": "DESCRIBES",
+      "spdxElementId": "SPDXRef-DOCUMENT"
+    },
+    {
+      "relatedSpdxElement": "SPDXRef-Package-less",
+      "relationshipType": "DESCRIBES",
+      "spdxElementId": "SPDXRef-DOCUMENT"
+    },
+    {
+      "relatedSpdxElement": "SPDXRef-Package-libacl",
+      "relationshipType": "DESCRIBES",
+      "spdxElementId": "SPDXRef-DOCUMENT"
+    },
+    {
+      "relatedSpdxElement": "SPDXRef-Package-libandroid-glob",
+      "relationshipType": "DESCRIBES",
+      "spdxElementId": "SPDXRef-DOCUMENT"
+    },
+    {
+      "relatedSpdxElement": "SPDXRef-Package-libandroid-posix-semaphore",
+      "relationshipType": "DESCRIBES",
+      "spdxElementId": "SPDXRef-DOCUMENT"
+    },
+    {
+      "relatedSpdxElement": "SPDXRef-Package-libandroid-selinux",
+      "relationshipType": "DESCRIBES",
+      "spdxElementId": "SPDXRef-DOCUMENT"
+    },
+    {
+      "relatedSpdxElement": "SPDXRef-Package-libandroid-support",
+      "relationshipType": "DESCRIBES",
+      "spdxElementId": "SPDXRef-DOCUMENT"
+    },
+    {
+      "relatedSpdxElement": "SPDXRef-Package-libbz2",
+      "relationshipType": "DESCRIBES",
+      "spdxElementId": "SPDXRef-DOCUMENT"
+    },
+    {
+      "relatedSpdxElement": "SPDXRef-Package-libc--",
+      "relationshipType": "DESCRIBES",
+      "spdxElementId": "SPDXRef-DOCUMENT"
+    },
+    {
+      "relatedSpdxElement": "SPDXRef-Package-libcap-ng",
+      "relationshipType": "DESCRIBES",
+      "spdxElementId": "SPDXRef-DOCUMENT"
+    },
+    {
+      "relatedSpdxElement": "SPDXRef-Package-libcrypt",
+      "relationshipType": "DESCRIBES",
+      "spdxElementId": "SPDXRef-DOCUMENT"
+    },
+    {
+      "relatedSpdxElement": "SPDXRef-Package-libcurl",
+      "relationshipType": "DESCRIBES",
+      "spdxElementId": "SPDXRef-DOCUMENT"
+    },
+    {
+      "relatedSpdxElement": "SPDXRef-Package-libdb",
+      "relationshipType": "DESCRIBES",
+      "spdxElementId": "SPDXRef-DOCUMENT"
+    },
+    {
+      "relatedSpdxElement": "SPDXRef-Package-libedit",
+      "relationshipType": "DESCRIBES",
+      "spdxElementId": "SPDXRef-DOCUMENT"
+    },
+    {
+      "relatedSpdxElement": "SPDXRef-Package-libevent",
+      "relationshipType": "DESCRIBES",
+      "spdxElementId": "SPDXRef-DOCUMENT"
+    },
+    {
+      "relatedSpdxElement": "SPDXRef-Package-libexpat",
+      "relationshipType": "DESCRIBES",
+      "spdxElementId": "SPDXRef-DOCUMENT"
+    },
+    {
+      "relatedSpdxElement": "SPDXRef-Package-libffi",
+      "relationshipType": "DESCRIBES",
+      "spdxElementId": "SPDXRef-DOCUMENT"
+    },
+    {
+      "relatedSpdxElement": "SPDXRef-Package-libgmp",
+      "relationshipType": "DESCRIBES",
+      "spdxElementId": "SPDXRef-DOCUMENT"
+    },
+    {
+      "relatedSpdxElement": "SPDXRef-Package-libiconv",
+      "relationshipType": "DESCRIBES",
+      "spdxElementId": "SPDXRef-DOCUMENT"
+    },
+    {
+      "relatedSpdxElement": "SPDXRef-Package-liblzma",
+      "relationshipType": "DESCRIBES",
+      "spdxElementId": "SPDXRef-DOCUMENT"
+    },
+    {
+      "relatedSpdxElement": "SPDXRef-Package-libmpfr",
+      "relationshipType": "DESCRIBES",
+      "spdxElementId": "SPDXRef-DOCUMENT"
+    },
+    {
+      "relatedSpdxElement": "SPDXRef-Package-libnghttp2",
+      "relationshipType": "DESCRIBES",
+      "spdxElementId": "SPDXRef-DOCUMENT"
+    },
+    {
+      "relatedSpdxElement": "SPDXRef-Package-libnghttp3",
+      "relationshipType": "DESCRIBES",
+      "spdxElementId": "SPDXRef-DOCUMENT"
+    },
+    {
+      "relatedSpdxElement": "SPDXRef-Package-libngtcp2",
+      "relationshipType": "DESCRIBES",
+      "spdxElementId": "SPDXRef-DOCUMENT"
+    },
+    {
+      "relatedSpdxElement": "SPDXRef-Package-libresolv-wrapper",
+      "relationshipType": "DESCRIBES",
+      "spdxElementId": "SPDXRef-DOCUMENT"
+    },
+    {
+      "relatedSpdxElement": "SPDXRef-Package-libsmartcols",
+      "relationshipType": "DESCRIBES",
+      "spdxElementId": "SPDXRef-DOCUMENT"
+    },
+    {
+      "relatedSpdxElement": "SPDXRef-Package-libsqlite",
+      "relationshipType": "DESCRIBES",
+      "spdxElementId": "SPDXRef-DOCUMENT"
+    },
+    {
+      "relatedSpdxElement": "SPDXRef-Package-libssh2",
+      "relationshipType": "DESCRIBES",
+      "spdxElementId": "SPDXRef-DOCUMENT"
+    },
+    {
+      "relatedSpdxElement": "SPDXRef-Package-ncurses",
+      "relationshipType": "DESCRIBES",
+      "spdxElementId": "SPDXRef-DOCUMENT"
+    },
+    {
+      "relatedSpdxElement": "SPDXRef-Package-ncurses-ui-libs",
+      "relationshipType": "DESCRIBES",
+      "spdxElementId": "SPDXRef-DOCUMENT"
+    },
+    {
+      "relatedSpdxElement": "SPDXRef-Package-ncurses-utils",
+      "relationshipType": "DESCRIBES",
+      "spdxElementId": "SPDXRef-DOCUMENT"
+    },
+    {
+      "relatedSpdxElement": "SPDXRef-Package-openssh",
+      "relationshipType": "DESCRIBES",
+      "spdxElementId": "SPDXRef-DOCUMENT"
+    },
+    {
+      "relatedSpdxElement": "SPDXRef-Package-openssh-sftp-server",
+      "relationshipType": "DESCRIBES",
+      "spdxElementId": "SPDXRef-DOCUMENT"
+    },
+    {
+      "relatedSpdxElement": "SPDXRef-Package-openssl",
+      "relationshipType": "DESCRIBES",
+      "spdxElementId": "SPDXRef-DOCUMENT"
+    },
+    {
+      "relatedSpdxElement": "SPDXRef-Package-pcre2",
+      "relationshipType": "DESCRIBES",
+      "spdxElementId": "SPDXRef-DOCUMENT"
+    },
+    {
+      "relatedSpdxElement": "SPDXRef-Package-procps",
+      "relationshipType": "DESCRIBES",
+      "spdxElementId": "SPDXRef-DOCUMENT"
+    },
+    {
+      "relatedSpdxElement": "SPDXRef-Package-psmisc",
+      "relationshipType": "DESCRIBES",
+      "spdxElementId": "SPDXRef-DOCUMENT"
+    },
+    {
+      "relatedSpdxElement": "SPDXRef-Package-python",
+      "relationshipType": "DESCRIBES",
+      "spdxElementId": "SPDXRef-DOCUMENT"
+    },
+    {
+      "relatedSpdxElement": "SPDXRef-Package-readline",
+      "relationshipType": "DESCRIBES",
+      "spdxElementId": "SPDXRef-DOCUMENT"
+    },
+    {
+      "relatedSpdxElement": "SPDXRef-Package-resolv-conf",
+      "relationshipType": "DESCRIBES",
+      "spdxElementId": "SPDXRef-DOCUMENT"
+    },
+    {
+      "relatedSpdxElement": "SPDXRef-Package-sed",
+      "relationshipType": "DESCRIBES",
+      "spdxElementId": "SPDXRef-DOCUMENT"
+    },
+    {
+      "relatedSpdxElement": "SPDXRef-Package-tar",
+      "relationshipType": "DESCRIBES",
+      "spdxElementId": "SPDXRef-DOCUMENT"
+    },
+    {
+      "relatedSpdxElement": "SPDXRef-Package-termux-am",
+      "relationshipType": "DESCRIBES",
+      "spdxElementId": "SPDXRef-DOCUMENT"
+    },
+    {
+      "relatedSpdxElement": "SPDXRef-Package-termux-am-socket",
+      "relationshipType": "DESCRIBES",
+      "spdxElementId": "SPDXRef-DOCUMENT"
+    },
+    {
+      "relatedSpdxElement": "SPDXRef-Package-termux-auth",
+      "relationshipType": "DESCRIBES",
+      "spdxElementId": "SPDXRef-DOCUMENT"
+    },
+    {
+      "relatedSpdxElement": "SPDXRef-Package-termux-core",
+      "relationshipType": "DESCRIBES",
+      "spdxElementId": "SPDXRef-DOCUMENT"
+    },
+    {
+      "relatedSpdxElement": "SPDXRef-Package-termux-exec",
+      "relationshipType": "DESCRIBES",
+      "spdxElementId": "SPDXRef-DOCUMENT"
+    },
+    {
+      "relatedSpdxElement": "SPDXRef-Package-termux-tools",
+      "relationshipType": "DESCRIBES",
+      "spdxElementId": "SPDXRef-DOCUMENT"
+    },
+    {
+      "relatedSpdxElement": "SPDXRef-Package-tmux",
+      "relationshipType": "DESCRIBES",
+      "spdxElementId": "SPDXRef-DOCUMENT"
+    },
+    {
+      "relatedSpdxElement": "SPDXRef-Package-util-linux",
+      "relationshipType": "DESCRIBES",
+      "spdxElementId": "SPDXRef-DOCUMENT"
+    },
+    {
+      "relatedSpdxElement": "SPDXRef-Package-xz-utils",
+      "relationshipType": "DESCRIBES",
+      "spdxElementId": "SPDXRef-DOCUMENT"
+    },
+    {
+      "relatedSpdxElement": "SPDXRef-Package-zlib",
+      "relationshipType": "DESCRIBES",
+      "spdxElementId": "SPDXRef-DOCUMENT"
+    },
+    {
+      "relatedSpdxElement": "SPDXRef-Package-zstd",
+      "relationshipType": "DESCRIBES",
+      "spdxElementId": "SPDXRef-DOCUMENT"
+    }
+  ],
+  "spdxVersion": "SPDX-2.3"
+}

@@ -69,18 +69,27 @@ class AgentFleetUpdateManager(private val context: Context) {
     fun installedVersionName(): String =
         context.packageManager.getPackageInfo(context.packageName, 0).versionName.orEmpty()
 
-    fun check(manifestUrl: String): AgentFleetUpdate? {
+    fun check(manifestUrl: String, allowedOrigins: Set<String> = emptySet()): AgentFleetUpdate? {
         requireHttps(manifestUrl, "Update manifest")
+        if (allowedOrigins.isNotEmpty()) {
+            require(ClientPolicyParser.canonicalOrigin(manifestUrl) in allowedOrigins) { "App update manifest origin is not approved" }
+        }
         val text = readUrl(manifestUrl, 32_768).toString(Charsets.UTF_8)
         val update = AgentFleetUpdateManifestParser.parse(text)
+        if (allowedOrigins.isNotEmpty()) {
+            require(ClientPolicyParser.canonicalOrigin(update.apkUrl) in allowedOrigins) { "App update APK origin is not approved" }
+        }
         require(update.certificateSha256 == installedCertificateSha256()) {
             "Update is signed by a different certificate"
         }
         return update.takeIf { it.versionCode > installedVersionCode() }
     }
 
-    fun downloadAndVerify(update: AgentFleetUpdate): File {
+    fun downloadAndVerify(update: AgentFleetUpdate, allowedOrigins: Set<String> = emptySet()): File {
         requireHttps(update.apkUrl, "Update APK")
+        if (allowedOrigins.isNotEmpty()) {
+            require(ClientPolicyParser.canonicalOrigin(update.apkUrl) in allowedOrigins) { "App update APK origin is not approved" }
+        }
         require(update.certificateSha256 == installedCertificateSha256()) {
             "Update is signed by a different certificate"
         }

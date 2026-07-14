@@ -84,7 +84,14 @@ import com.termux.app.fleet.RecentSessionStore
 import com.termux.app.fleet.RecentLocationStore
 import com.termux.app.fleet.AgentFleetUpdate
 import com.termux.app.fleet.AgentFleetUpdateManager
+import com.termux.app.fleet.ClientPolicyStore
+import com.termux.app.fleet.EmbeddedRuntimeManager
+import com.termux.app.fleet.EmbeddedRuntimeStatus
+import com.termux.app.fleet.RuntimeUpdateManager
+import com.termux.app.fleet.RuntimeUpdateResult
+import com.termux.app.fleet.supportsEmbeddedRuntime
 import com.termux.app.fleet.UpdateUiState
+import java.io.File
 import java.util.concurrent.Executors
 import java.text.SimpleDateFormat
 import java.util.Locale
@@ -97,8 +104,10 @@ class AgentFleetActivity : ComponentActivity() {
     private val pendingSharedImages = mutableStateOf<List<String>>(emptyList())
     private val updateState = mutableStateOf<UpdateUiState>(UpdateUiState.Idle)
     private val updateManifestUrl = mutableStateOf("")
+    private val runtimeUi = mutableStateOf(RuntimeUiState())
     private val fleetExecutor = Executors.newSingleThreadExecutor()
     private val updateExecutor = Executors.newSingleThreadExecutor()
+    private val runtimeExecutor = Executors.newSingleThreadExecutor()
     private val refreshHandler = Handler(Looper.getMainLooper())
     private val refreshRunnable = object : Runnable {
         override fun run() {
@@ -109,15 +118,28 @@ class AgentFleetActivity : ComponentActivity() {
     private lateinit var fleetRuntime: FleetRuntime
     private lateinit var recentSessionStore: RecentSessionStore
     private lateinit var updateManager: AgentFleetUpdateManager
+    private lateinit var embeddedRuntime: EmbeddedRuntimeManager
+    private lateinit var runtimeUpdateManager: RuntimeUpdateManager
+    private lateinit var clientPolicyStore: ClientPolicyStore
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         fleetRuntime = FleetRuntime(applicationContext)
         recentSessionStore = RecentSessionStore(applicationContext)
         updateManager = AgentFleetUpdateManager(applicationContext)
-        updateManifestUrl.value = getSharedPreferences("agent-fleet-updates", Context.MODE_PRIVATE)
-            .getString("manifest-url", "").orEmpty()
+        embeddedRuntime = EmbeddedRuntimeManager(applicationContext)
+        runtimeUpdateManager = RuntimeUpdateManager(applicationContext, embeddedRuntime)
+        clientPolicyStore = ClientPolicyStore(applicationContext)
+        refreshUpdatePolicy()
         recentSessions.value = recentSessionStore.load()
+        val cleanTerminal = !File(filesDir, "usr/bin/bash").canExecute()
+        val offlineRuntimeSupported = runCatching {
+            supportsEmbeddedRuntime(android.os.Build.SUPPORTED_ABIS.firstOrNull(), embeddedRuntime.descriptor().supportedAbis)
+        }.getOrDefault(false)
+        val automaticPreparation = cleanTerminal && offlineRuntimeSupported
+        if (automaticPreparation) runtimeUi.value = RuntimeUiState(
+            busy = true, blocking = true, detail = "Installing the built-in terminal…"
+        )
         acceptPairingIntent(intent)
         acceptSharedImages(intent)
         setContent {
@@ -130,6 +152,7 @@ class AgentFleetActivity : ComponentActivity() {
                     pendingSharedImages = pendingSharedImages.value,
                     updateState = updateState.value,
                     updateManifestUrl = updateManifestUrl.value,
+                    runtimeUi = runtimeUi.value,
                     onSharedImagesHandled = { pendingSharedImages.value = emptyList() },
                     onRefresh = ::refreshFleet,
                     onOpenSession = ::openFleetSession,
@@ -143,9 +166,12 @@ class AgentFleetActivity : ComponentActivity() {
                     onKillSession = ::killFleetSession,
                     onCopyAttachCommand = ::copyAttachCommand,
                     onPairInvitation = ::openPairing,
-                    onConfigureUpdates = ::configureUpdates,
                     onCheckUpdate = ::checkForUpdate,
                     onInstallUpdate = ::installUpdate,
+                    onRepairRuntime = { prepareEmbeddedRuntime(autoRepair = true, blocking = runtimeUi.value.blocking) },
+                    onCheckRuntime = { checkRuntimeUpdate(manual = true) },
+                    onRollbackRuntime = ::rollbackRuntime,
+                    onRestoreBaseline = ::restoreBaseline,
                     onOpenAppearance = {
                         startActivity(Intent(this, TerminalAppearanceActivity::class.java))
                     },
@@ -159,12 +185,20 @@ class AgentFleetActivity : ComponentActivity() {
                 )
             }
         }
+        TermuxInstaller.setupBootstrapIfNeeded(this) {
+            prepareEmbeddedRuntime(autoRepair = automaticPreparation, blocking = automaticPreparation)
+        }
     }
 
     override fun onStart() {
         super.onStart()
+        refreshUpdatePolicy()
         refreshHandler.removeCallbacks(refreshRunnable)
         refreshRunnable.run()
+        if (
+            ::runtimeUpdateManager.isInitialized && !runtimeUi.value.busy && runtimeUi.value.status?.usable == true &&
+            runtimeUpdateManager.shouldCheck()
+        ) checkRuntimeUpdate(manual = false)
     }
 
     override fun onNewIntent(intent: Intent) {
@@ -182,6 +216,7 @@ class AgentFleetActivity : ComponentActivity() {
     override fun onDestroy() {
         fleetExecutor.shutdownNow()
         updateExecutor.shutdownNow()
+        runtimeExecutor.shutdownNow()
         super.onDestroy()
     }
 
@@ -269,23 +304,40 @@ class AgentFleetActivity : ComponentActivity() {
         }
     }
 
-    private fun configureUpdates(manifestUrl: String) {
-        val normalized = manifestUrl.trim()
-        updateManifestUrl.value = normalized
-        getSharedPreferences("agent-fleet-updates", Context.MODE_PRIVATE).edit()
-            .putString("manifest-url", normalized).apply()
-        updateState.value = UpdateUiState.Idle
+    private fun refreshUpdatePolicy() {
+        val paired = runCatching { clientPolicyStore.load()?.apkManifestUrls.orEmpty() }.getOrDefault(emptyList())
+        val legacy = getSharedPreferences("agent-fleet-updates", Context.MODE_PRIVATE)
+            .getString("manifest-url", "").orEmpty().takeIf { it.isNotBlank() }
+        updateManifestUrl.value = paired.firstOrNull() ?: legacy.orEmpty()
+    }
+
+    private fun apkUpdateSources(): List<String> {
+        val paired = runCatching { clientPolicyStore.load()?.apkManifestUrls.orEmpty() }.getOrDefault(emptyList())
+        if (paired.isNotEmpty()) return paired
+        return listOfNotNull(getSharedPreferences("agent-fleet-updates", Context.MODE_PRIVATE)
+            .getString("manifest-url", "").orEmpty().takeIf { it.isNotBlank() })
     }
 
     private fun checkForUpdate() {
-        val url = updateManifestUrl.value
-        if (url.isBlank()) {
-            updateState.value = UpdateUiState.Error("Configure the private HTTPS update manifest first")
+        val sources = apkUpdateSources()
+        if (sources.isEmpty()) {
+            updateState.value = UpdateUiState.Error("Pair this phone to receive its private update source")
             return
         }
         updateState.value = UpdateUiState.Checking
         updateExecutor.execute {
-            val result = runCatching { updateManager.check(url) }
+            val result = runCatching {
+                var failure: Exception? = null
+                for (url in sources) {
+                    try {
+                        val origins = runCatching { clientPolicyStore.load()?.artifactOrigins.orEmpty() }.getOrDefault(emptySet())
+                        return@runCatching updateManager.check(url, origins)
+                    } catch (error: Exception) {
+                        failure = error
+                    }
+                }
+                throw failure ?: IllegalStateException("No app update source was reachable")
+            }
             runOnUiThread {
                 updateState.value = result.fold(
                     onSuccess = { update ->
@@ -298,10 +350,82 @@ class AgentFleetActivity : ComponentActivity() {
         }
     }
 
+    private fun prepareEmbeddedRuntime(autoRepair: Boolean, blocking: Boolean) {
+        runtimeUi.value = runtimeUi.value.copy(
+            busy = true, blocking = blocking, error = "",
+            detail = if (autoRepair) "Preparing the built-in terminal…" else "Checking the built-in terminal…"
+        )
+        runtimeExecutor.execute {
+            val result = runCatching {
+                if (autoRepair) embeddedRuntime.repair { detail ->
+                    runOnUiThread { runtimeUi.value = runtimeUi.value.copy(detail = detail) }
+                } else embeddedRuntime.inspect()
+            }
+            runOnUiThread {
+                result.onSuccess { status ->
+                    runtimeUi.value = RuntimeUiState(
+                        status = status, detail = status.detail, blocking = false
+                    )
+                    refreshFleet()
+                    if (status.usable && runtimeUpdateManager.shouldCheck()) checkRuntimeUpdate(manual = false)
+                }.onFailure { error ->
+                    runtimeUi.value = RuntimeUiState(
+                        busy = false, blocking = blocking,
+                        detail = if (blocking) "Terminal preparation stopped" else "Built-in runtime needs attention",
+                        error = error.message ?: "Terminal preparation failed"
+                    )
+                }
+            }
+        }
+    }
+
+    private fun checkRuntimeUpdate(manual: Boolean) {
+        if (runtimeUi.value.busy) return
+        runtimeUi.value = runtimeUi.value.copy(busy = true, error = "", updateDetail = "Checking for runtime fixes…")
+        updateExecutor.execute {
+            val result = runCatching { runtimeUpdateManager.checkAndInstall(manual) }
+            runOnUiThread {
+                result.onSuccess { update ->
+                    val detail = when (update) {
+                        RuntimeUpdateResult.NoPolicy -> "Pair this phone to receive runtime updates"
+                        is RuntimeUpdateResult.Current -> "Runtime is current"
+                        is RuntimeUpdateResult.Installed -> "Updated to ${update.update.version}"
+                    }
+                    runtimeUi.value = runtimeUi.value.copy(busy = false, updateDetail = detail)
+                    prepareEmbeddedRuntime(autoRepair = false, blocking = false)
+                }.onFailure { error ->
+                    runtimeUi.value = runtimeUi.value.copy(
+                        busy = false, updateDetail = "Runtime update failed",
+                        error = error.message ?: "Runtime update failed"
+                    )
+                }
+            }
+        }
+    }
+
+    private fun rollbackRuntime() = runRuntimeMaintenance("Rolling back runtime…") { embeddedRuntime.rollback() }
+
+    private fun restoreBaseline() = runRuntimeMaintenance("Restoring APK baseline…") { embeddedRuntime.restoreBaseline() }
+
+    private fun runRuntimeMaintenance(detail: String, action: () -> EmbeddedRuntimeStatus) {
+        if (runtimeUi.value.busy) return
+        runtimeUi.value = runtimeUi.value.copy(busy = true, error = "", detail = detail)
+        runtimeExecutor.execute {
+            val result = runCatching(action)
+            runOnUiThread {
+                result.onSuccess { status -> runtimeUi.value = RuntimeUiState(status = status, detail = status.detail) }
+                    .onFailure { error -> runtimeUi.value = runtimeUi.value.copy(
+                        busy = false, error = error.message ?: "Runtime recovery failed"
+                    ) }
+            }
+        }
+    }
+
     private fun installUpdate(update: AgentFleetUpdate) {
         updateState.value = UpdateUiState.Downloading
         updateExecutor.execute {
-            val result = runCatching { updateManager.downloadAndVerify(update) }
+            val origins = runCatching { clientPolicyStore.load()?.artifactOrigins.orEmpty() }.getOrDefault(emptySet())
+            val result = runCatching { updateManager.downloadAndVerify(update, origins) }
             runOnUiThread {
                 result.onSuccess { apk ->
                     updateState.value = UpdateUiState.Available(update)
@@ -355,6 +479,15 @@ class AgentFleetActivity : ComponentActivity() {
     }
 }
 
+data class RuntimeUiState(
+    val status: EmbeddedRuntimeStatus? = null,
+    val busy: Boolean = false,
+    val blocking: Boolean = false,
+    val detail: String = "Checking the built-in terminal…",
+    val updateDetail: String = "",
+    val error: String = ""
+)
+
 enum class FleetSection(val label: String, val glyph: String) {
     Sessions("Sessions", "▣"),
     Terminal("Terminal", ">_"),
@@ -384,6 +517,7 @@ fun AgentFleetApp(
     pendingSharedImages: List<String>,
     updateState: UpdateUiState,
     updateManifestUrl: String,
+    runtimeUi: RuntimeUiState,
     onSharedImagesHandled: () -> Unit,
     onRefresh: () -> Unit,
     onOpenSession: (FleetSession) -> Unit,
@@ -397,12 +531,19 @@ fun AgentFleetApp(
     onKillSession: (FleetSession) -> Unit,
     onCopyAttachCommand: (FleetSession) -> Unit,
     onPairInvitation: (String) -> Unit,
-    onConfigureUpdates: (String) -> Unit,
     onCheckUpdate: () -> Unit,
     onInstallUpdate: (AgentFleetUpdate) -> Unit,
+    onRepairRuntime: () -> Unit,
+    onCheckRuntime: () -> Unit,
+    onRollbackRuntime: () -> Unit,
+    onRestoreBaseline: () -> Unit,
     onOpenAppearance: () -> Unit,
     onOpenClassicTerminal: () -> Unit
 ) {
+    if (runtimeUi.blocking) {
+        PreparingTerminalScreen(runtimeUi, onRepairRuntime)
+        return
+    }
     var section by rememberSaveable { mutableStateOf(FleetSection.Sessions) }
     var actionSession by rememberSaveable { mutableStateOf<String?>(null) }
     var renameSession by rememberSaveable { mutableStateOf<String?>(null) }
@@ -410,7 +551,6 @@ fun AgentFleetApp(
     var killSession by rememberSaveable { mutableStateOf<String?>(null) }
     var showCreateSession by rememberSaveable { mutableStateOf(false) }
     var showPairing by rememberSaveable { mutableStateOf(false) }
-    var showUpdateSettings by rememberSaveable { mutableStateOf(false) }
     val currentSnapshot = (fleetState as? FleetLoadState.Ready)?.snapshot
     val sessionsById = currentSnapshot?.sessions?.associateBy { it.id }.orEmpty()
     LaunchedEffect(pendingPairInvitation) {
@@ -453,11 +593,15 @@ fun AgentFleetApp(
                 fleetState,
                 updateState,
                 updateManifestUrl,
+                runtimeUi,
                 { showPairing = true },
                 onCancelSchedule,
-                { showUpdateSettings = true },
                 onCheckUpdate,
                 onInstallUpdate,
+                onRepairRuntime,
+                onCheckRuntime,
+                onRollbackRuntime,
+                onRestoreBaseline,
                 onOpenAppearance
             )
         }
@@ -511,12 +655,6 @@ fun AgentFleetApp(
             showPairing = false
             onPairInvitationHandled()
             onPairInvitation(invitation)
-        }
-    }
-    if (showUpdateSettings) {
-        UpdateSettingsDialog(updateManifestUrl, { showUpdateSettings = false }) { value ->
-            showUpdateSettings = false
-            onConfigureUpdates(value)
         }
     }
     if (pendingSharedImages.isNotEmpty() && currentSnapshot != null) {
@@ -884,32 +1022,6 @@ private fun PairingDialog(initialInvitation: String, onDismiss: () -> Unit, onCo
 }
 
 @Composable
-private fun UpdateSettingsDialog(initialUrl: String, onDismiss: () -> Unit, onConfirm: (String) -> Unit) {
-    var url by rememberSaveable(initialUrl) { mutableStateOf(initialUrl) }
-    val valid = url.isBlank() || (url.startsWith("https://") && url.length <= 2_048 && url.none { it.isISOControl() })
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text("Private updates") },
-        text = {
-            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                Text("Use the HTTPS URL of the signed Agent Fleet manifest. Leave blank to disable checks.", color = MaterialTheme.colorScheme.onSurfaceVariant)
-                OutlinedTextField(
-                    value = url,
-                    onValueChange = { if (it.length <= 2_048) url = it },
-                    modifier = Modifier.fillMaxWidth(),
-                    label = { Text("Manifest URL") },
-                    minLines = 2,
-                    maxLines = 4
-                )
-                Text("The APK must match both its SHA-256 and this app's signing certificate.", fontSize = 14.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            }
-        },
-        confirmButton = { TextButton(onClick = { onConfirm(url.trim()) }, enabled = valid) { Text("Save") } },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } }
-    )
-}
-
-@Composable
 private fun SharedImagesSessionDialog(
     sessions: List<FleetSession>,
     imageCount: Int,
@@ -1125,11 +1237,15 @@ private fun MoreScreen(
     fleetState: FleetLoadState,
     updateState: UpdateUiState,
     updateManifestUrl: String,
+    runtimeUi: RuntimeUiState,
     onPair: () -> Unit,
     onCancelSchedule: (FleetSchedule) -> Unit,
-    onConfigureUpdate: () -> Unit,
     onCheckUpdate: () -> Unit,
     onInstallUpdate: (AgentFleetUpdate) -> Unit,
+    onRepairRuntime: () -> Unit,
+    onCheckRuntime: () -> Unit,
+    onRollbackRuntime: () -> Unit,
+    onRestoreBaseline: () -> Unit,
     onOpenAppearance: () -> Unit
 ) {
     val context = androidx.compose.ui.platform.LocalContext.current
@@ -1184,6 +1300,45 @@ private fun MoreScreen(
             }
         }
         item {
+            val status = runtimeUi.status
+            Card(shape = RoundedCornerShape(18.dp), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)) {
+                Column(Modifier.fillMaxWidth().padding(18.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Text("Built-in terminal", fontSize = 18.sp, fontWeight = FontWeight.Bold)
+                    Text(
+                        runtimeUi.error.ifBlank { runtimeUi.updateDetail.ifBlank { runtimeUi.detail } },
+                        fontSize = 16.sp,
+                        color = if (runtimeUi.error.isBlank()) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.error
+                    )
+                    if (status != null) {
+                        Text(
+                            "Active ${status.current.ifBlank { "external" }} · APK ${status.embeddedBaseline} · ${status.packageCount - status.missingOrOldPackages}/${status.packageCount} packages ready",
+                            fontSize = 14.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                    Row(
+                        Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        if (runtimeUi.busy) {
+                            Button(onClick = {}, enabled = false, shape = RoundedCornerShape(14.dp)) { Text("Please wait") }
+                        } else if (status?.supported != false) {
+                            if (status == null || status.repairNeeded) {
+                                Button(onClick = onRepairRuntime, shape = RoundedCornerShape(14.dp)) { Text("Repair") }
+                            }
+                            OutlinedButton(onClick = onCheckRuntime, shape = RoundedCornerShape(14.dp)) { Text("Check fixes") }
+                            if (!status?.previous.isNullOrBlank()) {
+                                OutlinedButton(onClick = onRollbackRuntime, shape = RoundedCornerShape(14.dp)) { Text("Roll back") }
+                            }
+                            if (status != null && status.baseline.isNotBlank() && status.current != status.baseline) {
+                                OutlinedButton(onClick = onRestoreBaseline, shape = RoundedCornerShape(14.dp)) { Text("APK baseline") }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        item {
             Card(shape = RoundedCornerShape(18.dp), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)) {
                 Row(Modifier.fillMaxWidth().padding(18.dp), verticalAlignment = Alignment.CenterVertically) {
                     Column(Modifier.weight(1f)) {
@@ -1196,7 +1351,7 @@ private fun MoreScreen(
         }
         item {
             val detail = when (updateState) {
-                UpdateUiState.Idle -> if (updateManifestUrl.isBlank()) "Private source not configured" else "Ready to check"
+                UpdateUiState.Idle -> if (updateManifestUrl.isBlank()) "Pair this phone to configure updates" else "Ready to check"
                 UpdateUiState.Checking -> "Checking signed manifest…"
                 UpdateUiState.Downloading -> "Downloading and verifying…"
                 is UpdateUiState.Current -> "${updateState.versionName} is current"
@@ -1208,7 +1363,6 @@ private fun MoreScreen(
                     Text("App updates", fontSize = 18.sp, fontWeight = FontWeight.Bold)
                     Text(detail, fontSize = 16.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                        OutlinedButton(onClick = onConfigureUpdate, shape = RoundedCornerShape(14.dp)) { Text("Source") }
                         when (updateState) {
                             is UpdateUiState.Available -> Button(onClick = { onInstallUpdate(updateState.update) }, shape = RoundedCornerShape(14.dp)) { Text("Install") }
                             UpdateUiState.Checking, UpdateUiState.Downloading -> Button(onClick = {}, enabled = false, shape = RoundedCornerShape(14.dp)) { Text("Please wait") }
@@ -1229,7 +1383,40 @@ private fun MoreScreen(
                 }
             }
         }
-        item { FeatureCard("Diagnostics", "Runtime, bridge, package, transport, and update checks") }
+        item {
+            val status = runtimeUi.status
+            FeatureCard(
+                "Diagnostics",
+                "Runtime ${status?.current.orEmpty().ifBlank { "unavailable" }} · baseline ${status?.baseline.orEmpty().ifBlank { "not installed" }} · policy ${if (updateManifestUrl.isBlank()) "not paired" else "paired"}"
+            )
+        }
+    }
+}
+
+@Composable
+private fun PreparingTerminalScreen(runtimeUi: RuntimeUiState, onRetry: () -> Unit) {
+    Box(Modifier.fillMaxSize().padding(28.dp), contentAlignment = Alignment.Center) {
+        Card(shape = RoundedCornerShape(24.dp), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)) {
+            Column(
+                Modifier.fillMaxWidth().padding(28.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(16.dp)
+            ) {
+                Text("Preparing terminal", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
+                Text(
+                    runtimeUi.error.ifBlank { runtimeUi.detail },
+                    fontSize = 17.sp,
+                    lineHeight = 24.sp,
+                    color = if (runtimeUi.error.isBlank()) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.error
+                )
+                if (runtimeUi.busy) {
+                    LinearProgressIndicator(Modifier.fillMaxWidth())
+                    Text("Everything needed is already inside the APK", fontSize = 14.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                } else {
+                    Button(onClick = onRetry, shape = RoundedCornerShape(14.dp)) { Text("Try again") }
+                }
+            }
+        }
     }
 }
 
@@ -1309,6 +1496,14 @@ private fun AgentFleetPreview() {
             pendingSharedImages = emptyList(),
             updateState = UpdateUiState.Idle,
             updateManifestUrl = "",
+            runtimeUi = RuntimeUiState(
+                status = EmbeddedRuntimeStatus(
+                    supported = true, usable = true, repairNeeded = false,
+                    embeddedBaseline = "git-ea0eebe", baseline = "git-ea0eebe", current = "git-ea0eebe", previous = "",
+                    missingOrOldPackages = 0, packageCount = 70, trustedKeyIds = emptyList(), detail = "Built-in terminal is ready"
+                ),
+                detail = "Built-in terminal is ready"
+            ),
             onSharedImagesHandled = {},
             onRefresh = {},
             onOpenSession = {},
@@ -1322,9 +1517,12 @@ private fun AgentFleetPreview() {
             onKillSession = {},
             onCopyAttachCommand = {},
             onPairInvitation = {},
-            onConfigureUpdates = {},
             onCheckUpdate = {},
             onInstallUpdate = {},
+            onRepairRuntime = {},
+            onCheckRuntime = {},
+            onRollbackRuntime = {},
+            onRestoreBaseline = {},
             onOpenAppearance = {},
             onOpenClassicTerminal = {}
         )

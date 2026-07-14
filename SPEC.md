@@ -176,3 +176,58 @@ trusted fleet.
 - Up to ten recent locations are kept locally per host/backend and can be
   cleared. Full paths appear only in Session Details and never in routine session
   titles or lists. Directory listings are transient and never persisted.
+
+## Built-In Android Runtime
+
+- The arm64 APK is fleet-ready without a separate Termux package or wtmux
+  installation. It carries an APK-authenticated baseline containing Bash,
+  Python, OpenSSH, tmux, Git, fzf, certificates, core terminal tools, and the
+  exact compatible wtmux runtime. AI CLIs, Node, credentials, fleet topology,
+  and Tailscale remain outside the APK.
+- A universal recovery/testing APK is also produced. Android 16/arm64 remains
+  the supported private daily-driver target; unsupported ABIs retain the stock
+  terminal bootstrap and report that the offline fleet payload is unavailable.
+- The offline package set is resolved from pinned official Termux packages.
+  Every artifact has a URL, version, size, and SHA-256 lock plus license/source
+  metadata and an SBOM. Repair installs only missing packages or packages below
+  the compatible floor and never downgrades newer user packages or performs a
+  full package upgrade.
+- Clean first launch automatically shows one `Preparing terminal` surface and
+  provisions entirely offline before pairing. Existing/restored prefixes keep
+  home, SSH keys, package state, shell history, Termux properties, and wtmux
+  configuration; they start immediately when healthy and otherwise offer an
+  explicit one-tap offline Repair.
+- Runtime storage retains an immutable APK baseline, the active release, and
+  one previous release. Health-check failure rolls back atomically. Diagnostics
+  exposes baseline/current/previous versions, package-floor health, update
+  source, signing key ID, last check, Repair, Check, and Roll Back without
+  exposing credentials or conversation content.
+- wtmux hotfixes remain independently deployable. A dedicated Ed25519 release
+  key signs canonical `runtime-update-v1` envelopes containing a monotonic
+  sequence, version, protocol, HTTPS artifact URL, SHA-256, size, minimum app
+  version, and key ID. The APK pins trusted public keys and rejects unknown
+  keys, replay/downgrade, incompatible versions, malformed envelopes,
+  unapproved origins, oversized artifacts, and checksum failures.
+- Pairing provisions a versioned `client-policy-v1` file with primary and
+  fallback private HTTPS endpoints for both APK and runtime manifests. Neither
+  endpoints nor fleet credentials are baked into the APK. Runtime checks occur
+  while the app is foregrounded at most once every six hours and on explicit
+  request; successful compatible hotfixes activate quietly and remain visible
+  in diagnostics.
+- Essential Android integrations for clipboard, share/files, camera,
+  notifications, and storage live in the main APK. The full Termux:API catalog
+  and separate signature-coupled Termux plugins remain out of scope.
+
+### Built-In Runtime Contracts
+
+- `embedded-runtime-v1` binds the APK baseline version and wtmux commit to the
+  runtime archive and the package lock, including hashes, sizes, supported ABI,
+  protocol version, trusted key IDs, and generation metadata.
+- `client-policy-v1` contains only policy revision, approved primary/fallback
+  HTTPS manifest URLs, allowed artifact origins, and optional check cadence.
+  It is installed as a pairing artifact with mode 0600 and is never sourced as
+  shell code.
+- `runtime-update-v1` is a bounded JSON envelope containing base64url canonical
+  payload bytes, a key ID, and an Ed25519 signature. The decoded payload has an
+  exact field set and monotonic integer sequence; the last accepted sequence is
+  persisted before a release is considered healthy.
