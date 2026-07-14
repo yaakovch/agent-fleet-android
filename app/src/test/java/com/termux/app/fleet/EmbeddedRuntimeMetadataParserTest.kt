@@ -10,6 +10,16 @@ import org.robolectric.RobolectricTestRunner
 
 @RunWith(RobolectricTestRunner::class)
 class EmbeddedRuntimeMetadataParserTest {
+
+    @Test
+    fun packageQueryOnlyAcceptsFullyInstalledPackages() {
+        val values = installedPackageVersions(
+            "bash\t5.3.9-1\tinstall ok installed\n" +
+                "python\t3.14.6-1\tinstall ok unpacked\n" +
+                "tmux:arm64\t3.7b\tinstall ok installed\n"
+        )
+        assertEquals(mapOf("bash" to "5.3.9-1", "tmux" to "3.7b"), values)
+    }
     private val descriptor = """
         {
           "schemaVersion":1,

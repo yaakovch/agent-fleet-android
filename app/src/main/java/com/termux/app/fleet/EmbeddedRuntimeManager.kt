@@ -53,6 +53,15 @@ data class EmbeddedRuntimeStatus(
 fun supportsEmbeddedRuntime(primaryAbi: String?, supportedAbis: List<String>): Boolean =
     primaryAbi != null && primaryAbi in supportedAbis
 
+internal fun installedPackageVersions(output: String): Map<String, String> = output.lineSequence().mapNotNull { line ->
+    val parts = line.split('\t', limit = 3)
+    if (parts.size == 3 && parts[2].trim() == "install ok installed") {
+        parts[0].substringBefore(':') to parts[1].trim()
+    } else {
+        null
+    }
+}.toMap()
+
 object EmbeddedRuntimeMetadataParser {
     private val SHA256 = Regex("^[a-f0-9]{64}$")
     private val VERSION = Regex("^[A-Za-z0-9][A-Za-z0-9._+-]{0,63}$")
@@ -300,13 +309,10 @@ class EmbeddedRuntimeManager(private val context: Context) {
         val dpkg = File(binDir, "dpkg")
         if (!query.canExecute() || !dpkg.canExecute()) return locked
         val result = runProcess(
-            listOf(query.absolutePath, "-W", "-f=\${binary:Package}\t\${Version}\n") + locked.map(LockedTermuxPackage::name),
+            listOf(query.absolutePath, "-W", "-f=\${binary:Package}\t\${Version}\t\${Status}\n") + locked.map(LockedTermuxPackage::name),
             timeoutSeconds = 20
         )
-        val installed = result.output.lineSequence().mapNotNull { line ->
-            val parts = line.split('\t', limit = 2)
-            if (parts.size == 2) parts[0].substringBefore(':') to parts[1].trim() else null
-        }.toMap()
+        val installed = installedPackageVersions(result.output)
         return locked.filter { item ->
             val version = installed[item.name] ?: return@filter true
             runProcess(
@@ -316,14 +322,23 @@ class EmbeddedRuntimeManager(private val context: Context) {
     }
 
     private fun installPackages(files: List<File>) {
-        val apt = File(binDir, "apt-get")
-        require(apt.canExecute()) { "Termux package manager is unavailable" }
-        val command = listOf(
-            apt.absolutePath, "-y", "--no-download", "--no-install-recommends",
-            "-o", "Dpkg::Options::=--force-confold", "install"
-        ) + files.map(File::getAbsolutePath)
-        val result = runProcess(command, timeoutSeconds = 300, maxOutput = 512 * 1024)
-        require(result.exitCode == 0) { result.safeError("Offline terminal package installation failed") }
+        val dpkg = File(binDir, "dpkg")
+        require(dpkg.canExecute()) { "Termux package manager is unavailable" }
+        // apt may still consult configured repositories while resolving local
+        // archives. Unpack the verified closure directly, then configure it as
+        // one transaction so repair remains offline by construction.
+        val unpack = runProcess(
+            listOf(dpkg.absolutePath, "--force-confold", "--unpack") + files.map(File::getAbsolutePath),
+            timeoutSeconds = 300,
+            maxOutput = 512 * 1024
+        )
+        require(unpack.exitCode == 0) { unpack.safeError("Offline terminal package unpack failed") }
+        val configure = runProcess(
+            listOf(dpkg.absolutePath, "--force-confold", "--configure", "-a"),
+            timeoutSeconds = 300,
+            maxOutput = 512 * 1024
+        )
+        require(configure.exitCode == 0) { configure.safeError("Offline terminal package configuration failed") }
     }
 
     private fun installBaseline(bundle: File, descriptor: EmbeddedRuntimeDescriptor) {
