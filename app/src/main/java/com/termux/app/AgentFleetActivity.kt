@@ -6,7 +6,9 @@ import android.content.Context
 import android.content.Intent
 import android.os.Bundle
 import android.net.Uri
+import android.webkit.MimeTypeMap
 import android.widget.Toast
+import androidx.core.content.FileProvider
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.background
@@ -68,9 +70,14 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.window.Dialog
 import com.termux.app.fleet.FleetHost
 import com.termux.app.fleet.FleetAttention
 import com.termux.app.fleet.FleetDirectoryListing
+import com.termux.app.fleet.FleetDownloadCancellation
+import com.termux.app.fleet.FleetDownloadState
+import com.termux.app.fleet.FleetRepositoryEntry
+import com.termux.app.fleet.FleetRepositoryPage
 import com.termux.app.fleet.FleetLoadState
 import com.termux.app.fleet.FleetLimit
 import com.termux.app.fleet.FleetLimitWindow
@@ -96,6 +103,7 @@ import com.termux.app.fleet.shouldInstallEmbeddedBaseline
 import com.termux.app.fleet.UpdateUiState
 import java.io.File
 import java.util.concurrent.Executors
+import java.util.concurrent.ConcurrentHashMap
 import java.text.SimpleDateFormat
 import java.util.Locale
 import java.util.TimeZone
@@ -111,6 +119,8 @@ class AgentFleetActivity : ComponentActivity() {
     private val fleetExecutor = Executors.newSingleThreadExecutor()
     private val updateExecutor = Executors.newSingleThreadExecutor()
     private val runtimeExecutor = Executors.newSingleThreadExecutor()
+    private val fileExecutor = Executors.newFixedThreadPool(2)
+    private val fileDownloads = ConcurrentHashMap.newKeySet<FleetDownloadCancellation>()
     private lateinit var fleetRuntime: FleetRuntime
     private lateinit var recentSessionStore: RecentSessionStore
     private lateinit var updateManager: AgentFleetUpdateManager
@@ -156,6 +166,10 @@ class AgentFleetActivity : ComponentActivity() {
                     onCreateSession = ::createFleetSession,
                     onListDirectory = ::listFleetDirectory,
                     onCreateDirectory = ::createFleetDirectory,
+                    onListRepository = ::listFleetRepository,
+                    onSearchRepository = ::searchFleetRepository,
+                    onDownloadRepository = ::downloadFleetRepository,
+                    onOpenDownload = ::openFleetDownload,
                     onRenameSession = ::renameFleetSession,
                     onScheduleContinue = ::scheduleContinue,
                     onScheduleAttention = ::scheduleAttention,
@@ -211,9 +225,12 @@ class AgentFleetActivity : ComponentActivity() {
     }
 
     override fun onDestroy() {
+        fileDownloads.forEach { it.cancel() }
+        fileDownloads.clear()
         fleetExecutor.shutdownNow()
         updateExecutor.shutdownNow()
         runtimeExecutor.shutdownNow()
+        fileExecutor.shutdownNow()
         super.onDestroy()
     }
 
@@ -264,6 +281,75 @@ class AgentFleetActivity : ComponentActivity() {
         fleetExecutor.execute {
             val result = runCatching { fleetRuntime.createDirectory(snapshot, hostId, backend, parentPath, name) }
             runOnUiThread { callback(result) }
+        }
+    }
+
+    private fun listFleetRepository(
+        session: FleetSession,
+        relativePath: String,
+        includeHidden: Boolean,
+        cursor: String,
+        callback: (Result<FleetRepositoryPage>) -> Unit
+    ) {
+        val snapshot = (fleetState.value as? FleetLoadState.Ready)?.snapshot
+            ?: return callback(Result.failure(IllegalStateException("Fleet is still loading.")))
+        fleetExecutor.execute {
+            val result = runCatching { fleetRuntime.listRepository(snapshot, session, relativePath, includeHidden, cursor) }
+            runOnUiThread { callback(result) }
+        }
+    }
+
+    private fun searchFleetRepository(
+        session: FleetSession,
+        query: String,
+        includeHidden: Boolean,
+        callback: (Result<FleetRepositoryPage>) -> Unit
+    ) {
+        val snapshot = (fleetState.value as? FleetLoadState.Ready)?.snapshot
+            ?: return callback(Result.failure(IllegalStateException("Fleet is still loading.")))
+        fleetExecutor.execute {
+            val result = runCatching { fleetRuntime.searchRepository(snapshot, session, query, includeHidden) }
+            runOnUiThread { callback(result) }
+        }
+    }
+
+    private fun downloadFleetRepository(
+        session: FleetSession,
+        entry: FleetRepositoryEntry,
+        callback: (FleetDownloadState) -> Unit
+    ): FleetDownloadCancellation {
+        val cancellation = FleetDownloadCancellation()
+        fileDownloads += cancellation
+        fileExecutor.execute {
+            val result = runCatching {
+                fleetRuntime.downloadRepositoryFile(session, entry, cancellation) { progress ->
+                    runOnUiThread { callback(progress) }
+                }
+            }
+            runOnUiThread {
+                callback(result.getOrElse { error ->
+                    FleetDownloadState(
+                        entry.name, entry.relativePath,
+                        if (cancellation.isCancelledForUi()) "cancelled" else "failed",
+                        0, entry.size ?: 0, message = error.message ?: "Download failed"
+                    )
+                })
+            }
+            fileDownloads -= cancellation
+        }
+        return cancellation
+    }
+
+    private fun openFleetDownload(state: FleetDownloadState) {
+        val path = state.path ?: return
+        try {
+            val file = File(path)
+            val uri = FileProvider.getUriForFile(this, packageName + ".agentfleet.images", file)
+            val extension = file.extension.lowercase(Locale.US)
+            val mime = MimeTypeMap.getSingleton().getMimeTypeFromExtension(extension) ?: "application/octet-stream"
+            startActivity(Intent(Intent.ACTION_VIEW).setDataAndType(uri, mime).addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION))
+        } catch (error: Exception) {
+            Toast.makeText(this, error.message ?: "No app can open this file", Toast.LENGTH_LONG).show()
         }
     }
 
@@ -494,6 +580,19 @@ enum class FleetSection(val label: String, val glyph: String) {
     More("More", "•••")
 }
 
+private fun formatFileSize(bytes: Long): String {
+    if (bytes < 1024) return "$bytes B"
+    val units = listOf("KB", "MB", "GB")
+    var amount = bytes.toDouble() / 1024.0
+    var unit = units.first()
+    for (candidate in units) {
+        unit = candidate
+        if (amount < 1024 || candidate == units.last()) break
+        amount /= 1024.0
+    }
+    return String.format(Locale.US, if (amount >= 10) "%.0f %s" else "%.1f %s", amount, unit)
+}
+
 fun filterSessions(sessions: List<FleetSession>, hosts: Map<String, FleetHost>, query: String): List<FleetSession> {
     val normalized = query.trim()
     if (normalized.isEmpty()) return sessions
@@ -524,6 +623,10 @@ fun AgentFleetApp(
     onCreateSession: (String, String, String, String, String, String) -> Unit,
     onListDirectory: (String, String, String, (Result<FleetDirectoryListing>) -> Unit) -> Unit,
     onCreateDirectory: (String, String, String, String, (Result<String>) -> Unit) -> Unit,
+    onListRepository: (FleetSession, String, Boolean, String, (Result<FleetRepositoryPage>) -> Unit) -> Unit,
+    onSearchRepository: (FleetSession, String, Boolean, (Result<FleetRepositoryPage>) -> Unit) -> Unit,
+    onDownloadRepository: (FleetSession, FleetRepositoryEntry, (FleetDownloadState) -> Unit) -> FleetDownloadCancellation,
+    onOpenDownload: (FleetDownloadState) -> Unit,
     onRenameSession: (FleetSession, String) -> Unit,
     onScheduleContinue: (FleetSession, Long) -> Unit,
     onScheduleAttention: (FleetSession, FleetAttention, Long) -> Unit,
@@ -550,6 +653,7 @@ fun AgentFleetApp(
     var renameSession by rememberSaveable { mutableStateOf<String?>(null) }
     var scheduleSession by rememberSaveable { mutableStateOf<String?>(null) }
     var killSession by rememberSaveable { mutableStateOf<String?>(null) }
+    var repositorySession by rememberSaveable { mutableStateOf<String?>(null) }
     var showCreateSession by rememberSaveable { mutableStateOf(false) }
     var showPairing by rememberSaveable { mutableStateOf(false) }
     val currentSnapshot = (fleetState as? FleetLoadState.Ready)?.snapshot
@@ -615,8 +719,19 @@ fun AgentFleetApp(
             onOpen = { actionSession = null; onOpenSession(session) },
             onRename = { actionSession = null; renameSession = session.id },
             onSchedule = { actionSession = null; scheduleSession = session.id },
+            onDownload = { actionSession = null; repositorySession = session.id },
             onCopy = { actionSession = null; onCopyAttachCommand(session) },
             onKill = { actionSession = null; killSession = session.id }
+        )
+    }
+    sessionsById[repositorySession]?.let { session ->
+        RepositoryBrowserDialog(
+            session = session,
+            onDismiss = { repositorySession = null },
+            onList = onListRepository,
+            onSearch = onSearchRepository,
+            onDownload = onDownloadRepository,
+            onOpen = onOpenDownload
         )
     }
     sessionsById[renameSession]?.let { session ->
@@ -784,6 +899,7 @@ private fun SessionActionsDialog(
     onOpen: () -> Unit,
     onRename: () -> Unit,
     onSchedule: () -> Unit,
+    onDownload: () -> Unit,
     onCopy: () -> Unit,
     onKill: () -> Unit
 ) {
@@ -798,6 +914,7 @@ private fun SessionActionsDialog(
                 DialogAction("Open terminal", onOpen)
                 DialogAction("Rename", onRename)
                 DialogAction("Schedule Continue", onSchedule)
+                DialogAction("Download a file", onDownload)
                 DialogAction("Copy attach command", onCopy)
                 DialogAction("Stop session…", onKill, WarningAmber)
             }
@@ -810,6 +927,173 @@ private fun SessionActionsDialog(
 private fun DialogAction(label: String, onClick: () -> Unit, color: Color = MaterialTheme.colorScheme.primary) {
     TextButton(onClick = onClick, modifier = Modifier.fillMaxWidth()) {
         Text(label, modifier = Modifier.fillMaxWidth(), color = color, fontSize = 17.sp)
+    }
+}
+
+@Composable
+private fun RepositoryBrowserDialog(
+    session: FleetSession,
+    onDismiss: () -> Unit,
+    onList: (FleetSession, String, Boolean, String, (Result<FleetRepositoryPage>) -> Unit) -> Unit,
+    onSearch: (FleetSession, String, Boolean, (Result<FleetRepositoryPage>) -> Unit) -> Unit,
+    onDownload: (FleetSession, FleetRepositoryEntry, (FleetDownloadState) -> Unit) -> FleetDownloadCancellation,
+    onOpen: (FleetDownloadState) -> Unit
+) {
+    var page by remember(session.id) { mutableStateOf<FleetRepositoryPage?>(null) }
+    var loading by remember(session.id) { mutableStateOf(true) }
+    var error by remember(session.id) { mutableStateOf("") }
+    var showHidden by rememberSaveable(session.id) { mutableStateOf(false) }
+    var query by rememberSaveable(session.id) { mutableStateOf("") }
+    var searching by rememberSaveable(session.id) { mutableStateOf(false) }
+    var pending by remember(session.id) { mutableStateOf<FleetRepositoryEntry?>(null) }
+    var download by remember(session.id) { mutableStateOf<FleetDownloadState?>(null) }
+    var cancellation by remember(session.id) { mutableStateOf<FleetDownloadCancellation?>(null) }
+
+    fun load(path: String, cursor: String = "", append: Boolean = false) {
+        if (loading && page != null) return
+        loading = true
+        error = ""
+        onList(session, path, showHidden, cursor) { result ->
+            loading = false
+            result.onSuccess { next ->
+                page = if (append && page?.relativePath == next.relativePath) {
+                    next.copy(entries = page!!.entries + next.entries)
+                } else next
+                searching = false
+                if (!append) query = ""
+            }.onFailure { error = it.message ?: "Repository could not be loaded" }
+        }
+    }
+
+    LaunchedEffect(session.id, showHidden) { load(page?.relativePath ?: "") }
+
+    Dialog(onDismissRequest = onDismiss) {
+        Surface(
+            modifier = Modifier.fillMaxWidth().heightIn(max = 720.dp),
+            shape = RoundedCornerShape(24.dp),
+            tonalElevation = 8.dp
+        ) {
+            Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Column(Modifier.weight(1f)) {
+                        Text("Download from repository", color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.SemiBold)
+                        Text(session.name, fontSize = 23.sp, fontWeight = FontWeight.Bold)
+                        Text(
+                            page?.relativePath?.takeIf { it.isNotBlank() } ?: page?.rootName ?: session.project,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
+                    TextButton(onClick = onDismiss) { Text("Close") }
+                }
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                    OutlinedButton(
+                        onClick = { load(page?.parentPath ?: "") },
+                        enabled = page?.relativePath?.isNotBlank() == true && !loading
+                    ) { Text("Up") }
+                    OutlinedTextField(
+                        value = query,
+                        onValueChange = { query = it },
+                        modifier = Modifier.weight(1f),
+                        label = { Text("Search files") },
+                        singleLine = true
+                    )
+                    Button(onClick = {
+                        val clean = query.trim()
+                        if (clean.length < 2) error = "Search needs at least two characters"
+                        else {
+                            loading = true
+                            error = ""
+                            onSearch(session, clean, showHidden) { result ->
+                                loading = false
+                                result.onSuccess { page = it; searching = true }
+                                    .onFailure { error = it.message ?: "Search failed" }
+                            }
+                        }
+                    }, enabled = !loading) { Text("Search") }
+                }
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    TextButton(onClick = { showHidden = !showHidden }, enabled = !loading) {
+                        Text(if (showHidden) "Hide hidden" else "Show hidden")
+                    }
+                    if (searching) TextButton(onClick = { load("") }, enabled = !loading) { Text("Clear search") }
+                    Spacer(Modifier.weight(1f))
+                    if (loading) Text("Loading…", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+                if (error.isNotBlank()) {
+                    Text(error, color = MaterialTheme.colorScheme.error, fontSize = 15.sp)
+                }
+                LazyColumn(
+                    modifier = Modifier.fillMaxWidth().weight(1f, fill = false).heightIn(min = 180.dp, max = 390.dp),
+                    verticalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    val entries = page?.entries.orEmpty()
+                    if (!loading && entries.isEmpty()) item { EmptyState(if (searching) "No matching files." else "This folder is empty.") }
+                    items(entries, key = { it.relativePath }) { entry ->
+                        OutlinedButton(
+                            onClick = {
+                                if (entry.kind == "directory") load(entry.relativePath)
+                                else if ((entry.size ?: 0) > 50L * 1024 * 1024) pending = entry
+                                else cancellation = onDownload(session, entry) { download = it }
+                            },
+                            modifier = Modifier.fillMaxWidth(),
+                            enabled = download?.status != "running"
+                        ) {
+                            Text(if (entry.kind == "directory") "▰" else "▤", fontSize = 18.sp)
+                            Spacer(Modifier.size(10.dp))
+                            Column(Modifier.weight(1f)) {
+                                Text(entry.name, modifier = Modifier.fillMaxWidth(), maxLines = 1, overflow = TextOverflow.Ellipsis, fontSize = 16.sp)
+                                Text(
+                                    if (entry.kind == "directory") "Folder" else formatFileSize(entry.size ?: 0),
+                                    modifier = Modifier.fillMaxWidth(), color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 13.sp
+                                )
+                            }
+                            Text("›", fontSize = 22.sp)
+                        }
+                    }
+                    page?.nextCursor?.let { cursor ->
+                        item {
+                            TextButton(onClick = { load(page?.relativePath ?: "", cursor, true) }, enabled = !loading, modifier = Modifier.fillMaxWidth()) {
+                                Text("Load more")
+                            }
+                        }
+                    }
+                }
+                pending?.let { entry ->
+                    Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)) {
+                        Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Text("Download ${entry.name}?", fontWeight = FontWeight.Bold)
+                            Text("${formatFileSize(entry.size ?: 0)} is a large transfer.", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                TextButton(onClick = { pending = null }) { Text("Cancel") }
+                                Button(onClick = {
+                                    pending = null
+                                    cancellation = onDownload(session, entry) { download = it }
+                                }) { Text("Download") }
+                            }
+                        }
+                    }
+                }
+                download?.let { state ->
+                    Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)) {
+                        Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Text(state.name, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            Text(state.message, color = if (state.status == "failed") MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant)
+                            if (state.status == "running") {
+                                LinearProgressIndicator(
+                                    progress = if (state.total == 0L) 0f else state.received.toFloat() / state.total.toFloat(),
+                                    modifier = Modifier.fillMaxWidth()
+                                )
+                                TextButton(onClick = { cancellation?.cancel() }) { Text("Cancel download") }
+                            } else if (state.status == "completed") {
+                                Button(onClick = { onOpen(state) }) { Text("Open file") }
+                            }
+                        }
+                    }
+                }
+            }
+        }
     }
 }
 
@@ -1522,6 +1806,10 @@ private fun AgentFleetPreview() {
             onCreateSession = { _, _, _, _, _, _ -> },
             onListDirectory = { _, _, _, callback -> callback(Result.failure(IllegalStateException("Preview"))) },
             onCreateDirectory = { _, _, _, _, callback -> callback(Result.failure(IllegalStateException("Preview"))) },
+            onListRepository = { _, _, _, _, callback -> callback(Result.failure(IllegalStateException("Preview"))) },
+            onSearchRepository = { _, _, _, callback -> callback(Result.failure(IllegalStateException("Preview"))) },
+            onDownloadRepository = { _, _, _ -> FleetDownloadCancellation() },
+            onOpenDownload = {},
             onRenameSession = { _, _ -> },
             onScheduleContinue = { _, _ -> },
             onScheduleAttention = { _, _, _ -> },

@@ -37,6 +37,53 @@ data class FleetDirectoryListing(
     val truncated: Boolean
 )
 
+data class FleetRepositoryEntry(
+    val name: String,
+    val relativePath: String,
+    val kind: String,
+    val size: Long?,
+    val modifiedAt: String,
+    val hidden: Boolean,
+    val isLink: Boolean
+)
+
+data class FleetRepositoryPage(
+    val rootName: String,
+    val relativePath: String,
+    val parentPath: String?,
+    val entries: List<FleetRepositoryEntry>,
+    val nextCursor: String?,
+    val truncated: Boolean
+)
+
+data class FleetDownloadState(
+    val name: String,
+    val relativePath: String,
+    val status: String,
+    val received: Long,
+    val total: Long,
+    val path: String? = null,
+    val message: String
+)
+
+class FleetDownloadCancellation {
+    @Volatile private var cancelled = false
+    @Volatile private var process: Process? = null
+
+    fun cancel() {
+        cancelled = true
+        process?.destroy()
+    }
+
+    internal fun bind(value: Process) {
+        process = value
+        if (cancelled) value.destroy()
+    }
+
+    internal fun isCancelled(): Boolean = cancelled
+    fun isCancelledForUi(): Boolean = cancelled
+}
+
 data class FleetSchedule(
     val id: String,
     val hostId: String,

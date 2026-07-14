@@ -4,6 +4,8 @@ import android.content.Context
 import android.content.Intent
 import android.net.Uri
 import android.os.Build
+import android.os.Environment
+import android.media.MediaScannerConnection
 import com.termux.app.TermuxActivity
 import com.termux.app.TermuxService
 import com.termux.shared.termux.TermuxConstants.TERMUX_APP.TERMUX_SERVICE
@@ -18,6 +20,7 @@ import java.util.TimeZone
 import java.util.UUID
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicBoolean
 import org.json.JSONObject
 import kotlin.concurrent.thread
 
@@ -232,6 +235,126 @@ class FleetRuntime(private val context: Context) {
             ?: throw FleetUnavailableException("Host returned an invalid folder path.")
     }
 
+    fun listRepository(
+        snapshot: FleetSnapshot,
+        session: FleetSession,
+        relativePath: String,
+        includeHidden: Boolean,
+        cursor: String = ""
+    ): FleetRepositoryPage {
+        require(validRepositoryPath(relativePath, true) && validRepositoryCursor(cursor)) { "Repository path is invalid." }
+        val result = request(
+            "repository.list",
+            JSONObject()
+                .put("hostId", session.hostId)
+                .put("sessionId", session.id)
+                .put("relativePath", relativePath)
+                .put("includeHidden", includeHidden)
+                .put("cursor", cursor)
+                .put("expectedRevision", snapshot.revision)
+                .put("idempotencyKey", UUID.randomUUID().toString())
+        )
+        return parseRepositoryPage(result)
+    }
+
+    fun searchRepository(
+        snapshot: FleetSnapshot,
+        session: FleetSession,
+        query: String,
+        includeHidden: Boolean
+    ): FleetRepositoryPage {
+        val cleanQuery = query.trim()
+        require(cleanQuery.length in 2..160 && cleanQuery.none(Char::isISOControl)) { "Search needs at least two characters." }
+        val result = request(
+            "repository.search",
+            JSONObject()
+                .put("hostId", session.hostId)
+                .put("sessionId", session.id)
+                .put("query", cleanQuery)
+                .put("includeHidden", includeHidden)
+                .put("expectedRevision", snapshot.revision)
+                .put("idempotencyKey", UUID.randomUUID().toString())
+        )
+        return parseRepositoryPage(result)
+    }
+
+    fun downloadRepositoryFile(
+        session: FleetSession,
+        entry: FleetRepositoryEntry,
+        cancellation: FleetDownloadCancellation,
+        onProgress: (FleetDownloadState) -> Unit
+    ): FleetDownloadState {
+        require(entry.kind == "file" && entry.size != null && entry.size in 0..MAX_FILE_BYTES) { "File is not downloadable." }
+        require(validRepositoryPath(entry.relativePath, false)) { "Repository file path is invalid." }
+        val wtmux = executable("wtmux") ?: throw FleetUnavailableException("wtmux is not installed.")
+        val bash = executable("bash") ?: throw FleetUnavailableException("Bash is missing from the terminal runtime.")
+        val downloads = File(userHome, "storage/downloads").takeIf { it.isDirectory }
+            ?: Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
+        require((downloads.exists() || downloads.mkdirs()) && downloads.isDirectory && downloads.canWrite()) {
+            "Android Downloads is not writable. Grant storage access from the terminal first."
+        }
+        onProgress(FleetDownloadState(entry.name, entry.relativePath, "running", 0, entry.size, message = "Starting download…"))
+        val process = ProcessBuilder(
+            bash.absolutePath, wtmux.absolutePath, "file", "download",
+            "--host", session.hostId, "--session", session.internalName, "--path", entry.relativePath,
+            "--output-dir", downloads.absolutePath, "--yes", "--json", "--json-progress"
+        ).directory(userHome).apply { configureEnvironment(environment()) }.start()
+        cancellation.bind(process)
+        val output = ByteArrayOutputStream()
+        val outputExceeded = AtomicBoolean(false)
+        val errors = StringBuilder()
+        val stdoutReader = thread(name = "fleet-download-output", isDaemon = true) {
+            process.inputStream.use { input ->
+                val chunk = ByteArray(8 * 1024)
+                while (true) {
+                    val count = input.read(chunk)
+                    if (count < 0) break
+                    val remaining = MAX_OUTPUT_BYTES - output.size()
+                    if (remaining > 0) output.write(chunk, 0, minOf(count, remaining))
+                    if (count > remaining) outputExceeded.set(true)
+                }
+            }
+        }
+        val stderrReader = thread(name = "fleet-download-progress", isDaemon = true) {
+            process.errorStream.bufferedReader(Charsets.UTF_8).useLines { lines ->
+                lines.forEach { line ->
+                    val progress = runCatching { JSONObject(line) }.getOrNull()
+                    val received = progress?.optLong("received", -1) ?: -1
+                    val total = progress?.optLong("total", -1) ?: -1
+                    if (progress?.optString("type") == "progress" && received in 0..total && total in 0..MAX_FILE_BYTES) {
+                        val percent = if (total == 0L) 100 else (received * 100 / total).toInt()
+                        onProgress(FleetDownloadState(entry.name, entry.relativePath, "running", received, total, message = "Downloading · $percent%"))
+                    } else if (errors.length < MAX_ERROR_BYTES) {
+                        errors.append(line).append('\n')
+                    }
+                }
+            }
+        }
+        val exitCode = process.waitFor()
+        stdoutReader.join(1_000)
+        stderrReader.join(1_000)
+        if (cancellation.isCancelled()) {
+            return FleetDownloadState(entry.name, entry.relativePath, "cancelled", 0, entry.size, message = "Download cancelled")
+        }
+        if (exitCode != 0 || outputExceeded.get()) {
+            throw FleetUnavailableException(safeError(errors.toString().ifBlank { "Download failed." }))
+        }
+        val result = JSONObject(output.toString(Charsets.UTF_8).lineSequence().last { it.isNotBlank() })
+        require(result.optString("status") == "downloaded") { "Host returned an invalid download result." }
+        val resultName = result.getString("name").safeDirectoryLabel(255)
+        require(!resultName.contains('/') && !resultName.contains('\\')) { "Host returned an invalid file name." }
+        val resultFile = File(result.getString("path")).canonicalFile
+        val root = downloads.canonicalFile
+        require(resultFile.parentFile == root && resultFile.name == resultName && resultFile.isFile) {
+            "Downloaded file was not written safely to Android Downloads."
+        }
+        MediaScannerConnection.scanFile(context, arrayOf(resultFile.absolutePath), null, null)
+        return FleetDownloadState(
+            resultName, entry.relativePath, "completed", resultFile.length(), resultFile.length(),
+            resultFile.absolutePath, "Downloaded to Android Downloads"
+        )
+    }
+
     fun killSession(snapshot: FleetSnapshot, session: FleetSession): FleetSnapshot = mutate(
         "session.kill",
         JSONObject()
@@ -393,6 +516,8 @@ class FleetRuntime(private val context: Context) {
         )
     }
 
+    private fun parseRepositoryPage(value: JSONObject): FleetRepositoryPage = FleetRepositoryProtocol.parsePage(value)
+
     private fun String.safeDirectoryLabel(maximum: Int): String = also {
         require(isNotBlank() && length <= maximum && none(Char::isISOControl))
     }
@@ -403,6 +528,14 @@ class FleetRuntime(private val context: Context) {
         return if (backend == "linux") value.startsWith("/")
         else !value.startsWith("\\\\") && !value.startsWith("//") && value.matches(Regex("[A-Za-z]:[\\\\/].*"))
     }
+
+    private fun validRepositoryPath(value: String, empty: Boolean): Boolean {
+        if (value.length > 2_048 || (!empty && value.isBlank()) || value.startsWith('/') || value.contains('\\') || value.any(Char::isISOControl)) return false
+        if (value.isBlank()) return empty
+        return value.split('/').all { it.isNotBlank() && it !in setOf(".", "..") }
+    }
+
+    private fun validRepositoryCursor(value: String): Boolean = value.length <= 2_048 && value.none(Char::isISOControl)
 
     private fun executable(name: String): File? = sequenceOf(
         File(userHome, ".local/bin/$name"),
@@ -433,6 +566,7 @@ class FleetRuntime(private val context: Context) {
     companion object {
         private const val MAX_OUTPUT_BYTES = 256 * 1024
         private const val MAX_ERROR_BYTES = 4 * 1024
+        private const val MAX_FILE_BYTES = 2L * 1024 * 1024 * 1024
     }
 }
 

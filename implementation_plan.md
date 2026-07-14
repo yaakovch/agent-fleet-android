@@ -211,3 +211,18 @@ APK baseline; release artifacts are reproducible and fully traceable.
 Gate: the shared fixture, complete JVM suite, release build verification, and
 physical S23FE smoke pass; tool details, tasks, plans, and long questions remain
 readable and interactive with no blank frames or unexpected terminal input.
+
+## Milestone 14: Session Repository Downloads
+
+- Add strict repository page and download state models matching wtmux and the
+  Windows client; request list/search metadata through the existing foreground
+  bridge without snapshot persistence.
+- Add Download a file to Session More and implement a viewport-bounded Compose
+  browser with Up, recursive search, clear search, hidden-file toggle, paging,
+  large-file confirmation, progress, cancellation, and completion state.
+- Run the file stream through the built-in wtmux runtime into Android Downloads,
+  verify its bounded result, media-scan the completed file, and expose it via a
+  read-only scoped FileProvider URI on explicit Open file.
+- Add parser, transfer, cancellation, Compose, full JVM, release-build, and S23FE
+  smoke coverage. Ship signed `0.118.4-agentfleet.28` (`1030`) after Windows
+  beta.6 and before activating the matching host runtime.

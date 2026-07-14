@@ -282,3 +282,17 @@ trusted fleet.
   payload bytes, a key ID, and an Ed25519 signature. The decoded payload has an
   exact field set and monotonic integer sequence; the last accepted sequence is
   persisted before a release is considered healthy.
+
+## Session Repository Downloads
+
+- Session More includes Download a file. The browser uses the shared transient
+  repository page contract, folders-first navigation, recursive name search,
+  explicit hidden-file control, cursor paging, and the same 50 MiB confirmation
+  and 2 GiB maximum as Windows and terminal clients.
+- File bytes stay outside the fleet JSON bridge. The embedded wtmux runtime
+  streams directly to Android Downloads, verifies the host SHA-256 trailer,
+  avoids overwrites, removes partial files on cancellation/failure, reports
+  progress, and indexes successful files with Android's media scanner.
+- Completed files open only after an explicit tap through the app's scoped
+  FileProvider URI. Repository metadata and downloaded content never enter
+  fleet snapshots, app logs, diagnostics, or Compose saved state.

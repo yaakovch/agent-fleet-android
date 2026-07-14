@@ -12,6 +12,10 @@ and interactive questions, and keeps Terminal one tap away. Shell sessions
 use command cards, a compact command bar, and directory-only navigation. Native
 feed content remains in memory and is re-fetched after process death; the live
 Termux PTY and terminal emulator remain the source of truth underneath.
+Session More can browse the managed repository and download a verified copy of
+a selected file into Android Downloads. Folder navigation, recursive search,
+hidden-file control, large-file confirmation, progress, cancellation, and a
+scoped Open action match the Windows companion.
 
 The private arm64 APK is self-contained: a clean install prepares Bash, Python,
 OpenSSH, tmux, Git, fzf, core terminal tools, and a pinned wtmux baseline
