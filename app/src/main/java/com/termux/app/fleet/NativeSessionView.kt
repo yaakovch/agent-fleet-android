@@ -584,20 +584,28 @@ private fun ToolCallCard(value: ConversationItem) {
 @Composable
 private fun ToolCallRow(value: ConversationItem, number: Int?) {
     var expanded by rememberSaveable(value.id) { mutableStateOf(false) }
+    val duration = toolDuration(value)
+    val metadata = listOfNotNull(
+        value.tool.takeIf { it.isNotBlank() } ?: toolActionLabel(value.action),
+        value.state.replaceFirstChar { it.titlecase() },
+        duration.takeIf { it.isNotBlank() }
+    ).joinToString(" · ")
     Column(Modifier.fillMaxWidth().padding(vertical = 7.dp), verticalArrangement = Arrangement.spacedBy(7.dp)) {
         Row(
             Modifier.fillMaxWidth().clickable { expanded = !expanded },
             verticalAlignment = Alignment.CenterVertically
         ) {
             Text(statusGlyph(value.state), fontSize = 14.sp, color = statusColor(value.state))
-            Text(
-                listOfNotNull(number?.let { "$it." }, toolCallTitle(value)).joinToString(" "),
-                Modifier.padding(start = 8.dp).weight(1f),
-                fontSize = 15.sp,
-                fontWeight = FontWeight.Medium,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis
-            )
+            Column(Modifier.padding(start = 8.dp).weight(1f)) {
+                Text(
+                    listOfNotNull(number?.let { "$it." }, toolCallTitle(value)).joinToString(" "),
+                    fontSize = 15.sp,
+                    fontWeight = FontWeight.Medium,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+                Text(metadata, fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            }
             TextButton(onClick = { expanded = !expanded }, contentPadding = PaddingValues(horizontal = 7.dp, vertical = 2.dp)) {
                 Text(if (expanded) "Hide" else "Details", fontSize = 13.sp)
             }
@@ -610,23 +618,24 @@ private fun ToolCallRow(value: ConversationItem, number: Int?) {
 private fun ToolCallDetails(value: ConversationItem) {
     var showAll by rememberSaveable(value.id, "semantic") { mutableStateOf(false) }
     var showRaw by rememberSaveable(value.id, "raw") { mutableStateOf(false) }
-    val duration = toolDuration(value)
-    val status = buildString {
-        append(value.tool.ifBlank { toolActionLabel(value.action) })
-        append(" · ").append(value.state.replaceFirstChar { it.titlecase() })
-        if (duration.isNotBlank()) append(" · ").append(duration)
-    }
-    ToolDetailSection("Tool / status", status, monospace = false, diff = false)
-    value.presentation?.title?.takeIf { it.isNotBlank() }?.let {
-        Text(it, fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
-        if (value.presentation.subtitle.isNotBlank()) Text(value.presentation.subtitle, fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-    }
-    val blocks = remember(value.presentation, value.input, value.result, value.detail) { semanticToolBlocks(value) }
     val previewLines = value.presentation?.previewLines ?: 12
-    val visible = remember(blocks, showAll, previewLines) { if (showAll) blocks else previewToolBlocks(blocks, previewLines) }
-    visible.forEach { block -> ToolSemanticSection(block) }
-    if (blocks.sumOf { it.content.lines().size } > previewLines) {
-        TextButton(onClick = { showAll = !showAll }) { Text(if (showAll) "Show less" else "Show all") }
+    val grouped = shouldGroupToolActions(value)
+    val inputBlocks = value.presentation?.inputBlocks.orEmpty()
+    val resultBlocks = value.presentation?.resultBlocks.orEmpty()
+    if (grouped) {
+        inputBlocks.forEachIndexed { index, block -> ToolActionSection(block, index + 1, previewLines) }
+        val visibleResults = remember(resultBlocks, showAll, previewLines) { if (showAll) resultBlocks else previewToolBlocks(resultBlocks, previewLines) }
+        visibleResults.forEach { block -> ToolSemanticSection(block) }
+        if (resultBlocks.sumOf { it.content.lines().size } > previewLines) {
+            TextButton(onClick = { showAll = !showAll }) { Text(if (showAll) "Show less output" else "Show all output") }
+        }
+    } else {
+        val blocks = remember(value.presentation, value.input, value.result, value.detail) { semanticToolBlocks(value) }
+        val visible = remember(blocks, showAll, previewLines) { if (showAll) blocks else previewToolBlocks(blocks, previewLines) }
+        visible.forEach { block -> ToolSemanticSection(block) }
+        if (blocks.sumOf { it.content.lines().size } > previewLines) {
+            TextButton(onClick = { showAll = !showAll }) { Text(if (showAll) "Show less" else "Show all") }
+        }
     }
     val hasRaw = value.input.isNotBlank() || value.result.isNotBlank() || value.detail.isNotBlank()
     if (hasRaw) {
@@ -642,13 +651,44 @@ private fun ToolCallDetails(value: ConversationItem) {
 }
 
 @Composable
-private fun ToolSemanticSection(block: ToolPresentationBlock) {
+private fun ToolActionSection(block: ToolPresentationBlock, number: Int, previewLines: Int) {
+    var expanded by rememberSaveable(number, block.title, block.content.hashCode()) { mutableStateOf(false) }
+    var showAll by rememberSaveable(number, block.title, "all") { mutableStateOf(false) }
+    val firstLine = block.content.lineSequence().firstOrNull { it.isNotBlank() }.orEmpty()
+    val preview = if (firstLine.length > 120) firstLine.take(117) + "…" else firstLine
+    Surface(shape = RoundedCornerShape(10.dp), color = MaterialTheme.colorScheme.surfaceVariant) {
+        Column(Modifier.fillMaxWidth().padding(horizontal = 11.dp, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
+            Row(
+                Modifier.fillMaxWidth().clickable { expanded = !expanded },
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column(Modifier.weight(1f)) {
+                    Text("$number. ${block.title}", fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+                    if (preview.isNotBlank()) Text(preview, fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                }
+                TextButton(onClick = { expanded = !expanded }, contentPadding = PaddingValues(horizontal = 7.dp, vertical = 2.dp)) {
+                    Text(if (expanded) "Hide" else "Details", fontSize = 12.sp)
+                }
+            }
+            if (expanded) {
+                val visible = if (showAll) block else previewToolBlocks(listOf(block), previewLines).first()
+                ToolSemanticSection(visible, showHeading = false)
+                if (block.content.lines().size > previewLines) {
+                    TextButton(onClick = { showAll = !showAll }) { Text(if (showAll) "Show less" else "Show all") }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun ToolSemanticSection(block: ToolPresentationBlock, showHeading: Boolean = true) {
     val clipboard = LocalClipboardManager.current
     val background = Color(0xFF101820)
     val foreground = Color(0xFFD7E1EA)
     Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Text(block.title, Modifier.weight(1f), fontSize = 13.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.End) {
+            if (showHeading) Text(block.title, Modifier.weight(1f), fontSize = 13.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurfaceVariant)
             TextButton(onClick = { clipboard.setText(AnnotatedString(block.content)) }, contentPadding = PaddingValues(horizontal = 7.dp, vertical = 1.dp)) {
                 Text("Copy", fontSize = 12.sp)
             }

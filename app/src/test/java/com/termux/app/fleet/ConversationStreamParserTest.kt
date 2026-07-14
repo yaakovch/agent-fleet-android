@@ -120,6 +120,14 @@ class ConversationStreamParserTest {
         val merged = mergeConversationItems(listOf(start), listOf(complete)).single()
         assertEquals("git status --short", merged.presentation?.inputBlocks?.single()?.content)
         assertEquals("clean", merged.presentation?.resultBlocks?.single()?.content)
+        assertEquals("Run command", toolCallTitle(merged))
+        assertFalse(shouldGroupToolActions(merged))
+
+        val grouped = merged.copy(presentation = merged.presentation?.copy(inputBlocks = listOf(
+            ToolPresentationBlock("Read file", "path", "/tmp/one"),
+            ToolPresentationBlock("Run command", "code", "git status")
+        )))
+        assertTrue(shouldGroupToolActions(grouped))
     }
 
     @Test

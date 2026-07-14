@@ -50,11 +50,14 @@ fun toolActionLabel(value: String): String = when (value) {
 }
 
 fun toolCallTitle(value: ConversationItem): String {
+    value.presentation?.title?.takeIf { it.isNotBlank() }?.let { return it }
     val action = toolActionLabel(value.action)
     return listOf(action, value.target).filter { it.isNotBlank() }.joinToString(" ").ifBlank {
         value.tool.ifBlank { "Tool call" }
     }
 }
+
+fun shouldGroupToolActions(value: ConversationItem): Boolean = value.presentation?.inputBlocks?.size?.let { it > 1 } == true
 
 fun toolGroupTitle(group: ConversationRow.ToolGroup): String {
     val count = "${group.calls.size}${if (group.continuesIntoOlderHistory) "+" else ""} tool calls"
