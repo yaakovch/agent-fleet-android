@@ -48,7 +48,13 @@ if [[ "$sdk" == /mnt/* ]] && command -v cmd.exe >/dev/null; then
     [[ -n "$windows_jdk" ]] || { echo "set AGENT_FLEET_WINDOWS_JAVA_HOME to JDK 17" >&2; exit 1; }
     windows_java_home="$(wslpath -w "$(dirname "$(dirname "$windows_jdk")")")"
   fi
-  cmd.exe /d /c "cd /d $windows_repo && set JAVA_HOME=$windows_java_home&& set TERMUX_APP_VERSION_NAME=$version_name&& set TERMUX_APP_VERSION_CODE=$version_code&& set TERMUX_APK_VERSION_TAG=$version_name&& set TERMUX_SPLIT_APKS_FOR_RELEASE_BUILDS=1&& gradlew.bat app:assembleRelease --no-daemon"
+  windows_cmd=(cmd.exe)
+  if ! cmd.exe /d /c exit >/dev/null 2>&1; then
+    native_cmd="/mnt/c/Windows/System32/cmd.exe"
+    [[ -x /init && -x "$native_cmd" ]] || { echo "Windows command runner is unavailable" >&2; exit 1; }
+    windows_cmd=(/init "$native_cmd")
+  fi
+  "${windows_cmd[@]}" /d /c "cd /d $windows_repo && set JAVA_HOME=$windows_java_home&& set TERMUX_APP_VERSION_NAME=$version_name&& set TERMUX_APP_VERSION_CODE=$version_code&& set TERMUX_APK_VERSION_TAG=$version_name&& set TERMUX_SPLIT_APKS_FOR_RELEASE_BUILDS=1&& gradlew.bat app:assembleRelease --no-daemon"
 else
   (cd "$repo" && ./gradlew app:assembleRelease --no-daemon)
 fi
