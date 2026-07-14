@@ -218,6 +218,24 @@ trusted fleet.
   notifications, and storage live in the main APK. The full Termux:API catalog
   and separate signature-coupled Termux plugins remain out of scope.
 
+## Native Reliability And Windows Parity
+
+- Native sessions use the same newest-first opening, anchor-preserving upward
+  pagination, conditional bottom-follow, New messages, rich tool lifecycle,
+  pinned question/approval, hard-limit, Close/Kill, and Copy behavior validated
+  by the Windows client first.
+- Fleet state is owned by one foreground-scoped runtime shared by Sessions,
+  Limits, and Native terminal surfaces. It is active only while one of those
+  surfaces is visible; Android adds no background fleet polling.
+- Pending questions replace the composer, advance on the first valid input,
+  remain editable until one final Submit, and clear only after transcript
+  confirmation. Reconnects restore the pending action rather than hiding it.
+- Routine legacy Termux title and session-switch toasts are suppressed while
+  Native view is visible. Genuine exits, connection failures, and errors remain
+  visible.
+- All code-like blocks expose explicit Copy actions. Clipboard content is
+  written only on user request and never retained in app logs or diagnostics.
+
 ### Built-In Runtime Contracts
 
 - `embedded-runtime-v1` binds the APK baseline version and wtmux commit to the

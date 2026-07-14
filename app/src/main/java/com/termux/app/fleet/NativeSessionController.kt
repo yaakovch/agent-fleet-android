@@ -31,7 +31,9 @@ class NativeSessionController(
     private val appRoot = activity.filesDir.parentFile ?: File("/data/data/com.termux")
     private val prefix = File(appRoot, "files/usr")
     private val home = File(appRoot, "files/home")
+    private val fleetRuntime = FleetRuntime(activity.applicationContext)
     private val uiState = mutableStateOf(NativeSessionUiState("Session", "", ""))
+    @Volatile private var fleetSnapshot: FleetSnapshot? = null
     @Volatile private var visible = false
     @Volatile private var generation = 0
     private var enabled = false
@@ -60,7 +62,11 @@ class NativeSessionController(
                     onShellKey = activity::sendAgentFleetKey,
                     onDirectory = ::openDirectory,
                     onRefreshDirectory = ::refreshDirectories,
-                    onControlC = { activity.sendAgentFleetControlC() }
+                    onControlC = { activity.sendAgentFleetControlC() },
+                    onCloseSession = ::closeSession,
+                    onKillSession = ::killSession,
+                    onScheduleContinue = ::scheduleLimitContinue,
+                    onDismissAttention = ::dismissAttention
                 )
             }
         }
@@ -69,6 +75,8 @@ class NativeSessionController(
     fun bind(intent: Intent?) {
         generation++
         stopProcess()
+        FleetSnapshotStore.removeObserver(this)
+        fleetSnapshot = null
         retryBlocked = false
         val host = intent?.getStringExtra(AgentFleetContract.EXTRA_HOST_ID).orEmpty()
         val session = intent?.getStringExtra(AgentFleetContract.EXTRA_INTERNAL_SESSION).orEmpty()
@@ -91,16 +99,21 @@ class NativeSessionController(
         updateComposerState()
         applyViewMode(if (enabled) NativeViewMode.Native else NativeViewMode.ManualTerminal)
         if (enabled && localSession) refreshDirectories()
-        if (visible && enabled && !localSession) startStream()
+        if (visible && enabled) {
+            observeFleet()
+            if (!localSession) startStream()
+        }
     }
 
     fun onStart() {
         visible = true
+        if (enabled) observeFleet()
         if (enabled && !localSession && streamProcess == null) startStream()
     }
 
     fun onStop() {
         visible = false
+        FleetSnapshotStore.removeObserver(this)
         generation++
         main.removeCallbacksAndMessages(null)
         stopProcess()
@@ -108,6 +121,7 @@ class NativeSessionController(
 
     fun close() {
         visible = false
+        FleetSnapshotStore.removeObserver(this)
         generation++
         main.removeCallbacksAndMessages(null)
         stopProcess()
@@ -179,15 +193,140 @@ class NativeSessionController(
     }
 
     private fun updateComposerState() {
-        val pending = uiState.value.items.lastOrNull { it.kind == "question" && it.state != "complete" }?.id.orEmpty()
-        AgentFleetComposer.updateNativeState(composerTarget, uiState.value.interactionMode, pending)
+        val pendingQuestion = uiState.value.items.lastOrNull { it.kind == "question" && it.state != "complete" }?.id.orEmpty()
+        val pendingAction = uiState.value.items.lastOrNull {
+            it.kind in setOf("question", "approval") && it.state != "complete"
+        }
+        AgentFleetComposer.updateNativeState(composerTarget, uiState.value.interactionMode, pendingQuestion)
+        val native = enabled && uiState.value.viewMode == NativeViewMode.Native
+        activity.setAgentFleetNativeView(
+            enabled,
+            native,
+            uiState.value.viewMode == NativeViewMode.AutomaticTerminal,
+            aiComposer && pendingAction == null
+        )
     }
 
     private fun applyViewMode(mode: NativeViewMode) {
         uiState.value = uiState.value.copy(viewMode = mode)
         val native = enabled && mode == NativeViewMode.Native
+        val hasPendingAction = uiState.value.items.any {
+            it.kind in setOf("question", "approval") && it.state != "complete"
+        }
         composeView.visibility = if (native) View.VISIBLE else View.GONE
-        activity.setAgentFleetNativeView(enabled, native, mode == NativeViewMode.AutomaticTerminal, aiComposer)
+        activity.setAgentFleetNativeView(
+            enabled,
+            native,
+            mode == NativeViewMode.AutomaticTerminal,
+            aiComposer && !hasPendingAction
+        )
+    }
+
+    fun isManagedSession(): Boolean = enabled
+
+    private fun observeFleet() {
+        FleetSnapshotStore.observe(activity.applicationContext, this) { state ->
+            if (!visible || !enabled) return@observe
+            when (state) {
+                is FleetLoadState.Ready -> applyFleetSnapshot(state.snapshot)
+                is FleetLoadState.Unavailable -> if (uiState.value.attention == null) {
+                    uiState.value = uiState.value.copy(attentionError = state.reason)
+                }
+                FleetLoadState.Loading -> Unit
+            }
+        }
+    }
+
+    private fun applyFleetSnapshot(snapshot: FleetSnapshot) {
+        fleetSnapshot = snapshot
+        val sessionId = "${uiState.value.hostId}:${uiState.value.internalSession}"
+        val attention = snapshot.attention.firstOrNull {
+            it.sessionId == sessionId && it.state in setOf("detected", "offering", "offered")
+        }
+        uiState.value = uiState.value.copy(
+            attention = attention,
+            attentionBusy = false,
+            attentionError = null
+        )
+    }
+
+    private fun closeSession() {
+        FleetSnapshotStore.removeObserver(this)
+        activity.closeAgentFleetSessionTab()
+    }
+
+    private fun killSession() {
+        if (localSession) {
+            closeSession()
+            return
+        }
+        val snapshot = fleetSnapshot
+        val session = snapshot?.sessions?.firstOrNull {
+            it.hostId == uiState.value.hostId && it.internalName == uiState.value.internalSession
+        }
+        if (snapshot == null || session == null) {
+            uiState.value = uiState.value.copy(attentionError = "The session changed. Refresh and try again.")
+            FleetSnapshotStore.refresh()
+            return
+        }
+        uiState.value = uiState.value.copy(attentionBusy = true, attentionError = null)
+        thread(name = "native-session-kill", isDaemon = true) {
+            val result = runCatching { fleetRuntime.killSession(snapshot, session) }
+            main.post {
+                result.onSuccess {
+                    FleetSnapshotStore.publish(it)
+                    closeSession()
+                }.onFailure {
+                    uiState.value = uiState.value.copy(
+                        attentionBusy = false,
+                        attentionError = it.message ?: "The session could not be killed."
+                    )
+                    FleetSnapshotStore.refresh()
+                }
+            }
+        }
+    }
+
+    private fun scheduleLimitContinue(deliverAtEpochMs: Long) {
+        val snapshot = fleetSnapshot
+        val attention = uiState.value.attention
+        val session = snapshot?.sessions?.firstOrNull { it.id == attention?.sessionId }
+        if (snapshot == null || attention == null || session == null) {
+            uiState.value = uiState.value.copy(attentionError = "This limit action changed. Refresh and try again.")
+            FleetSnapshotStore.refresh()
+            return
+        }
+        uiState.value = uiState.value.copy(attentionBusy = true, attentionError = null)
+        thread(name = "native-session-limit-schedule", isDaemon = true) {
+            val result = runCatching {
+                fleetRuntime.scheduleContinue(snapshot, session, deliverAtEpochMs, attention.id)
+            }
+            main.post { finishAttentionMutation(result) }
+        }
+    }
+
+    private fun dismissAttention() {
+        val snapshot = fleetSnapshot
+        val attention = uiState.value.attention
+        if (snapshot == null || attention == null) {
+            FleetSnapshotStore.refresh()
+            return
+        }
+        uiState.value = uiState.value.copy(attentionBusy = true, attentionError = null)
+        thread(name = "native-session-limit-dismiss", isDaemon = true) {
+            val result = runCatching { fleetRuntime.dismissAttention(snapshot, attention) }
+            main.post { finishAttentionMutation(result) }
+        }
+    }
+
+    private fun finishAttentionMutation(result: Result<FleetSnapshot>) {
+        result.onSuccess { FleetSnapshotStore.publish(it) }.onFailure {
+            uiState.value = uiState.value.copy(
+                attentionBusy = false,
+                attentionError = it.message ?: "The limit action could not be completed."
+            )
+            FleetSnapshotStore.refresh()
+        }
     }
 
     private fun executable(name: String): File? = sequenceOf(
@@ -422,6 +561,7 @@ class NativeSessionController(
         val revision = value.revision ?: return
         val running = value.copy(state = "running", title = "Sending approval…")
         uiState.value = uiState.value.copy(items = mergeConversationItems(uiState.value.items, listOf(running)))
+        updateComposerState()
         runOneShot(conversationCommand("approve", listOf(
             "--approval", value.id,
             "--choice", choice.id,
@@ -435,6 +575,7 @@ class NativeSessionController(
                 text = if (delivered) value.text else actionError(action, "The approval was not accepted. Refresh or open Terminal.")
             )
             uiState.value = uiState.value.copy(items = mergeConversationItems(uiState.value.items, listOf(updated)))
+            updateComposerState()
         }
     }
 

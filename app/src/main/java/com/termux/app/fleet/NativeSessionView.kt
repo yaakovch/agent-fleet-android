@@ -1,6 +1,8 @@
 package com.termux.app.fleet
 
 import android.graphics.Color as AndroidColor
+import android.app.DatePickerDialog
+import android.app.TimePickerDialog
 import android.widget.TextView
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -26,6 +28,9 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Checkbox
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
@@ -70,6 +75,11 @@ import org.json.JSONArray
 import org.json.JSONObject
 import java.time.Duration
 import java.time.Instant
+import java.util.Calendar
+import java.util.Date
+import java.util.Locale
+import java.util.TimeZone
+import java.text.SimpleDateFormat
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -85,8 +95,17 @@ fun NativeSessionScreen(
     onShellKey: (String) -> Unit,
     onDirectory: (String) -> Unit,
     onRefreshDirectory: () -> Unit,
-    onControlC: () -> Unit
+    onControlC: () -> Unit,
+    onCloseSession: () -> Unit,
+    onKillSession: () -> Unit,
+    onScheduleContinue: (Long) -> Unit,
+    onDismissAttention: () -> Unit
 ) {
+    var actionMenu by rememberSaveable { mutableStateOf(false) }
+    var confirmKill by rememberSaveable { mutableStateOf(false) }
+    val pendingAction = state.items.lastOrNull {
+        it.kind in setOf("question", "approval") && it.state != "complete"
+    }
     Scaffold(
         modifier = Modifier.fillMaxSize().testTag("native-session-screen"),
         containerColor = MaterialTheme.colorScheme.background,
@@ -107,12 +126,38 @@ fun NativeSessionScreen(
                     OutlinedButton(onClick = onToggleTerminal, shape = RoundedCornerShape(14.dp), contentPadding = PaddingValues(horizontal = 12.dp, vertical = 7.dp)) {
                         Text("Terminal", fontSize = 15.sp)
                     }
+                    Box {
+                        TextButton(onClick = { actionMenu = true }) { Text("Actions") }
+                        DropdownMenu(expanded = actionMenu, onDismissRequest = { actionMenu = false }) {
+                            DropdownMenuItem(
+                                text = { Text("Close this view") },
+                                onClick = { actionMenu = false; onCloseSession() }
+                            )
+                            DropdownMenuItem(
+                                text = { Text("Kill session", color = MaterialTheme.colorScheme.error) },
+                                enabled = !state.attentionBusy,
+                                onClick = { actionMenu = false; confirmKill = true }
+                            )
+                        }
+                    }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.background)
             )
         },
         bottomBar = {
-            if (state.sourceMode == "shell" && !aiComposer) {
+            if (pendingAction != null) {
+                Surface(color = MaterialTheme.colorScheme.surface, tonalElevation = 5.dp) {
+                    Box(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp)) {
+                        ConversationItemCard(
+                            pendingAction,
+                            onApproval,
+                            onQuestion,
+                            onToggleTerminal,
+                            onRetry
+                        )
+                    }
+                }
+            } else if (state.sourceMode == "shell" && !aiComposer) {
                 ShellCommandBar(onShellCommand, onShellKey, onControlC)
             }
         }
@@ -127,9 +172,23 @@ fun NativeSessionScreen(
                 onQuestion = onQuestion,
                 onOpenTerminal = onToggleTerminal,
                 onDirectory = onDirectory,
-                onRefreshDirectory = onRefreshDirectory
+                onRefreshDirectory = onRefreshDirectory,
+                pinnedActionId = pendingAction?.id,
+                onScheduleContinue = onScheduleContinue,
+                onDismissAttention = onDismissAttention
             )
         }
+    }
+    if (confirmKill) {
+        AlertDialog(
+            onDismissRequest = { confirmKill = false },
+            title = { Text("Kill this session?") },
+            text = { Text("This stops the tmux session and its running agent. Close this view instead if you want it to keep running.") },
+            confirmButton = {
+                Button(onClick = { confirmKill = false; onKillSession() }) { Text("Kill session") }
+            },
+            dismissButton = { TextButton(onClick = { confirmKill = false }) { Text("Cancel") } }
+        )
     }
 }
 
@@ -143,11 +202,16 @@ private fun ConversationFeed(
     onQuestion: (ConversationItem, List<ConversationAnswer>) -> Unit,
     onOpenTerminal: () -> Unit,
     onDirectory: (String) -> Unit,
-    onRefreshDirectory: () -> Unit
+    onRefreshDirectory: () -> Unit,
+    pinnedActionId: String?,
+    onScheduleContinue: (Long) -> Unit,
+    onDismissAttention: () -> Unit
 ) {
     val listState = rememberLazyListState()
     val scope = rememberCoroutineScope()
-    val rows = remember(state.items, state.hasMore) { buildConversationRows(state.items, state.hasMore) }
+    val rows = remember(state.items, state.hasMore, pinnedActionId) {
+        buildConversationRows(state.items.filterNot { it.id == pinnedActionId }, state.hasMore)
+    }
     var expandedToolIds by rememberSaveable { mutableStateOf(listOf<String>()) }
     var handledLiveSerial by remember { mutableStateOf(state.liveEventSerial) }
     var showNewMessages by rememberSaveable { mutableStateOf(false) }
@@ -201,6 +265,11 @@ private fun ConversationFeed(
             verticalArrangement = Arrangement.spacedBy(10.dp, Alignment.Bottom)
         ) {
             item("bottom-space") { Spacer(Modifier.height(6.dp)) }
+            state.attention?.let { attention ->
+                item("attention:${attention.id}") {
+                    LimitAttentionCard(state, attention, onScheduleContinue, onDismissAttention)
+                }
+            }
             items(rows.asReversed(), key = { "conversation:${it.id}" }) { row ->
                 when (row) {
                     is ConversationRow.Item -> ConversationItemCard(row.value, onApproval, onQuestion, onOpenTerminal, onRetry)
@@ -290,6 +359,100 @@ internal fun shouldRequestOlderMessages(
 ): Boolean = nearHistoryStart && hasMore && !loading && error == null && !limitReached
 
 @Composable
+private fun LimitAttentionCard(
+    state: NativeSessionUiState,
+    attention: FleetAttention,
+    onScheduleContinue: (Long) -> Unit,
+    onDismiss: () -> Unit
+) {
+    val context = LocalContext.current
+    val defaultTime = defaultLimitScheduleTime(attention.resetAt, System.currentTimeMillis())
+    Card(
+        shape = RoundedCornerShape(18.dp),
+        colors = CardDefaults.cardColors(containerColor = Color(0xFFFFE8D6))
+    ) {
+        Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(9.dp)) {
+            Text(
+                "${attention.agent.replaceFirstChar { it.titlecase() }} usage limit reached",
+                color = Color(0xFF542000),
+                fontSize = 18.sp,
+                fontWeight = FontWeight.Bold
+            )
+            Text(
+                "Continue can be sent automatically after the limit resets${formatLimitTime(attention.resetAt)?.let { " at $it" }.orEmpty()}.",
+                color = Color(0xFF6A3414),
+                fontSize = 15.sp
+            )
+            state.attentionError?.let {
+                Text(it, color = MaterialTheme.colorScheme.error, fontSize = 14.sp)
+            }
+            Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Button(
+                    onClick = { onScheduleContinue(defaultTime) },
+                    enabled = !state.attentionBusy
+                ) { Text(if (state.attentionBusy) "Working…" else "Schedule Continue") }
+                OutlinedButton(
+                    onClick = {
+                        showLimitDateTimePicker(context, defaultTime) { selected ->
+                            onScheduleContinue(selected.coerceAtLeast(System.currentTimeMillis() + 1_000))
+                        }
+                    },
+                    enabled = !state.attentionBusy
+                ) { Text("Change time") }
+                TextButton(onClick = onDismiss, enabled = !state.attentionBusy) { Text("Dismiss") }
+            }
+        }
+    }
+}
+
+internal fun defaultLimitScheduleTime(resetAt: String?, now: Long): Long {
+    val reset = runCatching {
+        val parser = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss'Z'", Locale.US).apply {
+            timeZone = TimeZone.getTimeZone("UTC")
+        }
+        resetAt?.let { parser.parse(it)?.time }
+    }.getOrNull()
+    return maxOf(now + 60_000, (reset ?: now) + 60_000)
+}
+
+private fun formatLimitTime(value: String?): String? = runCatching {
+    val parser = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss'Z'", Locale.US).apply {
+        timeZone = TimeZone.getTimeZone("UTC")
+    }
+    value?.let { parser.parse(it) }?.let { SimpleDateFormat("EEE HH:mm", Locale.getDefault()).format(Date(it.time)) }
+}.getOrNull()
+
+internal fun showLimitDateTimePicker(context: android.content.Context, initialEpochMs: Long, onSelected: (Long) -> Unit) {
+    val initial = Calendar.getInstance().apply { timeInMillis = initialEpochMs }
+    DatePickerDialog(
+        context,
+        { _, year, month, day ->
+            TimePickerDialog(
+                context,
+                { _, hour, minute ->
+                    val selected = Calendar.getInstance().apply {
+                        set(Calendar.YEAR, year)
+                        set(Calendar.MONTH, month)
+                        set(Calendar.DAY_OF_MONTH, day)
+                        set(Calendar.HOUR_OF_DAY, hour)
+                        set(Calendar.MINUTE, minute)
+                        set(Calendar.SECOND, 0)
+                        set(Calendar.MILLISECOND, 0)
+                    }
+                    onSelected(selected.timeInMillis)
+                },
+                initial.get(Calendar.HOUR_OF_DAY),
+                initial.get(Calendar.MINUTE),
+                android.text.format.DateFormat.is24HourFormat(context)
+            ).show()
+        },
+        initial.get(Calendar.YEAR),
+        initial.get(Calendar.MONTH),
+        initial.get(Calendar.DAY_OF_MONTH)
+    ).show()
+}
+
+@Composable
 private fun ConversationItemCard(
     value: ConversationItem,
     onApproval: (ConversationItem, ConversationChoice) -> Unit,
@@ -353,10 +516,12 @@ private fun ApprovalCard(value: ConversationItem, onApproval: (ConversationItem,
 
 @Composable
 private fun ShellCommandCard(value: ConversationItem) {
+    val clipboard = LocalClipboardManager.current
     Card(shape = RoundedCornerShape(16.dp), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)) {
         Row(Modifier.fillMaxWidth().padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
             Text("$", fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
             Text(value.title, Modifier.padding(start = 10.dp).weight(1f), fontFamily = FontFamily.Monospace, fontSize = 15.sp)
+            TextButton(onClick = { clipboard.setText(AnnotatedString(value.title)) }) { Text("Copy") }
         }
     }
 }
@@ -889,6 +1054,19 @@ private fun ShellCommandBar(onCommand: (String) -> Unit, onKey: (String) -> Unit
 
 @Composable
 private fun MarkdownText(value: String) {
+    val blocks = remember(value) { splitMarkdownBlocks(value) }
+    Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        blocks.forEachIndexed { index, block ->
+            when (block) {
+                is NativeMarkdownBlock.Prose -> MarkwonText(block.content)
+                is NativeMarkdownBlock.Code -> CopyableMarkdownCode(block, index)
+            }
+        }
+    }
+}
+
+@Composable
+private fun MarkwonText(value: String) {
     val context = LocalContext.current
     val markwon = remember(context) { Markwon.create(context) }
     val color = MaterialTheme.colorScheme.onSurface
@@ -900,6 +1078,75 @@ private fun MarkdownText(value: String) {
             markwon.setMarkdown(view, value)
         }
     )
+}
+
+private sealed interface NativeMarkdownBlock {
+    data class Prose(val content: String) : NativeMarkdownBlock
+    data class Code(val language: String, val content: String) : NativeMarkdownBlock
+}
+
+private fun splitMarkdownBlocks(value: String): List<NativeMarkdownBlock> {
+    if (!value.contains("```")) return listOf(NativeMarkdownBlock.Prose(value))
+    val result = mutableListOf<NativeMarkdownBlock>()
+    val prose = StringBuilder()
+    val code = StringBuilder()
+    var language = ""
+    var inside = false
+    value.lineSequence().forEach { line ->
+        if (line.startsWith("```")) {
+            if (inside) {
+                result += NativeMarkdownBlock.Code(language, code.toString().trimEnd('\n'))
+                code.clear()
+                language = ""
+            } else {
+                if (prose.isNotEmpty()) {
+                    result += NativeMarkdownBlock.Prose(prose.toString().trimEnd('\n'))
+                    prose.clear()
+                }
+                language = line.removePrefix("```").trim().take(32)
+            }
+            inside = !inside
+        } else if (inside) {
+            code.append(line).append('\n')
+        } else {
+            prose.append(line).append('\n')
+        }
+    }
+    if (inside) {
+        prose.append("```").append(language).append('\n').append(code)
+    }
+    if (prose.isNotEmpty()) result += NativeMarkdownBlock.Prose(prose.toString().trimEnd('\n'))
+    return result.ifEmpty { listOf(NativeMarkdownBlock.Prose(value)) }
+}
+
+@Composable
+private fun CopyableMarkdownCode(block: NativeMarkdownBlock.Code, index: Int) {
+    val clipboard = LocalClipboardManager.current
+    Surface(shape = RoundedCornerShape(12.dp), color = Color(0xFF101820)) {
+        Column(Modifier.fillMaxWidth().padding(10.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    block.language.ifBlank { "Command / code" },
+                    Modifier.weight(1f),
+                    color = Color(0xFF9FB0C0),
+                    fontSize = 12.sp
+                )
+                TextButton(
+                    onClick = { clipboard.setText(AnnotatedString(block.content)) },
+                    modifier = Modifier.testTag("markdown-copy-$index"),
+                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp)
+                ) { Text("Copy", color = Color(0xFFD7E1EA), fontSize = 12.sp) }
+            }
+            Text(
+                block.content,
+                Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+                color = Color(0xFFD7E1EA),
+                fontFamily = FontFamily.Monospace,
+                fontSize = 13.sp,
+                lineHeight = 19.sp
+            )
+        }
+    }
 }
 
 private fun Color.toArgbCompat(): Int = AndroidColor.argb(

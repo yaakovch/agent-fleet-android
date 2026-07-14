@@ -53,6 +53,9 @@ data class EmbeddedRuntimeStatus(
 fun supportsEmbeddedRuntime(primaryAbi: String?, supportedAbis: List<String>): Boolean =
     primaryAbi != null && primaryAbi in supportedAbis
 
+internal fun shouldInstallEmbeddedBaseline(status: EmbeddedRuntimeStatus, explicitRepair: Boolean): Boolean =
+    explicitRepair || (status.supported && status.embeddedBaseline != status.baseline)
+
 internal fun installedPackageVersions(output: String): Map<String, String> = output.lineSequence().mapNotNull { line ->
     val parts = line.split('\t', limit = 3)
     if (parts.size == 3 && parts[2].trim() == "install ok installed") {

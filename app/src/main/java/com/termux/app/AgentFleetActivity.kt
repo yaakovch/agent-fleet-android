@@ -5,8 +5,6 @@ import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
 import android.os.Bundle
-import android.os.Handler
-import android.os.Looper
 import android.net.Uri
 import android.widget.Toast
 import androidx.activity.ComponentActivity
@@ -71,11 +69,15 @@ import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.termux.app.fleet.FleetHost
+import com.termux.app.fleet.FleetAttention
 import com.termux.app.fleet.FleetDirectoryListing
 import com.termux.app.fleet.FleetLoadState
 import com.termux.app.fleet.FleetLimit
 import com.termux.app.fleet.FleetLimitWindow
 import com.termux.app.fleet.FleetRuntime
+import com.termux.app.fleet.FleetSnapshotStore
+import com.termux.app.fleet.defaultLimitScheduleTime
+import com.termux.app.fleet.showLimitDateTimePicker
 import com.termux.app.fleet.FleetSession
 import com.termux.app.fleet.FleetSchedule
 import com.termux.app.fleet.FleetSnapshot
@@ -90,6 +92,7 @@ import com.termux.app.fleet.EmbeddedRuntimeStatus
 import com.termux.app.fleet.RuntimeUpdateManager
 import com.termux.app.fleet.RuntimeUpdateResult
 import com.termux.app.fleet.supportsEmbeddedRuntime
+import com.termux.app.fleet.shouldInstallEmbeddedBaseline
 import com.termux.app.fleet.UpdateUiState
 import java.io.File
 import java.util.concurrent.Executors
@@ -108,13 +111,6 @@ class AgentFleetActivity : ComponentActivity() {
     private val fleetExecutor = Executors.newSingleThreadExecutor()
     private val updateExecutor = Executors.newSingleThreadExecutor()
     private val runtimeExecutor = Executors.newSingleThreadExecutor()
-    private val refreshHandler = Handler(Looper.getMainLooper())
-    private val refreshRunnable = object : Runnable {
-        override fun run() {
-            refreshFleet()
-            refreshHandler.postDelayed(this, 10_000)
-        }
-    }
     private lateinit var fleetRuntime: FleetRuntime
     private lateinit var recentSessionStore: RecentSessionStore
     private lateinit var updateManager: AgentFleetUpdateManager
@@ -162,6 +158,8 @@ class AgentFleetActivity : ComponentActivity() {
                     onCreateDirectory = ::createFleetDirectory,
                     onRenameSession = ::renameFleetSession,
                     onScheduleContinue = ::scheduleContinue,
+                    onScheduleAttention = ::scheduleAttention,
+                    onDismissAttention = ::dismissAttention,
                     onCancelSchedule = ::cancelSchedule,
                     onKillSession = ::killFleetSession,
                     onCopyAttachCommand = ::copyAttachCommand,
@@ -193,8 +191,7 @@ class AgentFleetActivity : ComponentActivity() {
     override fun onStart() {
         super.onStart()
         refreshUpdatePolicy()
-        refreshHandler.removeCallbacks(refreshRunnable)
-        refreshRunnable.run()
+        FleetSnapshotStore.observe(applicationContext, this) { fleetState.value = it }
         if (
             ::runtimeUpdateManager.isInitialized && !runtimeUi.value.busy && runtimeUi.value.status?.usable == true &&
             runtimeUpdateManager.shouldCheck()
@@ -209,7 +206,7 @@ class AgentFleetActivity : ComponentActivity() {
     }
 
     override fun onStop() {
-        refreshHandler.removeCallbacks(refreshRunnable)
+        FleetSnapshotStore.removeObserver(this)
         super.onStop()
     }
 
@@ -221,15 +218,7 @@ class AgentFleetActivity : ComponentActivity() {
     }
 
     private fun refreshFleet() {
-        if (fleetState.value !is FleetLoadState.Ready) fleetState.value = FleetLoadState.Loading
-        fleetExecutor.execute {
-            val result = try {
-                FleetLoadState.Ready(fleetRuntime.loadSnapshot())
-            } catch (error: Exception) {
-                FleetLoadState.Unavailable(error.message ?: "Fleet refresh failed.")
-            }
-            runOnUiThread { fleetState.value = result }
-        }
+        FleetSnapshotStore.refresh(showLoading = true)
     }
 
     private fun openFleetSession(session: FleetSession) {
@@ -280,6 +269,15 @@ class AgentFleetActivity : ComponentActivity() {
 
     private fun scheduleContinue(session: FleetSession, delayMs: Long) = mutateFleet("Continue scheduled") { snapshot ->
         fleetRuntime.scheduleContinue(snapshot, session, System.currentTimeMillis() + delayMs)
+    }
+
+    private fun scheduleAttention(session: FleetSession, attention: FleetAttention, deliverAtEpochMs: Long) =
+        mutateFleet("Continue scheduled") { snapshot ->
+            fleetRuntime.scheduleContinue(snapshot, session, deliverAtEpochMs, attention.id)
+        }
+
+    private fun dismissAttention(attention: FleetAttention) = mutateFleet("Limit dismissed") { snapshot ->
+        fleetRuntime.dismissAttention(snapshot, attention)
     }
 
     private fun killFleetSession(session: FleetSession) = mutateFleet("Session stopped") { snapshot ->
@@ -357,9 +355,10 @@ class AgentFleetActivity : ComponentActivity() {
         )
         runtimeExecutor.execute {
             val result = runCatching {
-                if (autoRepair) embeddedRuntime.repair { detail ->
+                val inspected = embeddedRuntime.inspect()
+                if (shouldInstallEmbeddedBaseline(inspected, autoRepair)) embeddedRuntime.repair { detail ->
                     runOnUiThread { runtimeUi.value = runtimeUi.value.copy(detail = detail) }
-                } else embeddedRuntime.inspect()
+                } else inspected
             }
             runOnUiThread {
                 result.onSuccess { status ->
@@ -468,7 +467,7 @@ class AgentFleetActivity : ComponentActivity() {
             val result = runCatching { action(snapshot) }
             runOnUiThread {
                 result.onSuccess {
-                    fleetState.value = FleetLoadState.Ready(it)
+                    FleetSnapshotStore.publish(it)
                     Toast.makeText(this, successMessage, Toast.LENGTH_SHORT).show()
                 }.onFailure {
                     Toast.makeText(this, it.message ?: "Fleet action failed", Toast.LENGTH_LONG).show()
@@ -527,6 +526,8 @@ fun AgentFleetApp(
     onCreateDirectory: (String, String, String, String, (Result<String>) -> Unit) -> Unit,
     onRenameSession: (FleetSession, String) -> Unit,
     onScheduleContinue: (FleetSession, Long) -> Unit,
+    onScheduleAttention: (FleetSession, FleetAttention, Long) -> Unit,
+    onDismissAttention: (FleetAttention) -> Unit,
     onCancelSchedule: (FleetSchedule) -> Unit,
     onKillSession: (FleetSession) -> Unit,
     onCopyAttachCommand: (FleetSession) -> Unit,
@@ -587,7 +588,7 @@ fun AgentFleetApp(
         when (section) {
             FleetSection.Sessions -> SessionsScreen(padding, fleetState, onRefresh, onOpenSession, { actionSession = it.id }, { showCreateSession = true }, { showPairing = true }, onOpenClassicTerminal)
             FleetSection.Terminal -> TerminalScreen(padding, recentSessions, onOpenSession, onOpenClassicTerminal, onOpenAppearance)
-            FleetSection.Limits -> LimitsScreen(padding, fleetState, onScheduleContinue)
+            FleetSection.Limits -> LimitsScreen(padding, fleetState, onScheduleAttention, onDismissAttention)
             FleetSection.More -> MoreScreen(
                 padding,
                 fleetState,
@@ -1118,11 +1119,13 @@ private fun TerminalScreen(
 private fun LimitsScreen(
     padding: PaddingValues,
     fleetState: FleetLoadState,
-    onScheduleContinue: (FleetSession, Long) -> Unit
+    onScheduleAttention: (FleetSession, FleetAttention, Long) -> Unit,
+    onDismissAttention: (FleetAttention) -> Unit
 ) {
+    val context = LocalContext.current
     val snapshot = (fleetState as? FleetLoadState.Ready)?.snapshot
     val sessions = snapshot?.sessions?.associateBy { it.id }.orEmpty()
-    val activeAttention = snapshot?.attention?.filter { it.state in setOf("detected", "offered", "scheduled") }.orEmpty()
+    val activeAttention = snapshot?.attention?.filter { it.state in setOf("detected", "offering", "offered") }.orEmpty()
     LazyColumn(
         modifier = Modifier.fillMaxSize().padding(padding).testTag("limits-screen"),
         contentPadding = PaddingValues(18.dp),
@@ -1157,10 +1160,18 @@ private fun LimitsScreen(
                             fontSize = 16.sp,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
-                        if (session != null && attention.resetAt != null) {
-                            val delay = resetDelayMs(attention.resetAt)
-                            Button(onClick = { onScheduleContinue(session, delay) }, enabled = delay > 0, shape = RoundedCornerShape(14.dp)) {
-                                Text("Schedule Continue after reset", fontSize = 16.sp)
+                        if (session != null) {
+                            val deliverAt = defaultLimitScheduleTime(attention.resetAt, System.currentTimeMillis())
+                            Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                Button(onClick = { onScheduleAttention(session, attention, deliverAt) }, shape = RoundedCornerShape(14.dp)) {
+                                    Text("Schedule Continue", fontSize = 16.sp)
+                                }
+                                OutlinedButton(onClick = {
+                                    showLimitDateTimePicker(context, deliverAt) {
+                                        onScheduleAttention(session, attention, it)
+                                    }
+                                }) { Text("Change time") }
+                                TextButton(onClick = { onDismissAttention(attention) }) { Text("Dismiss") }
                             }
                         }
                     }
@@ -1499,7 +1510,7 @@ private fun AgentFleetPreview() {
             runtimeUi = RuntimeUiState(
                 status = EmbeddedRuntimeStatus(
                     supported = true, usable = true, repairNeeded = false,
-                    embeddedBaseline = "git-ea0eebe", baseline = "git-ea0eebe", current = "git-ea0eebe", previous = "",
+                    embeddedBaseline = "git-5b17df4", baseline = "git-5b17df4", current = "git-5b17df4", previous = "",
                     missingOrOldPackages = 0, packageCount = 70, trustedKeyIds = emptyList(), detail = "Built-in terminal is ready"
                 ),
                 detail = "Built-in terminal is ready"
@@ -1513,6 +1524,8 @@ private fun AgentFleetPreview() {
             onCreateDirectory = { _, _, _, _, callback -> callback(Result.failure(IllegalStateException("Preview"))) },
             onRenameSession = { _, _ -> },
             onScheduleContinue = { _, _ -> },
+            onScheduleAttention = { _, _, _ -> },
+            onDismissAttention = {},
             onCancelSchedule = {},
             onKillSession = {},
             onCopyAttachCommand = {},

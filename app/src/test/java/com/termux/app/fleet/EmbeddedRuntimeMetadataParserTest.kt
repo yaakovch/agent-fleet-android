@@ -96,4 +96,16 @@ class EmbeddedRuntimeMetadataParserTest {
         assertTrue(supportsEmbeddedRuntime("arm64-v8a", listOf("arm64-v8a")))
         assertFalse(supportsEmbeddedRuntime("x86_64", listOf("arm64-v8a")))
     }
+
+    @Test
+    fun activatesANewApkBaselineWithoutRequiringManualTermuxCommands() {
+        val status = EmbeddedRuntimeStatus(
+            supported = true, usable = true, repairNeeded = true,
+            embeddedBaseline = "git-new0000", baseline = "git-old0000",
+            current = "git-hotfix0", previous = "", missingOrOldPackages = 0,
+            packageCount = 70, trustedKeyIds = emptyList(), detail = "APK recovery baseline is not installed"
+        )
+        assertTrue(shouldInstallEmbeddedBaseline(status, explicitRepair = false))
+        assertFalse(shouldInstallEmbeddedBaseline(status.copy(baseline = "git-new0000"), explicitRepair = false))
+    }
 }

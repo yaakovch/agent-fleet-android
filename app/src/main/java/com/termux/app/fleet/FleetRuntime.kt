@@ -240,15 +240,43 @@ class FleetRuntime(private val context: Context) {
             .put("idempotencyKey", UUID.randomUUID().toString())
     )
 
-    fun scheduleContinue(snapshot: FleetSnapshot, session: FleetSession, deliverAtEpochMs: Long): FleetSnapshot {
+    fun scheduleContinue(
+        snapshot: FleetSnapshot,
+        session: FleetSession,
+        deliverAtEpochMs: Long,
+        attentionId: String? = null
+    ): FleetSnapshot {
         require(deliverAtEpochMs > System.currentTimeMillis()) { "Scheduled time must be in the future." }
+        if (attentionId != null) {
+            require(attentionId.matches(Regex("[A-Za-z0-9._:-]{1,160}"))) { "Limit action is invalid." }
+            require(snapshot.attention.any {
+                it.id == attentionId && it.hostId == session.hostId && it.sessionId == session.id &&
+                    it.state in setOf("detected", "offering", "offered")
+            }) { "This limit action is no longer available." }
+        }
+        val params = JSONObject()
+            .put("hostId", session.hostId)
+            .put("sessionId", session.id)
+            .put("deliverAt", isoUtc(deliverAtEpochMs))
+            .put("action", "continue")
+            .put("expectedRevision", snapshot.revision)
+            .put("idempotencyKey", UUID.randomUUID().toString())
+        if (attentionId != null) params.put("attentionId", attentionId)
         return mutate(
             "schedule.create",
+            params
+        )
+    }
+
+    fun dismissAttention(snapshot: FleetSnapshot, attention: FleetAttention): FleetSnapshot {
+        require(attention.state in setOf("detected", "offering", "offered")) {
+            "This limit action is no longer available."
+        }
+        return mutate(
+            "attention.dismiss",
             JSONObject()
-                .put("hostId", session.hostId)
-                .put("sessionId", session.id)
-                .put("deliverAt", isoUtc(deliverAtEpochMs))
-                .put("action", "continue")
+                .put("hostId", attention.hostId)
+                .put("attentionId", attention.id)
                 .put("expectedRevision", snapshot.revision)
                 .put("idempotencyKey", UUID.randomUUID().toString())
         )

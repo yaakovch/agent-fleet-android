@@ -102,6 +102,9 @@ data class NativeSessionUiState(
     val focusQuestionSerial: Long = 0,
     val viewMode: NativeViewMode = NativeViewMode.Native,
     val error: String? = null,
+    val attention: FleetAttention? = null,
+    val attentionBusy: Boolean = false,
+    val attentionError: String? = null,
     val cwd: String = "",
     val directories: List<NativeDirectoryEntry> = emptyList(),
     val directoryTruncated: Boolean = false

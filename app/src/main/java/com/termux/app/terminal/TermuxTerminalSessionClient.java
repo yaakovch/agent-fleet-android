@@ -134,7 +134,8 @@ public class TermuxTerminalSessionClient extends TermuxTerminalSessionClientBase
     public void onTitleChanged(TerminalSession updatedSession) {
         if (!mActivity.isVisible()) return;
 
-        if (updatedSession != mActivity.getCurrentSession()) {
+        if (updatedSession != mActivity.getCurrentSession() &&
+            shouldShowRoutineSessionToast(false, mActivity.isAgentFleetManagedSession())) {
             // Only show toast for other sessions than the current one, since the user
             // probably consciously caused the title change to change in the current session
             // and don't want an annoying toast for that.
@@ -300,7 +301,9 @@ public class TermuxTerminalSessionClient extends TermuxTerminalSessionClientBase
     void notifyOfSessionChange() {
         if (!mActivity.isVisible()) return;
 
-        if (!mActivity.getProperties().areTerminalSessionChangeToastsDisabled()) {
+        if (shouldShowRoutineSessionToast(
+            mActivity.getProperties().areTerminalSessionChangeToastsDisabled(),
+            mActivity.isAgentFleetManagedSession())) {
             TerminalSession session = mActivity.getCurrentSession();
             mActivity.showToast(toToastTitle(session), false);
         }
@@ -322,6 +325,10 @@ public class TermuxTerminalSessionClient extends TermuxTerminalSessionClientBase
         TermuxSession termuxSession = service.getTermuxSession(index);
         if (termuxSession != null)
             setCurrentSession(termuxSession.getTerminalSession());
+    }
+
+    public static boolean shouldShowRoutineSessionToast(boolean disabledByPreference, boolean agentFleetManaged) {
+        return !disabledByPreference && !agentFleetManaged;
     }
 
     public void switchToSession(int index) {

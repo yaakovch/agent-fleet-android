@@ -164,3 +164,18 @@ Gate: a clean arm64 install reaches a usable local terminal without network or
 manual Termux commands; a restored phone is never reset or downgraded; a signed
 runtime hotfix activates and a bad one rolls back; diagnostics can recover the
 APK baseline; release artifacts are reproducible and fully traceable.
+
+## Milestone 11: Native Reliability Parity Release
+
+- Share one foreground fleet snapshot owner between Sessions, Limits, and Native
+  terminal surfaces; react immediately to revision changes and stop it when all
+  three surfaces are hidden.
+- Port the Windows-validated pinned action panel, inline linked hard-limit
+  actions, Close/Kill menu, scroll rules, and complete Copy coverage while
+  retaining Android's semantic tool presentation.
+- Align protocol fixtures and lifecycle merging with wtmux and Windows, add
+  reconnect and toast-suppression tests, and run JVM, Compose/instrumentation,
+  runtime-bundle, and signed-release verification.
+- Build signed `0.118.4-agentfleet.21` (`1023`) with the compatible embedded
+  runtime, install replace-in-place on the S23FE, and repeat the Windows
+  acceptance matrix without uninstalling or resetting Termux data.

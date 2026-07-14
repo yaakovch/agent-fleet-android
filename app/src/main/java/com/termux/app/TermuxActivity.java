@@ -333,6 +333,18 @@ public final class TermuxActivity extends ComponentActivity implements ServiceCo
         return true;
     }
 
+    public boolean isAgentFleetManagedSession() {
+        return mAgentFleetNativeSession != null && mAgentFleetNativeSession.isManagedSession();
+    }
+
+    /** Close only this local terminal tab. A remote tmux session remains alive. */
+    public void closeAgentFleetSessionTab() {
+        TerminalSession session = getCurrentSession();
+        TermuxService service = getTermuxService();
+        if (session == null || service == null) return;
+        service.removeTermuxSession(session);
+    }
+
     public void showAgentFleetPendingQuestion() {
         if (mAgentFleetNativeSession != null)
             mAgentFleetNativeSession.showPendingQuestion();
