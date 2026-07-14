@@ -1,5 +1,7 @@
 package com.termux.app.fleet
 
+import java.io.File
+import java.nio.file.Files
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -10,6 +12,24 @@ import org.robolectric.RobolectricTestRunner
 
 @RunWith(RobolectricTestRunner::class)
 class EmbeddedRuntimeMetadataParserTest {
+
+    @Test
+    fun enablesTermuxExecOnlyWhenItsLibraryIsInstalled() {
+        val prefix = Files.createTempDirectory("termux-prefix").toFile()
+        try {
+            val environment = mutableMapOf<String, String>()
+            enableTermuxExec(environment, prefix)
+            assertFalse(environment.containsKey("LD_PRELOAD"))
+
+            val library = File(prefix, "lib/libtermux-exec.so")
+            library.parentFile!!.mkdirs()
+            library.createNewFile()
+            enableTermuxExec(environment, prefix)
+            assertEquals(library.absolutePath, environment["LD_PRELOAD"])
+        } finally {
+            prefix.deleteRecursively()
+        }
+    }
 
     @Test
     fun packageQueryOnlyAcceptsFullyInstalledPackages() {

@@ -287,6 +287,7 @@ object AgentFleetComposer {
             environment()["HOME"] = home.absolutePath
             environment()["PREFIX"] = prefix.absolutePath
             environment()["PATH"] = "${File(home, ".local/bin")}:${File(prefix, "bin")}"
+            enableTermuxExec(environment(), prefix)
         }.start()
         if (!process.waitFor(30, TimeUnit.SECONDS)) {
             process.destroyForcibly()

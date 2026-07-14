@@ -200,6 +200,7 @@ class NativeSessionController(
         environment()["HOME"] = home.absolutePath
         environment()["PREFIX"] = prefix.absolutePath
         environment()["PATH"] = listOf(File(home, ".local/bin"), File(prefix, "bin"), File(prefix, "bin/applets")).joinToString(":")
+        enableTermuxExec(environment(), prefix)
     }
 
     private fun conversationCommand(action: String, extra: List<String> = emptyList()): List<String> {

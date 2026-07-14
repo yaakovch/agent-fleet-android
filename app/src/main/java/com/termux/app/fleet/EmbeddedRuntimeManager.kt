@@ -443,6 +443,7 @@ class EmbeddedRuntimeManager(private val context: Context) {
         environment["DPKG_COLORS"] = "never"
         environment["WTMUX_CONFIG_PATH"] = config.absolutePath
         environment["WTMUX_RUNTIME_BIN_DIR"] = binDir.absolutePath
+        enableTermuxExec(environment, prefix)
     }
 }
 

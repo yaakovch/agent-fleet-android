@@ -34,11 +34,7 @@ class FleetRuntime(private val context: Context) {
         val process = ProcessBuilder(python.absolutePath, bridge.absolutePath, "--snapshot")
             .directory(userHome)
             .redirectErrorStream(true)
-            .apply {
-                environment()["HOME"] = userHome.absolutePath
-                environment()["PREFIX"] = prefix.absolutePath
-                environment()["PATH"] = listOf(File(userHome, ".local/bin"), File(prefix, "bin"), File(prefix, "bin/applets")).joinToString(":")
-            }
+            .apply { configureEnvironment(environment()) }
             .start()
 
         val outputBuffer = ByteArrayOutputStream()
@@ -381,6 +377,7 @@ class FleetRuntime(private val context: Context) {
         environment["HOME"] = userHome.absolutePath
         environment["PREFIX"] = prefix.absolutePath
         environment["PATH"] = listOf(File(userHome, ".local/bin"), File(prefix, "bin"), File(prefix, "bin/applets")).joinToString(":")
+        enableTermuxExec(environment, prefix)
     }
 
     private fun isoUtc(epochMs: Long): String = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss'Z'", Locale.US).apply {
