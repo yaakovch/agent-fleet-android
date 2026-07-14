@@ -456,20 +456,26 @@ private fun LimitAttentionCard(
             state.attentionError?.let {
                 Text(it, color = MaterialTheme.colorScheme.error, fontSize = 14.sp)
             }
-            Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Button(
-                    onClick = { onScheduleContinue(defaultTime) },
-                    enabled = !state.attentionBusy
-                ) { Text(if (state.attentionBusy) "Working…" else "Schedule Continue") }
+            Button(
+                onClick = { onScheduleContinue(defaultTime) },
+                modifier = Modifier.fillMaxWidth(),
+                enabled = !state.attentionBusy
+            ) { Text(if (state.attentionBusy) "Working…" else "Schedule Continue") }
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 OutlinedButton(
                     onClick = {
                         showLimitDateTimePicker(context, defaultTime) { selected ->
                             onScheduleContinue(selected.coerceAtLeast(System.currentTimeMillis() + 1_000))
                         }
                     },
+                    modifier = Modifier.weight(1f),
                     enabled = !state.attentionBusy
                 ) { Text("Change time") }
-                TextButton(onClick = onDismiss, enabled = !state.attentionBusy) { Text("Dismiss") }
+                TextButton(
+                    onClick = onDismiss,
+                    modifier = Modifier.weight(1f),
+                    enabled = !state.attentionBusy
+                ) { Text("Dismiss") }
             }
         }
     }

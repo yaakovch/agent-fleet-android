@@ -257,10 +257,11 @@ class NativeSessionController(
         val attention = snapshot.attention.firstOrNull {
             it.sessionId == sessionId && it.state in setOf("detected", "offering", "offered")
         }
+        val sameAttention = attention?.id == uiState.value.attention?.id
         uiState.value = uiState.value.copy(
             attention = attention,
-            attentionBusy = false,
-            attentionError = null
+            attentionBusy = if (sameAttention) uiState.value.attentionBusy else false,
+            attentionError = if (sameAttention) uiState.value.attentionError else null
         )
     }
 
@@ -327,8 +328,20 @@ class NativeSessionController(
             return
         }
         uiState.value = uiState.value.copy(attentionBusy = true, attentionError = null)
+        val idempotencyKey = UUID.randomUUID().toString()
         thread(name = "native-session-limit-dismiss", isDaemon = true) {
-            val result = runCatching { fleetRuntime.dismissAttention(snapshot, attention) }
+            var result = runCatching { fleetRuntime.dismissAttention(snapshot, attention, idempotencyKey) }
+            val failure = result.exceptionOrNull() as? FleetUnavailableException
+            if (failure?.code == "stale_revision") {
+                result = runCatching {
+                    val fresh = fleetRuntime.loadSnapshot()
+                    val current = fresh.attention.firstOrNull {
+                        it.id == attention.id && it.hostId == attention.hostId && it.sessionId == attention.sessionId &&
+                            it.state in setOf("detected", "offering", "offered")
+                    }
+                    if (current == null) fresh else fleetRuntime.dismissAttention(fresh, current, idempotencyKey)
+                }
+            }
             main.post { finishAttentionMutation(result) }
         }
     }

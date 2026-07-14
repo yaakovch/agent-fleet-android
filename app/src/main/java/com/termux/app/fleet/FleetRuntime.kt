@@ -269,7 +269,11 @@ class FleetRuntime(private val context: Context) {
         )
     }
 
-    fun dismissAttention(snapshot: FleetSnapshot, attention: FleetAttention): FleetSnapshot {
+    fun dismissAttention(
+        snapshot: FleetSnapshot,
+        attention: FleetAttention,
+        idempotencyKey: String = UUID.randomUUID().toString()
+    ): FleetSnapshot {
         require(attention.state in setOf("detected", "offering", "offered")) {
             "This limit action is no longer available."
         }
@@ -279,7 +283,7 @@ class FleetRuntime(private val context: Context) {
                 .put("hostId", attention.hostId)
                 .put("attentionId", attention.id)
                 .put("expectedRevision", snapshot.revision)
-                .put("idempotencyKey", UUID.randomUUID().toString())
+                .put("idempotencyKey", idempotencyKey)
         )
     }
 
@@ -345,7 +349,10 @@ class FleetRuntime(private val context: Context) {
             }
             if (!response.optBoolean("ok")) {
                 val error = response.optJSONObject("error")
-                throw FleetUnavailableException(safeError(error?.optString("message").orEmpty().ifBlank { "Fleet action failed." }))
+                throw FleetUnavailableException(
+                    safeError(error?.optString("message").orEmpty().ifBlank { "Fleet action failed." }),
+                    error?.optString("code").orEmpty()
+                )
             }
             return response.optJSONObject("result")
                 ?: throw FleetUnavailableException("Fleet action response did not include a result.")
@@ -429,4 +436,4 @@ class FleetRuntime(private val context: Context) {
     }
 }
 
-class FleetUnavailableException(message: String) : Exception(message)
+class FleetUnavailableException(message: String, val code: String = "") : Exception(message)
