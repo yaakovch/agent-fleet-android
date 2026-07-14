@@ -1,14 +1,14 @@
 {
   "schemaVersion": 1,
-  "baselineVersion": "git-5b17df4",
-  "wtmuxCommit": "5b17df46f13287f44c0d0720d446cdb806a019b9",
+  "baselineVersion": "git-33187db",
+  "wtmuxCommit": "33187dbca290d5a13f60ee89bbf612b2c772e9b7",
   "protocolVersion": 2,
   "supportedAbis": [
     "arm64-v8a"
   ],
   "runtime": {
-    "file": "wtmux-runtime-git-5b17df4.tar",
-    "sha256": "d00daa979b325a763dee007eb0d29cd24a3c795dbf26f5833f6bb75a34f70037",
+    "file": "wtmux-runtime-git-33187db.tar",
+    "sha256": "821bf4210525716ae92d64352fb5d3757577d5b0e407ea7c954bbcb5ffebf8e5",
     "size": 614400
   },
   "packageLock": {
