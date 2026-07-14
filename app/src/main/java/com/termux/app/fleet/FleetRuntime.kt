@@ -88,11 +88,12 @@ class FleetRuntime(private val context: Context) {
     }
 
     fun openLocalShell() {
-        val shell = executable("wtmux-shell") ?: executable("bash")
+        val bash = executable("bash")
             ?: throw FleetUnavailableException("A local shell is unavailable.")
+        val wrapper = executable("wtmux-shell")
         openTerminalCommand(
-            shell,
-            emptyArray(),
+            bash,
+            wrapper?.let { arrayOf(it.absolutePath) } ?: emptyArray(),
             "Agent Fleet · Local shell",
             "Local shell",
             false,
