@@ -164,10 +164,11 @@ trusted fleet.
   separate collapsed disclosure. Unknown tools show readable key/value fields.
 - Safe ANSI styling may be represented with the app terminal palette; raw escape
   sequences are never rendered or executed.
-- For multi-question prompts, every non-final question advances on the first
-  valid tap or non-empty text. Back revises answers and the final question uses
-  explicit Submit. A failed delivery preserves answers in Native view and shows
-  the exact safe error with Retry and Terminal actions.
+- For multi-question prompts, single and boolean choices advance immediately
+  and submit immediately when final. Multi-select questions use Done and text
+  questions use Send. Back revises earlier answers. A failed delivery preserves
+  answers in Native view and shows the exact safe error with Retry and Terminal
+  actions.
 - New Session follows Host, Backend, Projects/Other location, Folder, editable
   label, and Tool. Projects are real host folders, not inferred active sessions.
 - Other location provides an accessible-directory browser rooted at home/profile
@@ -227,9 +228,9 @@ trusted fleet.
 - Fleet state is owned by one foreground-scoped runtime shared by Sessions,
   Limits, and Native terminal surfaces. It is active only while one of those
   surfaces is visible; Android adds no background fleet polling.
-- Pending questions replace the composer, advance on the first valid input,
-  remain editable until one final Submit, and clear only after transcript
-  confirmation. Reconnects restore the pending action rather than hiding it.
+- Pending questions replace the composer, use the immediate/Done/Send behavior
+  above, and clear only after transcript confirmation. Reconnects restore the
+  pending action rather than hiding it.
 - Routine legacy Termux title and session-switch toasts are suppressed while
   Native view is visible. Genuine exits, connection failures, and errors remain
   visible.
@@ -247,6 +248,26 @@ trusted fleet.
 - Local shell cards continue receiving bounded emulator text while Native is
   visible, and alternate-screen detection continues to switch safely to the
   terminal without waiting for a conversation stream.
+
+## Native Structured Work And Interaction Reliability
+
+- Consume additive `task_list` and `plan` records from wtmux. One stable task
+  board updates in place, highlights the active task, bounds large lists around
+  that task, and collapses after completion. Plans render as Markdown previews
+  and open in a dedicated scrollable viewer.
+- Keep feed tool cards intentionally small: at most six preview lines and eight
+  named actions. Full semantic input and output open in a viewport-bounded
+  viewer with terminal-style output wrapping, horizontal code/path scrolling,
+  per-block Copy, optional raw data, and a persistent close action.
+- Pending questions and approvals use a compact pinned action bar. Their dialog
+  is viewport-bounded, internally scrollable, and keeps navigation and delivery
+  actions fixed so long prompts and option descriptions remain usable.
+- Recognize only wtmux-verified structured questions and exact known terminal
+  Plan gates. Unknown terminal screens fail closed and continue to offer the
+  real Terminal view.
+- Task/tool lifecycle updates preserve list anchors and do not emit redundant
+  generic Working/Done cards. Large bodies stay outside the lazy feed so the
+  S23FE does not display blank, partial, or top-jumping frames.
 
 ### Built-In Runtime Contracts
 

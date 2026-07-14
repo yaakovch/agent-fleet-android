@@ -4,7 +4,7 @@ import org.json.JSONObject
 
 object ConversationStreamParser {
     private const val MAX_FRAME_CHARS = 256 * 1024
-    private val itemKinds = setOf("message", "activity", "tool", "question", "change", "approval", "status", "error", "attachment", "fallback", "shell_command", "shell_output")
+    private val itemKinds = setOf("message", "activity", "tool", "question", "change", "approval", "status", "error", "attachment", "fallback", "shell_command", "shell_output", "task_list", "plan")
     private val itemStates = setOf("", "pending", "running", "complete", "error")
 
     fun parseFrame(line: String): ConversationFrame {
@@ -65,6 +65,7 @@ object ConversationStreamParser {
         val questions = value.optJSONArray("questions")
         val answers = value.optJSONArray("answers")
         val presentation = value.optJSONObject("presentation")
+        val tasks = value.optJSONArray("tasks")
         return ConversationItem(
             id = safe(value.getString("id"), 160),
             kind = kind,
@@ -114,7 +115,21 @@ object ConversationStreamParser {
                     safe(answer.optString("text"), 8 * 1024, multiline = true)
                 )
             },
-            presentation = presentation?.let(::parsePresentation)
+            presentation = presentation?.let(::parsePresentation),
+            source = safe(value.optString("source"), 64),
+            turnId = safe(value.optString("turnId"), 160),
+            taskListId = safe(value.optString("taskListId"), 160),
+            updateMode = safe(value.optString("updateMode"), 16).also { require(it in setOf("", "replace", "merge")) },
+            tasks = if (tasks == null) emptyList() else List(tasks.length().coerceAtMost(64)) { index ->
+                val task = tasks.getJSONObject(index)
+                ConversationTask(
+                    safe(task.getString("id"), 160),
+                    safe(task.getString("title"), 1_000, multiline = true),
+                    safe(task.optString("activeTitle"), 1_000, multiline = true),
+                    safe(task.optString("detail"), 4_000, multiline = true),
+                    safe(task.getString("state"), 32).also { require(it in setOf("pending", "in_progress", "completed")) }
+                )
+            }
         )
     }
 
@@ -164,6 +179,21 @@ internal fun mergeConversationItems(current: List<ConversationItem>, incoming: L
 }
 
 private fun mergeConversationItem(first: ConversationItem, second: ConversationItem): ConversationItem {
+    if (first.kind == "task_list" && second.kind == "task_list") {
+        val tasks = if (second.updateMode == "replace") second.tasks else {
+            val values = LinkedHashMap(first.tasks.associateBy { it.id })
+            second.tasks.forEach { task ->
+                val old = values[task.id]
+                values[task.id] = if (old == null) task else task.copy(
+                    title = task.title.ifBlank { old.title },
+                    activeTitle = task.activeTitle.ifBlank { old.activeTitle },
+                    detail = task.detail.ifBlank { old.detail }
+                )
+            }
+            values.values.toList()
+        }
+        return second.copy(text = second.text.ifBlank { first.text }, tasks = tasks)
+    }
     val question = first.kind == "question" || second.kind == "question"
     val lifecycle = question || first.kind == "tool" || second.kind == "tool"
     if (!lifecycle) return second

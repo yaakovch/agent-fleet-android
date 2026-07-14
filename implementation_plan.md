@@ -190,3 +190,24 @@ APK baseline; release artifacts are reproducible and fully traceable.
 - Cover the visibility and heartbeat decisions with JVM tests, run the complete
   debug unit suite, and ship signed `0.118.4-agentfleet.22` (`1024`) as an
   in-place S23FE update without changing the wtmux protocol or runtime bundle.
+
+## Milestone 13: Structured Work And Interaction Repair
+
+- Parse and merge the additive `conversation.structured-work.v1` task and plan
+  records and consume the byte-identical shared golden fixture used by wtmux
+  and Windows.
+- Replace expanded inline tools with bounded previews and a dedicated viewer;
+  add active-task boards, completed-board collapse, and Markdown plan viewers.
+- Replace oversized pending cards with a pinned action bar and scrollable
+  viewport-bounded dialog. Deliver final single/boolean answers on tap, use Done
+  for multi-select and Send for text, and keep revision/error confirmation.
+- Preserve newest-first paging and anchors, suppress redundant Working/Done
+  rows, and keep large bodies out of the lazy feed. Validate long output, long
+  questions, task merging, plan gates, reconnects, and S23FE rendering.
+- Build signed `0.118.4-agentfleet.26` (`1028`) with the compatible embedded
+  runtime, install it in place on the S23FE without resetting Termux data, then
+  deploy the matched wtmux host runtime after the Windows and Android clients.
+
+Gate: the shared fixture, complete JVM suite, release build verification, and
+physical S23FE smoke pass; tool details, tasks, plans, and long questions remain
+readable and interactive with no blank frames or unexpected terminal input.

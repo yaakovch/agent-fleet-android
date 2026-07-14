@@ -7,6 +7,7 @@ import android.widget.TextView
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -14,8 +15,10 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
@@ -27,7 +30,6 @@ import androidx.compose.material3.AssistChip
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.Checkbox
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -36,7 +38,6 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
-import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -66,7 +67,12 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.ui.viewinterop.AndroidView
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import io.noties.markwon.Markwon
@@ -103,8 +109,23 @@ fun NativeSessionScreen(
 ) {
     var actionMenu by rememberSaveable { mutableStateOf(false) }
     var confirmKill by rememberSaveable { mutableStateOf(false) }
+    var actionSheetId by rememberSaveable { mutableStateOf("") }
+    var dismissedActionId by rememberSaveable { mutableStateOf("") }
+    var feedNearBottom by remember { mutableStateOf(true) }
+    var viewerOpen by remember { mutableStateOf(false) }
     val pendingAction = state.items.lastOrNull {
         it.kind in setOf("question", "approval") && it.state != "complete"
+    }
+    LaunchedEffect(pendingAction?.id, feedNearBottom, viewerOpen, state.focusQuestionSerial) {
+        if (pendingAction == null) {
+            actionSheetId = ""
+            dismissedActionId = ""
+        } else if (state.focusQuestionSerial > 0 && pendingAction.id == state.focusQuestionId) {
+            dismissedActionId = ""
+            actionSheetId = pendingAction.id
+        } else if (pendingAction.id != dismissedActionId && feedNearBottom && !viewerOpen) {
+            actionSheetId = pendingAction.id
+        }
     }
     Scaffold(
         modifier = Modifier.fillMaxSize().testTag("native-session-screen"),
@@ -147,14 +168,15 @@ fun NativeSessionScreen(
         bottomBar = {
             if (pendingAction != null) {
                 Surface(color = MaterialTheme.colorScheme.surface, tonalElevation = 5.dp) {
-                    Box(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp)) {
-                        ConversationItemCard(
-                            pendingAction,
-                            onApproval,
-                            onQuestion,
-                            onToggleTerminal,
-                            onRetry
-                        )
+                    Row(
+                        Modifier.fillMaxWidth().clickable { actionSheetId = pendingAction.id }.padding(horizontal = 16.dp, vertical = 11.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(Modifier.weight(1f)) {
+                            Text(pendingAction.title.ifBlank { if (pendingAction.kind == "question") "Answer needed" else "Approval needed" }, fontSize = 17.sp, fontWeight = FontWeight.Bold)
+                            Text("Tap to respond", fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                        Text("Open", color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold)
                     }
                 }
             } else if (state.sourceMode == "shell" && !aiComposer) {
@@ -175,8 +197,38 @@ fun NativeSessionScreen(
                 onRefreshDirectory = onRefreshDirectory,
                 pinnedActionId = pendingAction?.id,
                 onScheduleContinue = onScheduleContinue,
-                onDismissAttention = onDismissAttention
+                onDismissAttention = onDismissAttention,
+                onNearBottomChanged = { feedNearBottom = it },
+                onViewerOpenChanged = { viewerOpen = it }
             )
+        }
+    }
+    if (pendingAction != null && actionSheetId == pendingAction.id) {
+        Dialog(
+            onDismissRequest = { actionSheetId = ""; dismissedActionId = pendingAction.id },
+            properties = DialogProperties(usePlatformDefaultWidth = false)
+        ) {
+            Surface(
+                modifier = Modifier.fillMaxWidth(0.96f).fillMaxHeight(0.9f),
+                shape = RoundedCornerShape(22.dp),
+                tonalElevation = 8.dp
+            ) {
+                Column(Modifier.fillMaxSize()) {
+                    Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Column(Modifier.weight(1f)) {
+                            Text("Action needed", fontWeight = FontWeight.Bold, fontSize = 17.sp)
+                            Text("Complete this to continue", fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                        TextButton(onClick = { actionSheetId = ""; dismissedActionId = pendingAction.id }) { Text("Close") }
+                    }
+                    Box(Modifier.weight(1f).padding(horizontal = 10.dp, vertical = 6.dp)) {
+                        ConversationItemCard(
+                            pendingAction, onApproval, onQuestion, onToggleTerminal, onRetry,
+                            onOpenTool = { _, _ -> }, onOpenPlan = {}
+                        )
+                    }
+                }
+            }
         }
     }
     if (confirmKill) {
@@ -205,7 +257,9 @@ private fun ConversationFeed(
     onRefreshDirectory: () -> Unit,
     pinnedActionId: String?,
     onScheduleContinue: (Long) -> Unit,
-    onDismissAttention: () -> Unit
+    onDismissAttention: () -> Unit,
+    onNearBottomChanged: (Boolean) -> Unit,
+    onViewerOpenChanged: (Boolean) -> Unit
 ) {
     val listState = rememberLazyListState()
     val scope = rememberCoroutineScope()
@@ -215,6 +269,8 @@ private fun ConversationFeed(
     var expandedToolIds by rememberSaveable { mutableStateOf(listOf<String>()) }
     var handledLiveSerial by remember { mutableStateOf(state.liveEventSerial) }
     var showNewMessages by rememberSaveable { mutableStateOf(false) }
+    var viewerItemId by rememberSaveable { mutableStateOf("") }
+    var viewerActionIndex by rememberSaveable { mutableStateOf(-1) }
     val nearBottom by remember {
         derivedStateOf { nearConversationBottom(listState.firstVisibleItemIndex) }
     }
@@ -249,7 +305,9 @@ private fun ConversationFeed(
     }
     LaunchedEffect(nearBottom) {
         if (nearBottom) showNewMessages = false
+        onNearBottomChanged(nearBottom)
     }
+    LaunchedEffect(viewerItemId) { onViewerOpenChanged(viewerItemId.isNotBlank()) }
     LaunchedEffect(nearHistoryStart, state.hasMore, state.loadingOlder, state.olderLoadError, state.historyLimitReached) {
         if (shouldRequestOlderMessages(nearHistoryStart, state.hasMore, state.loadingOlder, state.olderLoadError, state.historyLimitReached)) {
             onLoadOlder()
@@ -272,14 +330,19 @@ private fun ConversationFeed(
             }
             items(rows.asReversed(), key = { "conversation:${it.id}" }) { row ->
                 when (row) {
-                    is ConversationRow.Item -> ConversationItemCard(row.value, onApproval, onQuestion, onOpenTerminal, onRetry)
+                    is ConversationRow.Item -> ConversationItemCard(
+                        row.value, onApproval, onQuestion, onOpenTerminal, onRetry,
+                        onOpenTool = { item, index -> viewerItemId = item.id; viewerActionIndex = index ?: -1 },
+                        onOpenPlan = { item -> viewerItemId = item.id; viewerActionIndex = -1 }
+                    )
                     is ConversationRow.ToolGroup -> ToolGroupCard(
                         row,
                         expanded = row.calls.any { it.id in expandedToolIds },
                         onExpandedChange = { expanded ->
                             expandedToolIds = if (expanded) (expandedToolIds + row.calls.map { it.id }).distinct()
                             else expandedToolIds - row.calls.map { it.id }.toSet()
-                        }
+                        },
+                        onOpenTool = { item, index -> viewerItemId = item.id; viewerActionIndex = index ?: -1 }
                     )
                 }
             }
@@ -342,6 +405,13 @@ private fun ConversationFeed(
                 shape = RoundedCornerShape(18.dp)
             ) { Text("New messages ↓", fontSize = 15.sp) }
         }
+    }
+    state.items.firstOrNull { it.id == viewerItemId }?.let { item ->
+        ConversationViewerDialog(
+            item = item,
+            actionIndex = viewerActionIndex.takeIf { it >= 0 },
+            onDismiss = { viewerItemId = ""; viewerActionIndex = -1 }
+        )
     }
 }
 
@@ -458,13 +528,17 @@ private fun ConversationItemCard(
     onApproval: (ConversationItem, ConversationChoice) -> Unit,
     onQuestion: (ConversationItem, List<ConversationAnswer>) -> Unit,
     onOpenTerminal: () -> Unit,
-    onCheckAgain: () -> Unit
+    onCheckAgain: () -> Unit,
+    onOpenTool: (ConversationItem, Int?) -> Unit,
+    onOpenPlan: (ConversationItem) -> Unit
 ) {
     when (value.kind) {
         "message" -> MessageCard(value)
         "approval" -> ApprovalCard(value, onApproval)
         "question" -> QuestionCard(value, onQuestion, onOpenTerminal, onCheckAgain)
-        "tool" -> ToolCallCard(value)
+        "tool" -> ToolCallCard(value, onOpenTool)
+        "task_list" -> TaskListCard(value)
+        "plan" -> PlanCard(value, onOpenPlan)
         "fallback" -> ExpandableActivityCard(value, monospace = true)
         "shell_command" -> ShellCommandCard(value)
         "shell_output" -> ExpandableActivityCard(value, monospace = true)
@@ -527,10 +601,134 @@ private fun ShellCommandCard(value: ConversationItem) {
 }
 
 @Composable
+private fun TaskListCard(value: ConversationItem) {
+    var expanded by rememberSaveable(value.id, "tasks") { mutableStateOf(false) }
+    val complete = value.tasks.isNotEmpty() && value.tasks.all { it.state == "completed" }
+    if (complete && !expanded) {
+        Card(
+            modifier = Modifier.fillMaxWidth().clickable { expanded = true },
+            shape = RoundedCornerShape(16.dp),
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
+        ) {
+            Row(Modifier.fillMaxWidth().padding(15.dp), verticalAlignment = Alignment.CenterVertically) {
+                Text("✓", color = ReadyGreen, fontSize = 18.sp, fontWeight = FontWeight.Bold)
+                Text("All ${value.tasks.size} tasks complete", Modifier.padding(start = 10.dp).weight(1f), fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
+                Text("Show", color = MaterialTheme.colorScheme.primary, fontSize = 13.sp)
+            }
+        }
+        return
+    }
+    val active = value.tasks.indexOfFirst { it.state == "in_progress" }.takeIf { it >= 0 }
+        ?: value.tasks.indexOfFirst { it.state == "pending" }.coerceAtLeast(0)
+    val visible = if (!expanded && value.tasks.size > 6) {
+        val start = (active - 2).coerceIn(0, value.tasks.size - 6)
+        value.tasks.subList(start, start + 6)
+    } else value.tasks
+    Card(shape = RoundedCornerShape(16.dp), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)) {
+        Column(Modifier.fillMaxWidth().padding(15.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text(if (complete) "Completed tasks" else "Current work", fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, fontWeight = FontWeight.Bold)
+            if (value.text.isNotBlank()) Text(value.text, fontSize = 14.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 3, overflow = TextOverflow.Ellipsis)
+            visible.forEach { task ->
+                Row(verticalAlignment = Alignment.Top) {
+                    Text(
+                        when (task.state) { "completed" -> "✓"; "in_progress" -> "●"; else -> "○" },
+                        color = when (task.state) { "completed" -> ReadyGreen; "in_progress" -> Color(0xFF55D6E2); else -> MaterialTheme.colorScheme.onSurfaceVariant },
+                        fontSize = 14.sp
+                    )
+                    Column(Modifier.padding(start = 9.dp).weight(1f)) {
+                        Text(
+                            if (task.state == "in_progress" && task.activeTitle.isNotBlank()) task.activeTitle else task.title,
+                            fontSize = 15.sp,
+                            fontWeight = if (task.state == "in_progress") FontWeight.Bold else FontWeight.Normal,
+                            color = if (task.state == "completed") MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.onSurface,
+                            maxLines = 3,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                        if (task.detail.isNotBlank()) Text(task.detail, fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                    }
+                }
+            }
+            if (value.tasks.size > visible.size || complete) {
+                TextButton(onClick = { expanded = !expanded }) { Text(if (expanded) "Show less" else "Show all ${value.tasks.size}") }
+            }
+        }
+    }
+}
+
+@Composable
+private fun PlanCard(value: ConversationItem, onOpenPlan: (ConversationItem) -> Unit) {
+    val preview = remember(value.text) {
+        val lines = value.text.lineSequence().take(12).toList()
+        lines.joinToString("\n").take(4_000) + if (lines.size < value.text.lines().size) "\n…" else ""
+    }
+    Card(shape = RoundedCornerShape(16.dp), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)) {
+        Column(Modifier.fillMaxWidth().padding(15.dp), verticalArrangement = Arrangement.spacedBy(9.dp)) {
+            Text("Plan", fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, fontWeight = FontWeight.Bold)
+            MarkdownText(preview)
+            Button(onClick = { onOpenPlan(value) }, modifier = Modifier.align(Alignment.End)) { Text("Open plan") }
+        }
+    }
+}
+
+@Composable
+private fun ConversationViewerDialog(item: ConversationItem, actionIndex: Int?, onDismiss: () -> Unit) {
+    var wrap by rememberSaveable(item.id, "viewer-wrap") { mutableStateOf(false) }
+    var showRaw by rememberSaveable(item.id, "viewer-raw") { mutableStateOf(false) }
+    val clipboard = LocalClipboardManager.current
+    Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false)) {
+        Surface(
+            modifier = Modifier.fillMaxWidth(0.97f).fillMaxHeight(0.92f),
+            shape = RoundedCornerShape(22.dp),
+            tonalElevation = 9.dp
+        ) {
+            Column(Modifier.fillMaxSize()) {
+                Row(Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 9.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Column(Modifier.weight(1f)) {
+                        Text(if (item.kind == "plan") "Plan" else toolCallTitle(item), fontSize = 17.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        if (item.kind != "plan") Text(item.state.replaceFirstChar { it.titlecase() }, fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                    if (item.kind != "plan") TextButton(onClick = { wrap = !wrap }) { Text(if (wrap) "No wrap" else "Wrap") }
+                    TextButton(onClick = {
+                        clipboard.setText(AnnotatedString(if (item.kind == "plan") item.text else semanticToolBlocks(item).joinToString("\n\n") { it.content }))
+                    }) { Text("Copy") }
+                    TextButton(onClick = onDismiss) { Text("Close") }
+                }
+                Column(
+                    Modifier.fillMaxWidth().weight(1f).verticalScroll(rememberScrollState()).padding(horizontal = 14.dp, vertical = 10.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    if (item.kind == "plan") {
+                        MarkdownText(item.text)
+                    } else {
+                        val inputs = item.presentation?.inputBlocks.orEmpty().ifEmpty {
+                            item.input.takeIf { it.isNotBlank() }?.let { listOf(ToolPresentationBlock("Input", "json", it)) }.orEmpty()
+                        }
+                        val selected = actionIndex?.let { index -> inputs.getOrNull(index)?.let(::listOf) } ?: inputs
+                        val results = item.presentation?.resultBlocks.orEmpty().ifEmpty {
+                            item.result.takeIf { it.isNotBlank() }?.let { listOf(ToolPresentationBlock("Result", "terminal", it)) }.orEmpty()
+                        }
+                        (selected + results).forEach { block -> ToolSemanticSection(block, wrap = wrap) }
+                        if (item.input.isNotBlank() || item.result.isNotBlank() || item.detail.isNotBlank()) {
+                            TextButton(onClick = { showRaw = !showRaw }) { Text(if (showRaw) "Hide raw data" else "Raw data") }
+                        }
+                        if (showRaw) {
+                            item.input.takeIf { it.isNotBlank() }?.let { ToolSemanticSection(ToolPresentationBlock("Raw input", "json", it), wrap = wrap) }
+                            item.result.takeIf { it.isNotBlank() }?.let { ToolSemanticSection(ToolPresentationBlock("Raw result", "json", it), wrap = wrap) }
+                            if (item.input.isBlank() && item.result.isBlank() && item.detail.isNotBlank()) ToolSemanticSection(ToolPresentationBlock("Raw details", "json", item.detail), wrap = wrap)
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
 private fun ToolGroupCard(
     group: ConversationRow.ToolGroup,
     expanded: Boolean,
-    onExpandedChange: (Boolean) -> Unit
+    onExpandedChange: (Boolean) -> Unit,
+    onOpenTool: (ConversationItem, Int?) -> Unit
 ) {
     var visibleCount by rememberSaveable(group.calls.first().id) { mutableStateOf(25) }
     val state = toolGroupState(group)
@@ -562,7 +760,7 @@ private fun ToolGroupCard(
             }
             if (expanded) {
                 group.calls.take(visibleCount).forEachIndexed { index, call ->
-                    ToolCallRow(call, index + 1)
+                    ToolCallRow(call, index + 1, onOpenTool)
                 }
                 if (visibleCount < group.calls.size) {
                     TextButton(onClick = { visibleCount = (visibleCount + 25).coerceAtMost(group.calls.size) }) {
@@ -575,15 +773,14 @@ private fun ToolGroupCard(
 }
 
 @Composable
-private fun ToolCallCard(value: ConversationItem) {
+private fun ToolCallCard(value: ConversationItem, onOpenTool: (ConversationItem, Int?) -> Unit) {
     Card(shape = RoundedCornerShape(16.dp), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)) {
-        ToolCallRow(value, null)
+        ToolCallRow(value, null, onOpenTool)
     }
 }
 
 @Composable
-private fun ToolCallRow(value: ConversationItem, number: Int?) {
-    var expanded by rememberSaveable(value.id) { mutableStateOf(false) }
+private fun ToolCallRow(value: ConversationItem, number: Int?, onOpenTool: (ConversationItem, Int?) -> Unit) {
     val duration = toolDuration(value)
     val metadata = listOfNotNull(
         value.tool.takeIf { it.isNotBlank() } ?: toolActionLabel(value.action),
@@ -591,10 +788,7 @@ private fun ToolCallRow(value: ConversationItem, number: Int?) {
         duration.takeIf { it.isNotBlank() }
     ).joinToString(" · ")
     Column(Modifier.fillMaxWidth().padding(vertical = 7.dp), verticalArrangement = Arrangement.spacedBy(7.dp)) {
-        Row(
-            Modifier.fillMaxWidth().clickable { expanded = !expanded },
-            verticalAlignment = Alignment.CenterVertically
-        ) {
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             Text(statusGlyph(value.state), fontSize = 14.sp, color = statusColor(value.state))
             Column(Modifier.padding(start = 8.dp).weight(1f)) {
                 Text(
@@ -606,83 +800,64 @@ private fun ToolCallRow(value: ConversationItem, number: Int?) {
                 )
                 Text(metadata, fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
             }
-            TextButton(onClick = { expanded = !expanded }, contentPadding = PaddingValues(horizontal = 7.dp, vertical = 2.dp)) {
-                Text(if (expanded) "Hide" else "Details", fontSize = 13.sp)
+            TextButton(onClick = { onOpenTool(value, null) }, contentPadding = PaddingValues(horizontal = 7.dp, vertical = 2.dp)) {
+                Text("Details", fontSize = 13.sp)
             }
         }
-        if (expanded) ToolCallDetails(value)
-    }
-}
-
-@Composable
-private fun ToolCallDetails(value: ConversationItem) {
-    var showAll by rememberSaveable(value.id, "semantic") { mutableStateOf(false) }
-    var showRaw by rememberSaveable(value.id, "raw") { mutableStateOf(false) }
-    val previewLines = value.presentation?.previewLines ?: 12
-    val grouped = shouldGroupToolActions(value)
-    val inputBlocks = value.presentation?.inputBlocks.orEmpty()
-    val resultBlocks = value.presentation?.resultBlocks.orEmpty()
-    if (grouped) {
-        inputBlocks.forEachIndexed { index, block -> ToolActionSection(block, index + 1, previewLines) }
-        val visibleResults = remember(resultBlocks, showAll, previewLines) { if (showAll) resultBlocks else previewToolBlocks(resultBlocks, previewLines) }
-        visibleResults.forEach { block -> ToolSemanticSection(block) }
-        if (resultBlocks.sumOf { it.content.lines().size } > previewLines) {
-            TextButton(onClick = { showAll = !showAll }) { Text(if (showAll) "Show less output" else "Show all output") }
-        }
-    } else {
-        val blocks = remember(value.presentation, value.input, value.result, value.detail) { semanticToolBlocks(value) }
-        val visible = remember(blocks, showAll, previewLines) { if (showAll) blocks else previewToolBlocks(blocks, previewLines) }
-        visible.forEach { block -> ToolSemanticSection(block) }
-        if (blocks.sumOf { it.content.lines().size } > previewLines) {
-            TextButton(onClick = { showAll = !showAll }) { Text(if (showAll) "Show less" else "Show all") }
-        }
-    }
-    val hasRaw = value.input.isNotBlank() || value.result.isNotBlank() || value.detail.isNotBlank()
-    if (hasRaw) {
-        TextButton(onClick = { showRaw = !showRaw }) { Text(if (showRaw) "Hide raw data" else "Raw data") }
-    }
-    if (showRaw) {
-        value.input.takeIf { it.isNotBlank() }?.let { ToolDetailSection("Raw input", it, monospace = true, diff = false) }
-        value.result.takeIf { it.isNotBlank() }?.let { ToolDetailSection("Raw result", it, monospace = true, diff = false) }
-        if (value.input.isBlank() && value.result.isBlank() && value.detail.isNotBlank()) {
-            ToolDetailSection("Raw details", value.detail, monospace = true, diff = false)
+        val inputs = value.presentation?.inputBlocks.orEmpty()
+        if (inputs.size > 1) {
+            inputs.take(8).forEachIndexed { index, block ->
+                Surface(
+                    modifier = Modifier.fillMaxWidth().clickable { onOpenTool(value, index) },
+                    shape = RoundedCornerShape(10.dp),
+                    color = MaterialTheme.colorScheme.surfaceVariant
+                ) {
+                    Row(Modifier.fillMaxWidth().padding(horizontal = 11.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Column(Modifier.weight(1f)) {
+                            Text("${index + 1}. ${block.title}", fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+                            Text(toolPreviewText(block), fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        }
+                        Text("Details", fontSize = 12.sp, color = MaterialTheme.colorScheme.primary)
+                    }
+                }
+            }
+            if (inputs.size > 8) Text("${inputs.size - 8} more actions in Details", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        } else {
+            val preview = value.presentation?.resultBlocks?.firstOrNull()
+                ?: inputs.firstOrNull()
+                ?: semanticToolBlocks(value).firstOrNull()
+            preview?.let { ToolFeedPreview(it) }
         }
     }
 }
 
+internal fun toolPreviewText(block: ToolPresentationBlock): String {
+    val lines = block.content.lineSequence().take(6).toList()
+    val value = lines.joinToString("\n").take(360)
+    return value + if (value.length < block.content.length) "…" else ""
+}
+
 @Composable
-private fun ToolActionSection(block: ToolPresentationBlock, number: Int, previewLines: Int) {
-    var expanded by rememberSaveable(number, block.title, block.content.hashCode()) { mutableStateOf(false) }
-    var showAll by rememberSaveable(number, block.title, "all") { mutableStateOf(false) }
-    val firstLine = block.content.lineSequence().firstOrNull { it.isNotBlank() }.orEmpty()
-    val preview = if (firstLine.length > 120) firstLine.take(117) + "…" else firstLine
-    Surface(shape = RoundedCornerShape(10.dp), color = MaterialTheme.colorScheme.surfaceVariant) {
-        Column(Modifier.fillMaxWidth().padding(horizontal = 11.dp, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
-            Row(
-                Modifier.fillMaxWidth().clickable { expanded = !expanded },
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Column(Modifier.weight(1f)) {
-                    Text("$number. ${block.title}", fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
-                    if (preview.isNotBlank()) Text(preview, fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                }
-                TextButton(onClick = { expanded = !expanded }, contentPadding = PaddingValues(horizontal = 7.dp, vertical = 2.dp)) {
-                    Text(if (expanded) "Hide" else "Details", fontSize = 12.sp)
-                }
-            }
-            if (expanded) {
-                val visible = if (showAll) block else previewToolBlocks(listOf(block), previewLines).first()
-                ToolSemanticSection(visible, showHeading = false)
-                if (block.content.lines().size > previewLines) {
-                    TextButton(onClick = { showAll = !showAll }) { Text(if (showAll) "Show less" else "Show all") }
-                }
-            }
+private fun ToolFeedPreview(block: ToolPresentationBlock) {
+    Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
+        Text(block.title, fontSize = 12.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Surface(shape = RoundedCornerShape(9.dp), color = Color(0xFF101820)) {
+            Text(
+                toolPreviewText(block),
+                Modifier.fillMaxWidth().padding(10.dp),
+                color = Color(0xFFD7E1EA),
+                fontFamily = if (block.kind in setOf("code", "terminal", "path", "json", "diff")) FontFamily.Monospace else FontFamily.Default,
+                fontSize = 12.sp,
+                lineHeight = 17.sp,
+                maxLines = 6,
+                overflow = TextOverflow.Ellipsis
+            )
         }
     }
 }
 
 @Composable
-private fun ToolSemanticSection(block: ToolPresentationBlock, showHeading: Boolean = true) {
+private fun ToolSemanticSection(block: ToolPresentationBlock, showHeading: Boolean = true, wrap: Boolean = true) {
     val clipboard = LocalClipboardManager.current
     val background = Color(0xFF101820)
     val foreground = Color(0xFFD7E1EA)
@@ -694,16 +869,20 @@ private fun ToolSemanticSection(block: ToolPresentationBlock, showHeading: Boole
             }
         }
         Surface(shape = RoundedCornerShape(10.dp), color = background) {
+            val shouldWrap = wrap || block.kind in setOf("terminal", "text", "markdown")
+            val bodyModifier = if (shouldWrap) Modifier.fillMaxWidth().padding(11.dp)
+            else Modifier.horizontalScroll(rememberScrollState()).padding(11.dp)
             if (block.kind == "diff") {
-                Text(diffText(block.content), Modifier.fillMaxWidth().padding(11.dp), fontFamily = FontFamily.Monospace, fontSize = 13.sp, lineHeight = 18.sp)
+                Text(diffText(block.content), bodyModifier, fontFamily = FontFamily.Monospace, fontSize = 13.sp, lineHeight = 18.sp, softWrap = shouldWrap)
             } else {
                 Text(
                     block.content,
-                    Modifier.fillMaxWidth().padding(11.dp),
+                    bodyModifier,
                     color = foreground,
                     fontFamily = if (block.kind in setOf("code", "terminal", "path")) FontFamily.Monospace else FontFamily.Default,
                     fontSize = 13.sp,
-                    lineHeight = 18.sp
+                    lineHeight = 18.sp,
+                    softWrap = shouldWrap
                 )
             }
         }
@@ -744,47 +923,6 @@ private fun humanToolField(value: String): String = value
     .split(' ')
     .filter { it.isNotBlank() }
     .joinToString(" ") { it.replaceFirstChar(Char::titlecase) }
-
-private fun previewToolBlocks(blocks: List<ToolPresentationBlock>, lineLimit: Int): List<ToolPresentationBlock> {
-    var remaining = lineLimit
-    val result = mutableListOf<ToolPresentationBlock>()
-    for (block in blocks) {
-        if (remaining <= 0) break
-        val lines = block.content.lines()
-        val selected = lines.take(remaining)
-        result += block.copy(content = selected.joinToString("\n") + if (selected.size < lines.size) "\n…" else "")
-        remaining -= selected.size
-    }
-    return result
-}
-
-@Composable
-private fun ToolDetailSection(label: String, content: String, monospace: Boolean, diff: Boolean) {
-    val body = remember(content) { prettyToolContent(content) }
-    val clipboard = LocalClipboardManager.current
-    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Text(label, Modifier.weight(1f), fontSize = 13.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            TextButton(onClick = { clipboard.setText(AnnotatedString(content)) }, contentPadding = PaddingValues(horizontal = 7.dp, vertical = 1.dp)) {
-                Text("Copy", fontSize = 12.sp)
-            }
-        }
-        if (diff) {
-            Text(diffText(body), fontFamily = FontFamily.Monospace, fontSize = 13.sp, lineHeight = 18.sp)
-        } else {
-            Text(body, fontFamily = if (monospace) FontFamily.Monospace else FontFamily.Default, fontSize = 13.sp, lineHeight = 18.sp)
-        }
-    }
-}
-
-private fun prettyToolContent(value: String): String = runCatching {
-    if (value.length > 64 * 1024) return@runCatching value
-    when {
-        value.trimStart().startsWith("{") -> JSONObject(value).toString(2)
-        value.trimStart().startsWith("[") -> JSONArray(value).toString(2)
-        else -> value
-    }
-}.getOrDefault(value)
 
 private fun diffText(value: String): AnnotatedString = buildAnnotatedString {
     value.lines().forEachIndexed { index, line ->
@@ -830,8 +968,8 @@ private fun QuestionCard(
         return
     }
 
-    Card(shape = RoundedCornerShape(18.dp), colors = CardDefaults.cardColors(containerColor = Color(0xFFFFF3D4))) {
-        Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+    Card(modifier = Modifier.fillMaxSize(), shape = RoundedCornerShape(18.dp), colors = CardDefaults.cardColors(containerColor = Color(0xFFFFF3D4))) {
+        Column(Modifier.fillMaxSize().padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             Text(value.title.ifBlank { "Answer needed" }, color = Color(0xFF352A00), fontSize = 18.sp, fontWeight = FontWeight.Bold)
             when {
                 value.state == "running" -> {
@@ -840,7 +978,7 @@ private fun QuestionCard(
                 }
                 value.state == "error" -> {
                     Text(value.text.ifBlank { "The answer was not confirmed. Review it, then retry." }, color = Color(0xFF7A3000), fontSize = 15.sp)
-                    if (value.revision != null && value.questions.isNotEmpty()) QuestionForm(value, onQuestion, onOpenTerminal, retry = true)
+                    if (value.revision != null && value.questions.isNotEmpty()) QuestionForm(value, onQuestion, onOpenTerminal, Modifier.weight(1f), retry = true)
                     else Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         Button(onClick = onCheckAgain) { Text("Check again") }
                         OutlinedButton(onClick = onOpenTerminal) { Text("Open Terminal") }
@@ -850,7 +988,7 @@ private fun QuestionCard(
                     Text("This prompt can be reviewed here, but it cannot be answered safely in Native view.", color = Color(0xFF514500), fontSize = 15.sp)
                     OutlinedButton(onClick = onOpenTerminal) { Text("Open Terminal") }
                 }
-                else -> QuestionForm(value, onQuestion, onOpenTerminal)
+                else -> QuestionForm(value, onQuestion, onOpenTerminal, Modifier.weight(1f))
             }
         }
     }
@@ -861,6 +999,7 @@ private fun QuestionForm(
     value: ConversationItem,
     onQuestion: (ConversationItem, List<ConversationAnswer>) -> Unit,
     onOpenTerminal: () -> Unit,
+    modifier: Modifier = Modifier,
     retry: Boolean = false
 ) {
     var page by rememberSaveable(value.id) { mutableStateOf(0) }
@@ -870,103 +1009,108 @@ private fun QuestionForm(
     val options = if (question.type == "boolean" && question.options.isEmpty()) listOf(
         ConversationQuestionOption("true", "Yes", ""), ConversationQuestionOption("false", "No", "")
     ) else question.options
-    Text("${page + 1} of ${value.questions.size}", color = Color(0xFF6C5B00), fontSize = 13.sp, fontWeight = FontWeight.Bold)
-    if (question.header.isNotBlank()) Text(question.header, color = Color(0xFF352A00), fontSize = 14.sp, fontWeight = FontWeight.Bold)
-    Text(question.prompt, color = Color(0xFF352A00), fontSize = 16.sp)
-    options.forEach { option ->
-        val choose: () -> Unit = {
-            val updated = if (question.type == "multi") {
-                val checked = option.id !in current.choiceIds
-                val choices = if (checked) (current.choiceIds + option.id).distinct() else current.choiceIds - option.id
-                current.copy(choiceIds = choices)
-            } else {
-                current.copy(choiceIds = listOf(option.id), text = "")
-            }
-            draft = updateQuestionDraft(draft, updated)
-            if (shouldAdvanceQuestion(question, updated, page < value.questions.lastIndex)) page++
-        }
-        Row(Modifier.fillMaxWidth().clickable(onClick = choose), verticalAlignment = Alignment.CenterVertically) {
-            if (question.type == "multi") {
-                Checkbox(
-                    checked = option.id in current.choiceIds,
-                    onCheckedChange = { choose() }
-                )
-            } else {
-                RadioButton(
-                    selected = current.choiceIds.singleOrNull() == option.id,
-                    onClick = choose
-                )
-            }
-            Column(Modifier.padding(start = 5.dp).weight(1f)) {
-                Text(option.label, color = Color(0xFF352A00), fontSize = 15.sp)
-                if (option.description.isNotBlank()) Text(option.description, color = Color(0xFF6C5B00), fontSize = 13.sp)
-            }
-        }
+    fun sendAnswers(nextDraft: String): Boolean {
+        val allAnswers = conversationAnswers(value.questions, nextDraft)
+        if (!value.questions.zip(allAnswers).all { (item, answer) -> validQuestionAnswer(item, answer) }) return false
+        onQuestion(value, allAnswers.filterIndexed { index, answer ->
+            value.questions[index].required || answer.choiceIds.isNotEmpty() || answer.text.isNotBlank()
+        })
+        return true
     }
-    if (question.allowOther && question.type != "text") {
-        val chooseOther: () -> Unit = {
-            val checked = "__other__" !in current.choiceIds
-            val choices = if (question.type == "multi") {
-                if (checked) (current.choiceIds + "__other__").distinct() else current.choiceIds - "__other__"
-            } else if (checked) listOf("__other__") else emptyList()
-            draft = updateQuestionDraft(draft, current.copy(choiceIds = choices, text = if (checked) current.text else ""))
-        }
-        Row(Modifier.fillMaxWidth().clickable(onClick = chooseOther), verticalAlignment = Alignment.CenterVertically) {
-            if (question.type == "multi") {
-                Checkbox(
-                    checked = "__other__" in current.choiceIds,
-                    onCheckedChange = { chooseOther() }
-                )
-            } else {
-                RadioButton(
-                    selected = current.choiceIds.singleOrNull() == "__other__",
-                    onClick = chooseOther
-                )
-            }
-            Text("Other", color = Color(0xFF352A00), fontSize = 15.sp)
-        }
+    fun advanceOrSend(nextDraft: String, answer: ConversationAnswer) {
+        if (!validQuestionAnswer(question, answer)) return
+        if (page < value.questions.lastIndex) page++ else sendAnswers(nextDraft)
     }
-    if (question.type == "text" || "__other__" in current.choiceIds) {
-        OutlinedTextField(
-            value = current.text,
-            onValueChange = {
-                if (it.length <= 8 * 1024 && '\u0000' !in it) {
-                    val updated = current.copy(text = it)
-                    draft = updateQuestionDraft(draft, updated)
-                    if (shouldAdvanceQuestion(question, updated, page < value.questions.lastIndex)) page++
+    Column(modifier.fillMaxSize()) {
+        Column(
+            Modifier.fillMaxWidth().weight(1f).verticalScroll(rememberScrollState()).padding(end = 3.dp),
+            verticalArrangement = Arrangement.spacedBy(9.dp)
+        ) {
+            Text("${page + 1} of ${value.questions.size}", color = Color(0xFF6C5B00), fontSize = 13.sp, fontWeight = FontWeight.Bold)
+            if (question.header.isNotBlank()) Text(question.header, color = Color(0xFF352A00), fontSize = 14.sp, fontWeight = FontWeight.Bold)
+            Text(question.prompt, color = Color(0xFF352A00), fontSize = 16.sp)
+            options.forEach { option ->
+                val selected = option.id in current.choiceIds
+                val choose: () -> Unit = {
+                    val updated = if (question.type == "multi") {
+                        val choices = if (!selected) (current.choiceIds + option.id).distinct() else current.choiceIds - option.id
+                        current.copy(choiceIds = choices)
+                    } else current.copy(choiceIds = listOf(option.id), text = "")
+                    val nextDraft = updateQuestionDraft(draft, updated)
+                    draft = nextDraft
+                    when (questionTapAction(question, updated, page < value.questions.lastIndex)) {
+                        "advance" -> page++
+                        "submit" -> sendAnswers(nextDraft)
+                    }
                 }
-            },
-            modifier = Modifier.fillMaxWidth(),
-            placeholder = { Text("Type your answer…") },
-            minLines = 2,
-            maxLines = 5,
-            colors = OutlinedTextFieldDefaults.colors(
-                focusedTextColor = Color(0xFF352A00),
-                unfocusedTextColor = Color(0xFF352A00),
-                cursorColor = Color(0xFF6C5B00),
-                focusedBorderColor = Color(0xFF6C5B00),
-                unfocusedBorderColor = Color(0xFF9C8740),
-                focusedPlaceholderColor = Color(0xFF6C5B00),
-                unfocusedPlaceholderColor = Color(0xFF6C5B00)
-            )
-        )
-    }
-    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        if (page > 0) OutlinedButton(onClick = { page-- }) { Text("Back") }
-        Spacer(Modifier.weight(1f))
-        OutlinedButton(onClick = onOpenTerminal) { Text("Terminal") }
-        if (page < value.questions.lastIndex) {
-            Text("Your first valid answer continues", color = Color(0xFF6C5B00), fontSize = 13.sp)
-        } else {
-            val allAnswers = conversationAnswers(value.questions, draft)
-            Button(
-                onClick = {
-                    onQuestion(value, allAnswers.filterIndexed { index, answer ->
-                        value.questions[index].required || answer.choiceIds.isNotEmpty() || answer.text.isNotBlank()
-                    })
-                },
-                enabled = value.questions.zip(allAnswers).all { (item, answer) -> validQuestionAnswer(item, answer) }
-            ) { Text(if (retry) "Retry" else "Submit") }
+                Surface(
+                    modifier = Modifier.fillMaxWidth().clickable(onClick = choose),
+                    shape = RoundedCornerShape(12.dp),
+                    color = if (selected) Color(0xFFFFE29A) else Color(0xFFFFF9EA)
+                ) {
+                    Row(Modifier.fillMaxWidth().padding(horizontal = 13.dp, vertical = 11.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Column(Modifier.weight(1f)) {
+                            Text(option.label, color = Color(0xFF352A00), fontSize = 15.sp, fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal)
+                            if (option.description.isNotBlank()) Text(option.description, color = Color(0xFF6C5B00), fontSize = 13.sp)
+                        }
+                        if (selected) Text("✓", color = Color(0xFF426800), fontWeight = FontWeight.Bold)
+                    }
+                }
+            }
+            if (question.allowOther && question.type != "text") {
+                val selected = "__other__" in current.choiceIds
+                Surface(
+                    modifier = Modifier.fillMaxWidth().clickable {
+                        val choices = if (question.type == "multi") {
+                            if (!selected) (current.choiceIds + "__other__").distinct() else current.choiceIds - "__other__"
+                        } else if (!selected) listOf("__other__") else emptyList()
+                        draft = updateQuestionDraft(draft, current.copy(choiceIds = choices, text = if (!selected) current.text else ""))
+                    },
+                    shape = RoundedCornerShape(12.dp),
+                    color = if (selected) Color(0xFFFFE29A) else Color(0xFFFFF9EA)
+                ) {
+                    Row(Modifier.fillMaxWidth().padding(horizontal = 13.dp, vertical = 11.dp)) {
+                        Text("Other", Modifier.weight(1f), color = Color(0xFF352A00), fontSize = 15.sp, fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal)
+                        if (selected) Text("✓", color = Color(0xFF426800), fontWeight = FontWeight.Bold)
+                    }
+                }
+            }
+            if (question.type == "text" || "__other__" in current.choiceIds) {
+                OutlinedTextField(
+                    value = current.text,
+                    onValueChange = {
+                        if (it.length <= 8 * 1024 && '\u0000' !in it) draft = updateQuestionDraft(draft, current.copy(text = it))
+                    },
+                    modifier = Modifier.fillMaxWidth(),
+                    placeholder = { Text("Type your answer…") },
+                    minLines = 2,
+                    maxLines = 5,
+                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send),
+                    keyboardActions = KeyboardActions(onSend = {
+                        val updated = questionDraft(draft, question.id)
+                        advanceOrSend(draft, updated)
+                    }),
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedTextColor = Color(0xFF352A00), unfocusedTextColor = Color(0xFF352A00),
+                        cursorColor = Color(0xFF6C5B00), focusedBorderColor = Color(0xFF6C5B00),
+                        unfocusedBorderColor = Color(0xFF9C8740), focusedPlaceholderColor = Color(0xFF6C5B00),
+                        unfocusedPlaceholderColor = Color(0xFF6C5B00)
+                    )
+                )
+            }
+        }
+        val latest = questionDraft(draft, question.id)
+        val needsAction = question.type in setOf("multi", "text") || "__other__" in latest.choiceIds
+        Row(Modifier.fillMaxWidth().padding(top = 10.dp), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+            if (page > 0) OutlinedButton(onClick = { page-- }) { Text("Back") }
+            Spacer(Modifier.weight(1f))
+            OutlinedButton(onClick = onOpenTerminal) { Text("Terminal") }
+            if (needsAction) {
+                Button(
+                    onClick = { advanceOrSend(draft, questionDraft(draft, question.id)) },
+                    enabled = validQuestionAnswer(question, latest)
+                ) { Text(if (retry && page == value.questions.lastIndex) "Retry" else if (question.type == "multi") "Done" else "Send") }
+            } else Text("Tap an answer", color = Color(0xFF6C5B00), fontSize = 13.sp)
         }
     }
 }
@@ -1006,6 +1150,12 @@ private fun validQuestionAnswer(question: ConversationQuestion, answer: Conversa
 
 internal fun shouldAdvanceQuestion(question: ConversationQuestion, answer: ConversationAnswer, hasNext: Boolean): Boolean =
     hasNext && validQuestionAnswer(question, answer)
+
+internal fun questionTapAction(question: ConversationQuestion, answer: ConversationAnswer, hasNext: Boolean): String = when {
+    question.type !in setOf("single", "boolean") || !validQuestionAnswer(question, answer) -> "wait"
+    hasNext -> "advance"
+    else -> "submit"
+}
 
 private fun questionAnswerSummary(value: ConversationItem): String {
     if (value.answers.isNotEmpty()) return value.answers.joinToString("\n") { answer ->

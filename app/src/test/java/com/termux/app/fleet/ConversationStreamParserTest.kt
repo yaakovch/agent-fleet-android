@@ -16,6 +16,17 @@ class ConversationStreamParserTest {
     """.trimIndent()
 
     @Test
+    fun consumesTheSharedStructuredWorkFixture() {
+        val fixture = checkNotNull(javaClass.classLoader?.getResourceAsStream("conversation_structured_work_v1.json"))
+            .bufferedReader().use { it.readText() }
+        val frame = ConversationStreamParser.parseFrame(fixture) as ConversationFrame.Snapshot
+        assertEquals(listOf("task_list", "plan", "question"), frame.items.map { it.kind })
+        assertEquals("Repairing the Native view", frame.items.first().tasks[1].activeTitle)
+        assertEquals("codex_plan_gate", frame.items.last().source)
+        assertEquals(listOf("implement", "implement-clear", "stay"), frame.items.last().questions.single().options.map { it.id })
+    }
+
+    @Test
     fun parsesConversationSnapshotAndApproval() {
         val line = """
             {"protocolVersion":2,"type":"conversation.snapshot","session":"wtmux-main","adapter":"codex","mode":"ai","interactionMode":"plan","revision":"rev-1","items":[${item("m1")},{"id":"approval-1","kind":"approval","timestamp":"","role":"","title":"Run command?","text":"git status","detail":"","state":"pending","tool":"shell","attachments":[],"choices":[{"id":"approve","label":"Approve"},{"id":"deny","label":"Deny"}],"revision":"approval-rev"}],"nextCursor":"older","hasMore":true}
@@ -131,6 +142,38 @@ class ConversationStreamParserTest {
     }
 
     @Test
+    fun parsesAndMergesStructuredTasksAndPlans() {
+        val snapshot = """
+            {"protocolVersion":2,"type":"conversation.snapshot","session":"s","adapter":"codex","mode":"ai","interactionMode":"plan","revision":"r1","items":[{"id":"task-list:codex:turn-1","kind":"task_list","timestamp":"","role":"assistant","title":"Current work","text":"","detail":"","state":"running","tool":"update_plan","attachments":[],"choices":[],"source":"codex","turnId":"turn-1","taskListId":"turn-1","updateMode":"replace","tasks":[{"id":"task-1","title":"Inspect","activeTitle":"Inspecting","detail":"Read the current view","state":"in_progress"},{"id":"task-2","title":"Fix","activeTitle":"Fixing","detail":"","state":"pending"}]},{"id":"plan:codex:turn-1","kind":"plan","timestamp":"","role":"assistant","title":"Plan","text":"## Plan\n\n- Inspect\n- Fix","detail":"","state":"complete","tool":"plan","attachments":[],"choices":[],"source":"codex","turnId":"turn-1"}],"nextCursor":null,"hasMore":false}
+        """.trimIndent()
+        val frame = ConversationStreamParser.parseFrame(snapshot) as ConversationFrame.Snapshot
+        assertEquals(listOf("task_list", "plan"), frame.items.map { it.kind })
+        assertEquals("Inspecting", frame.items.first().tasks.first().activeTitle)
+        assertTrue(frame.items.last().text.startsWith("## Plan"))
+
+        val patch = frame.items.first().copy(
+            updateMode = "merge",
+            tasks = listOf(ConversationTask("task-1", "", "", "", "completed"))
+        )
+        val merged = mergeConversationItems(frame.items, listOf(patch))
+        assertEquals("completed", merged.first().tasks.first().state)
+        assertEquals("Inspect", merged.first().tasks.first().title)
+        assertEquals("Fix", merged.first().tasks.last().title)
+        assertFalse(buildConversationRows(merged + ConversationItem(
+            "done", "status", "", "", "Done", "", "", "complete", "codex", emptyList(), emptyList()
+        ), false).any { it is ConversationRow.Item && it.value.id == "done" })
+    }
+
+    @Test
+    fun toolFeedPreviewIsStrictlyBounded() {
+        val content = (1..20).joinToString("\n") { "line-$it-${"x".repeat(80)}" }
+        val preview = toolPreviewText(ToolPresentationBlock("Output", "terminal", content))
+        assertTrue(preview.length <= 361)
+        assertTrue(preview.lines().size <= 6)
+        assertTrue(preview.endsWith("…"))
+    }
+
+    @Test
     fun nativeViewSettingPersistsAndDefaultsOn() {
         val context: Context = RuntimeEnvironment.getApplication()
         context.getSharedPreferences("agent-fleet-native-session", Context.MODE_PRIVATE).edit().clear().commit()
@@ -177,12 +220,16 @@ class ConversationStreamParserTest {
     }
 
     @Test
-    fun everyNonFinalQuestionAdvancesOnItsFirstValidInput() {
+    fun singleChoiceTapsAdvanceOrSubmitWithoutASecondConfirmation() {
         val option = ConversationQuestion("mode", "", "Mode?", "single", true, true, emptyList())
         assertTrue(shouldAdvanceQuestion(option, ConversationAnswer("mode", listOf("fast"), ""), true))
         assertFalse(shouldAdvanceQuestion(option, ConversationAnswer("mode", listOf("fast"), ""), false))
+        assertEquals("advance", questionTapAction(option, ConversationAnswer("mode", listOf("fast"), ""), true))
+        assertEquals("submit", questionTapAction(option, ConversationAnswer("mode", listOf("fast"), ""), false))
         val text = option.copy(type = "text")
         assertFalse(shouldAdvanceQuestion(text, ConversationAnswer("mode", emptyList(), ""), true))
         assertTrue(shouldAdvanceQuestion(text, ConversationAnswer("mode", emptyList(), "yes"), true))
+        assertEquals("wait", questionTapAction(text, ConversationAnswer("mode", emptyList(), "yes"), true))
+        assertEquals("wait", questionTapAction(option.copy(type = "multi"), ConversationAnswer("mode", listOf("fast"), ""), false))
     }
 }

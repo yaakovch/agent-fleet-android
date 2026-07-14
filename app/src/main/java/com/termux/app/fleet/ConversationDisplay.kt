@@ -26,7 +26,9 @@ fun buildConversationRows(items: List<ConversationItem>, hasMore: Boolean): List
         tools.clear()
         toolStart = -1
     }
+    val hasTasks = items.any { it.kind == "task_list" }
     items.forEachIndexed { index, value ->
+        if (hasTasks && value.kind == "status" && value.title in setOf("Working", "Done")) return@forEachIndexed
         if (value.kind == "tool") {
             if (tools.isEmpty()) toolStart = index
             tools += value
