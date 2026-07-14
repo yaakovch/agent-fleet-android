@@ -368,12 +368,14 @@ public final class TermuxActivity extends ComponentActivity implements ServiceCo
     }
 
     public void setAgentFleetNativeView(boolean nativeAvailable, boolean nativeView, boolean automaticTerminal, boolean aiComposer) {
+        boolean terminalWasHidden = mTerminalView != null && mTerminalView.getAlpha() == 0f;
         if (mTerminalView != null) {
             mTerminalView.setAlpha(nativeView ? 0f : 1f);
             mTerminalView.setEnabled(!nativeView);
             mTerminalView.setImportantForAccessibility(nativeView
                 ? View.IMPORTANT_FOR_ACCESSIBILITY_NO_HIDE_DESCENDANTS
                 : View.IMPORTANT_FOR_ACCESSIBILITY_AUTO);
+            if (terminalWasHidden && !nativeView) mTerminalView.onScreenUpdated();
         }
 
         View composer = findViewById(R.id.agent_fleet_composer);
@@ -1005,6 +1007,10 @@ public final class TermuxActivity extends ComponentActivity implements ServiceCo
 
     public TermuxTerminalSessionClient getTermuxTerminalSessionClient() {
         return mTermuxTerminalSessionClient;
+    }
+
+    public boolean isAgentFleetNativeViewVisible() {
+        return mAgentFleetNativeSession != null && mAgentFleetNativeSession.isNativeViewVisible();
     }
 
     @Nullable

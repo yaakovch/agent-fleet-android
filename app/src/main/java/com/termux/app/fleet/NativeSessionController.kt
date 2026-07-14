@@ -101,14 +101,13 @@ class NativeSessionController(
         if (enabled && localSession) refreshDirectories()
         if (visible && enabled) {
             observeFleet()
-            if (!localSession) startStream()
         }
     }
 
     fun onStart() {
         visible = true
         if (enabled) observeFleet()
-        if (enabled && !localSession && streamProcess == null) startStream()
+        if (shouldRunStream() && streamProcess == null) startStream()
     }
 
     fun onStop() {
@@ -208,6 +207,7 @@ class NativeSessionController(
     }
 
     private fun applyViewMode(mode: NativeViewMode) {
+        val previousMode = uiState.value.viewMode
         uiState.value = uiState.value.copy(viewMode = mode)
         val native = enabled && mode == NativeViewMode.Native
         val hasPendingAction = uiState.value.items.any {
@@ -220,9 +220,23 @@ class NativeSessionController(
             mode == NativeViewMode.AutomaticTerminal,
             aiComposer && !hasPendingAction
         )
+        if (enabled && !localSession) {
+            if (mode == NativeViewMode.Native) {
+                if (shouldRunStream()) startStream()
+            } else if (previousMode == NativeViewMode.Native) {
+                generation++
+                stopProcess()
+            }
+        }
     }
 
     fun isManagedSession(): Boolean = enabled
+
+    fun isNativeViewVisible(): Boolean = enabled && uiState.value.viewMode == NativeViewMode.Native
+
+    private fun shouldRunStream(): Boolean = shouldRunConversationStream(
+        visible, enabled, localSession, uiState.value.viewMode
+    )
 
     private fun observeFleet() {
         FleetSnapshotStore.observe(activity.applicationContext, this) { state ->
@@ -353,12 +367,16 @@ class NativeSessionController(
     }
 
     private fun startStream() {
-        if (!visible || !enabled || streamProcess != null) return
+        if (!shouldRunStream() || streamProcess != null) return
         val token = generation
         uiState.value = uiState.value.copy(connection = if (retryIndex == 0) "Connecting…" else "Reconnecting…", error = null)
         thread(name = "native-session-stream", isDaemon = true) {
             try {
                 val process = environment(ProcessBuilder(conversationCommand("stream", listOf("--limit", HISTORY_PAGE_SIZE.toString())))).start()
+                if (token != generation || !shouldRunStream()) {
+                    process.destroyForcibly()
+                    return@thread
+                }
                 streamProcess = process
                 thread(name = "native-session-stderr", isDaemon = true) {
                     drainErrorStream(process)
@@ -407,17 +425,17 @@ class NativeSessionController(
 
     private fun streamEnded(token: Int) {
         streamProcess = null
-        if (!visible || token != generation) return
+        if (!shouldRunStream() || token != generation) return
         if (uiState.value.error == null) uiState.value = uiState.value.copy(connection = "Disconnected")
         scheduleRetry(token)
     }
 
     private fun scheduleRetry(token: Int) {
-        if (!visible || !enabled || retryBlocked || token != generation) return
+        if (!shouldRunStream() || retryBlocked || token != generation) return
         val delays = longArrayOf(1_000, 2_000, 5_000, 10_000, 30_000)
         val delay = delays[retryIndex.coerceAtMost(delays.lastIndex)]
         retryIndex = (retryIndex + 1).coerceAtMost(delays.lastIndex)
-        main.postDelayed({ if (visible && enabled && token == generation && streamProcess == null) startStream() }, delay)
+        main.postDelayed({ if (shouldRunStream() && token == generation && streamProcess == null) startStream() }, delay)
     }
 
     private fun restartNow() {
@@ -432,7 +450,7 @@ class NativeSessionController(
             historyLimitReached = false,
             connection = "Connecting…"
         )
-        if (visible) startStream()
+        if (shouldRunStream()) startStream()
     }
 
     private fun stopProcess() {
@@ -486,10 +504,15 @@ class NativeSessionController(
             is ConversationFrame.Status -> {
                 if (frame.session != uiState.value.internalSession) return
                 if (frame.status == "reload_required") restartNow()
-                else uiState.value = uiState.value.copy(
-                    connection = if (frame.status == "ready") "Live" else frame.status.replace('_', ' '),
-                    interactionMode = frame.interactionMode.takeUnless { it == "unknown" } ?: uiState.value.interactionMode
-                )
+                else {
+                    val update = conversationStatusUpdate(
+                        uiState.value.connection,
+                        uiState.value.interactionMode,
+                        frame.status,
+                        frame.interactionMode
+                    ) ?: return
+                    uiState.value = uiState.value.copy(connection = update.first, interactionMode = update.second)
+                }
                 updateComposerState()
             }
             is ConversationFrame.Error -> {

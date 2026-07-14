@@ -114,7 +114,8 @@ public class TermuxTerminalSessionClient extends TermuxTerminalSessionClientBase
         if (!mActivity.isVisible()) return;
 
         if (mActivity.getCurrentSession() == changedSession) {
-            mActivity.getTerminalView().onScreenUpdated();
+            if (!mActivity.isAgentFleetNativeViewVisible())
+                mActivity.getTerminalView().onScreenUpdated();
             mActivity.onAgentFleetTerminalScreenChanged(changedSession);
             mActivity.onAgentFleetTerminalTextChanged(changedSession);
         }

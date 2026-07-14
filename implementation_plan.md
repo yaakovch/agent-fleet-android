@@ -179,3 +179,14 @@ APK baseline; release artifacts are reproducible and fully traceable.
 - Build signed `0.118.4-agentfleet.21` (`1023`) with the compatible embedded
   runtime, install replace-in-place on the S23FE, and repeat the Windows
   acceptance matrix without uninstalling or resetting Termux data.
+
+## Milestone 12: Native Lifecycle Efficiency
+
+- Gate remote conversation streaming on foreground Native visibility and stop
+  it immediately for manual or automatic Terminal mode.
+- Treat unchanged heartbeat/status frames as no-ops and suppress invisible
+  TerminalView invalidation while preserving emulator output, local shell
+  extraction, and alternate-screen takeover.
+- Cover the visibility and heartbeat decisions with JVM tests, run the complete
+  debug unit suite, and ship signed `0.118.4-agentfleet.22` (`1024`) as an
+  in-place S23FE update without changing the wtmux protocol or runtime bundle.

@@ -236,6 +236,18 @@ trusted fleet.
 - All code-like blocks expose explicit Copy actions. Clipboard content is
   written only on user request and never retained in app logs or diagnostics.
 
+## Native View Lifecycle Efficiency
+
+- A remote conversation stream runs only while its managed activity and Native
+  view are visible. Manual or automatic Terminal mode stops the stream; return
+  to Native starts a fresh newest-page stream without persisting content.
+- Unchanged conversation heartbeats do not replace Compose state or update the
+  composer. Terminal emulation remains authoritative while Native is visible,
+  but the invisible TerminalView is invalidated only when it becomes visible.
+- Local shell cards continue receiving bounded emulator text while Native is
+  visible, and alternate-screen detection continues to switch safely to the
+  terminal without waiting for a conversation stream.
+
 ### Built-In Runtime Contracts
 
 - `embedded-runtime-v1` binds the APK baseline version and wtmux commit to the

@@ -140,6 +140,23 @@ class ConversationStreamParserTest {
     }
 
     @Test
+    fun nativeStreamRunsOnlyForTheVisibleNativeView() {
+        assertTrue(shouldRunConversationStream(true, true, false, NativeViewMode.Native))
+        assertFalse(shouldRunConversationStream(false, true, false, NativeViewMode.Native))
+        assertFalse(shouldRunConversationStream(true, true, false, NativeViewMode.ManualTerminal))
+        assertFalse(shouldRunConversationStream(true, true, false, NativeViewMode.AutomaticTerminal))
+        assertFalse(shouldRunConversationStream(true, true, true, NativeViewMode.Native))
+    }
+
+    @Test
+    fun unchangedHeartbeatsDoNotCreateUiUpdates() {
+        assertEquals(null, conversationStatusUpdate("Live", "plan", "ready", "unknown"))
+        assertEquals(null, conversationStatusUpdate("Live", "plan", "ready", "plan"))
+        assertEquals("Live" to "default", conversationStatusUpdate("Live", "plan", "ready", "default"))
+        assertEquals("reconnecting" to "plan", conversationStatusUpdate("Live", "plan", "reconnecting", "unknown"))
+    }
+
+    @Test
     fun conversationPagingTriggersNearHistoryStartButNotWhileBusyOrFailed() {
         assertTrue(nearConversationBottom(2))
         assertFalse(nearConversationBottom(3))

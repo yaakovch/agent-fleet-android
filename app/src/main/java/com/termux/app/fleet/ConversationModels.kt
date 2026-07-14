@@ -76,6 +76,25 @@ data class NativeDirectorySnapshot(
 
 enum class NativeViewMode { Native, AutomaticTerminal, ManualTerminal }
 
+internal fun shouldRunConversationStream(
+    visible: Boolean,
+    enabled: Boolean,
+    localSession: Boolean,
+    viewMode: NativeViewMode
+): Boolean = visible && enabled && !localSession && viewMode == NativeViewMode.Native
+
+internal fun conversationStatusUpdate(
+    currentConnection: String,
+    currentInteractionMode: String,
+    status: String,
+    interactionMode: String
+): Pair<String, String>? {
+    val nextConnection = if (status == "ready") "Live" else status.replace('_', ' ')
+    val nextInteractionMode = interactionMode.takeUnless { it == "unknown" } ?: currentInteractionMode
+    return if (nextConnection == currentConnection && nextInteractionMode == currentInteractionMode) null
+    else nextConnection to nextInteractionMode
+}
+
 internal fun terminalScreenViewMode(sourceMode: String, alternateScreen: Boolean, current: NativeViewMode): NativeViewMode = when {
     alternateScreen && sourceMode == "shell" && current == NativeViewMode.Native -> NativeViewMode.AutomaticTerminal
     !alternateScreen && current == NativeViewMode.AutomaticTerminal -> NativeViewMode.Native
