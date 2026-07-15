@@ -53,6 +53,19 @@ internal class ReusableRepositoryBridge<T : Any>(
     }
 }
 
+internal fun conciseFleetError(value: String, fallback: String = "Fleet refresh failed."): String {
+    val lines = value.lineSequence()
+        .map { line -> line.filterNot(Char::isISOControl).trim() }
+        .filter { it.isNotBlank() }
+        .toList()
+    if (lines.isEmpty()) return fallback
+    val preferred = lines.lastOrNull { line ->
+        line.startsWith("wtmux file:", ignoreCase = true) ||
+            line.substringBefore(':').let { label -> label.endsWith("Error") || label.endsWith("Exception") }
+    } ?: lines.last()
+    return preferred.take(180)
+}
+
 class FleetRuntime(private val context: Context) {
     private data class RepositoryBridge(
         val process: Process,
@@ -684,12 +697,7 @@ class FleetRuntime(private val context: Context) {
     private fun shellDisplayQuote(value: String): String = if (value.matches(Regex("[A-Za-z0-9._:/-]+"))) value else
         "'${value.replace("'", "'\\''")}'"
 
-    private fun safeError(value: String): String = value
-        .lineSequence()
-        .firstOrNull { it.isNotBlank() }
-        ?.take(180)
-        ?.filterNot { it.isISOControl() }
-        ?: "Fleet refresh failed."
+    private fun safeError(value: String): String = conciseFleetError(value)
 
     companion object {
         private const val MAX_OUTPUT_BYTES = 256 * 1024

@@ -247,3 +247,13 @@ readable and interactive with no blank frames or unexpected terminal input.
 - Embed the matched wtmux runtime, pass lifecycle/UI/JVM/release checks, and ship
   signed `0.118.4-agentfleet.30` (`1032`) after Windows beta.8 while preserving
   `.29` and phone data for rollback.
+
+## Milestone 17: Repository Download Finalization Hotfix
+
+- Embed the shared receiver that finalizes verified downloads without hard
+  links so Android emulated Downloads works after repository browsing succeeds.
+- Collapse multiline command failures to their final actionable exception
+  instead of showing the first `Traceback` line; cover traceback, warning, and
+  fallback formatting in JVM tests.
+- Build and publish signed `0.118.4-agentfleet.31` (`1033`) for a manual in-app
+  update and manual file-download smoke, without controlling the phone over ADB.
