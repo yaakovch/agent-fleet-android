@@ -257,3 +257,29 @@ readable and interactive with no blank frames or unexpected terminal input.
   fallback formatting in JVM tests.
 - Build and publish signed `0.118.4-agentfleet.31` (`1033`) for a manual in-app
   update and manual file-download smoke, without controlling the phone over ADB.
+
+## Milestone 18: Emulator-First Android Debugging
+
+- Add production metadata-only diagnostics with bounded local and read-only
+  host checks, a rotating app-private journal, preview/copy/export UI, a strict
+  `agent-fleet-diagnostics-v1` archive, and seeded-secret privacy tests.
+- Add AndroidJUnitRunner and stable Compose semantics plus fixture-driven
+  scenarios for Sessions/More, repository workflows, native paging and
+  structured work, active/stale limits, and one- and three-question Plan
+  prompts with exactly-once delivery.
+- Add the canonical Pixel 7/API 36 managed device and an isolated local runner
+  with fast, full, and explicit update-goldens modes. Refuse physical serials,
+  assert the emulator ABI/API/qemu properties, retain full artifacts, and keep
+  routine output concise.
+- Add exact 393×852 dark screenshot comparison with per-channel threshold 8,
+  0.5% maximum changed pixels, actual/reference/diff output, and human-reviewed
+  reference updates only. Add an opt-in CI managed-device workflow.
+- Run JVM, Compose instrumentation, screenshot, debug/release build, embedded
+  runtime, and privacy verification. Do not access or update the S23FE; leave a
+  short manual phone smoke for a later signed release decision. Publish signed
+  `0.118.4-agentfleet.32` (`1034`) to the private update channel without
+  installing it on the phone.
+
+Gate: JVM and isolated emulator suites pass, reference screenshots are reviewed,
+no seeded secret or private path reaches an export, and the runner cannot select
+the connected S23FE.

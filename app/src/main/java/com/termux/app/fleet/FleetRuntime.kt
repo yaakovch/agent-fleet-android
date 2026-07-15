@@ -427,6 +427,34 @@ class FleetRuntime(private val context: Context) {
             .put("idempotencyKey", UUID.randomUUID().toString())
     )
 
+    fun doctorHost(snapshot: FleetSnapshot, hostId: String): FleetDoctorResult {
+        require(snapshot.hosts.any { it.id == hostId }) { "Host is not part of this fleet snapshot." }
+        val doctor = request(
+            "host.doctor",
+            JSONObject()
+                .put("hostId", hostId)
+                .put("expectedRevision", snapshot.revision)
+                .put("idempotencyKey", UUID.randomUUID().toString())
+        ).optJSONObject("doctor") ?: throw FleetUnavailableException("Host doctor response is missing.")
+        val status = doctor.getString("status").also { require(it in setOf("healthy", "attention", "failure")) }
+        val checks = doctor.getJSONArray("checks").also { require(it.length() <= 32) }
+        return FleetDoctorResult(
+            hostId = doctor.getString("hostId").also { require(it == hostId) },
+            checkedAt = doctor.getString("checkedAt").also { require(it.length <= 40 && it.none(Char::isISOControl)) },
+            status = status,
+            checks = List(checks.length()) { index ->
+                checks.getJSONObject(index).let { check ->
+                    FleetDoctorCheck(
+                        id = check.getString("id").safeDiagnosticField(64),
+                        status = check.getString("status").also { require(it in setOf("healthy", "attention", "failure")) },
+                        summary = check.getString("summary").safeDiagnosticField(256),
+                        detail = check.getString("detail").safeDiagnosticField(512, allowEmpty = true)
+                    )
+                }
+            }
+        )
+    }
+
     fun scheduleContinue(
         snapshot: FleetSnapshot,
         session: FleetSession,
@@ -698,6 +726,10 @@ class FleetRuntime(private val context: Context) {
         "'${value.replace("'", "'\\''")}'"
 
     private fun safeError(value: String): String = conciseFleetError(value)
+
+    private fun String.safeDiagnosticField(maximum: Int, allowEmpty: Boolean = false): String = also {
+        require(length <= maximum && (allowEmpty || isNotBlank()) && none(Char::isISOControl))
+    }
 
     companion object {
         private const val MAX_OUTPUT_BYTES = 256 * 1024

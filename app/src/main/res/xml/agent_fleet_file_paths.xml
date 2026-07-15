@@ -2,5 +2,6 @@
 <paths xmlns:android="http://schemas.android.com/apk/res/android">
     <cache-path name="agent_fleet_camera" path="agent-fleet-camera/" />
     <cache-path name="agent_fleet_updates" path="agent-fleet-updates/" />
+    <cache-path name="agent_fleet_diagnostics" path="agent-fleet-diagnostics/" />
     <external-path name="agent_fleet_downloads" path="Download/" />
 </paths>

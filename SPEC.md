@@ -308,3 +308,38 @@ trusted fleet.
 - The app never infers recovery from terminal pixels or rendered conversation
   rows. The embedded wtmux runtime remains authoritative for verified later
   Codex/Claude activity and linked schedule cancellation.
+
+## Emulator-First Debugging And Private Diagnostics
+
+- Android development uses three layers: fast JVM tests, fixture-driven Compose
+  instrumentation on an Android 16 x86_64 Pixel 7 emulator, and a final manual
+  S23FE smoke only. Automated tooling must reject physical serials and prove
+  `ro.kernel.qemu=1` before any install, uninstall, or device mutation.
+- The local canonical AVD is `AgentFleet_S23FE_API36` at 1080×2400 and 420 dpi.
+  Gradle exposes an equivalent managed Pixel 7/API 36 Google APIs device. The
+  runner offers fast, full, and explicit update-goldens modes and keeps quiet
+  summaries plus complete logs, instrumentation results, screenshots, and
+  diffs as build artifacts.
+- Stable Compose semantics cover navigation, Sessions/More, repository
+  loading/error/retry/progress/cancel, Native paging, grouped tools/details,
+  tasks/plans, active/stale limits, and one- or three-question Plan prompts.
+  Choice taps advance single/boolean questions and only the final choice
+  submits; tests prove exactly-once delivery and long-card scrolling.
+- Key dark references are exactly 393×852. A pixel differs when any RGB channel
+  differs by more than eight; more than 0.5% changed pixels fails. Reference
+  updates are explicit artifacts and require human review.
+- More → Diagnostics offers Run checks, Preview, Copy summary, and Export. Local
+  checks have a five-second budget, remote read-only host checks have a
+  twenty-second budget, and a run reports attention beyond forty-five seconds.
+  Checks cover app/ABI, required tools, runtime health, Downloads create/fsync/
+  collision/replace/cleanup, pairing/update readiness, fleet snapshot/host
+  doctor, and local shell/process startup.
+- The app-private diagnostic journal retains at most 200 events, 256 KiB, and
+  seven days. Events contain operation, time, duration, status, safe code and
+  message, and optional host/session IDs; they never contain payload bodies.
+  Errors are assigned a safe event ID and may lead to Details, Copy, or Open
+  Diagnostics without logging conversation content.
+- Export previews before sharing and creates only `diagnostics.json` and
+  `events.ndjson` under schema `agent-fleet-diagnostics-v1`. Redaction and tests
+  exclude prompts, responses, transcripts, terminal output, credentials,
+  tokens, invitations, attachments, and repository paths.

@@ -169,7 +169,7 @@ fun NativeSessionScreen(
             if (pendingAction != null) {
                 Surface(color = MaterialTheme.colorScheme.surface, tonalElevation = 5.dp) {
                     Row(
-                        Modifier.fillMaxWidth().clickable { actionSheetId = pendingAction.id }.padding(horizontal = 16.dp, vertical = 11.dp),
+                        Modifier.fillMaxWidth().clickable { actionSheetId = pendingAction.id }.padding(horizontal = 16.dp, vertical = 11.dp).testTag("native-pending-action"),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Column(Modifier.weight(1f)) {
@@ -612,7 +612,7 @@ private fun TaskListCard(value: ConversationItem) {
     val complete = value.tasks.isNotEmpty() && value.tasks.all { it.state == "completed" }
     if (complete && !expanded) {
         Card(
-            modifier = Modifier.fillMaxWidth().clickable { expanded = true },
+            modifier = Modifier.fillMaxWidth().clickable { expanded = true }.testTag("task-list-${value.id}"),
             shape = RoundedCornerShape(16.dp),
             colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
         ) {
@@ -630,7 +630,7 @@ private fun TaskListCard(value: ConversationItem) {
         val start = (active - 2).coerceIn(0, value.tasks.size - 6)
         value.tasks.subList(start, start + 6)
     } else value.tasks
-    Card(shape = RoundedCornerShape(16.dp), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)) {
+    Card(modifier = Modifier.testTag("task-list-${value.id}"), shape = RoundedCornerShape(16.dp), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)) {
         Column(Modifier.fillMaxWidth().padding(15.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Text(if (complete) "Completed tasks" else "Current work", fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, fontWeight = FontWeight.Bold)
             if (value.text.isNotBlank()) Text(value.text, fontSize = 14.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 3, overflow = TextOverflow.Ellipsis)
@@ -741,6 +741,7 @@ private fun ToolGroupCard(
     val errors = group.calls.count { it.state == "error" }
     val running = group.calls.count { it.state == "running" || it.state == "pending" }
     Card(
+        modifier = Modifier.testTag("tool-group-${group.calls.first().id}"),
         shape = RoundedCornerShape(16.dp),
         colors = CardDefaults.cardColors(
             containerColor = if (state == "error") MaterialTheme.colorScheme.errorContainer else MaterialTheme.colorScheme.surface
@@ -806,7 +807,7 @@ private fun ToolCallRow(value: ConversationItem, number: Int?, onOpenTool: (Conv
                 )
                 Text(metadata, fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
             }
-            TextButton(onClick = { onOpenTool(value, null) }, contentPadding = PaddingValues(horizontal = 7.dp, vertical = 2.dp)) {
+            TextButton(onClick = { onOpenTool(value, null) }, modifier = Modifier.testTag("tool-details-${value.id}"), contentPadding = PaddingValues(horizontal = 7.dp, vertical = 2.dp)) {
                 Text("Details", fontSize = 13.sp)
             }
         }
@@ -974,7 +975,7 @@ private fun QuestionCard(
         return
     }
 
-    Card(modifier = Modifier.fillMaxSize(), shape = RoundedCornerShape(18.dp), colors = CardDefaults.cardColors(containerColor = Color(0xFFFFF3D4))) {
+    Card(modifier = Modifier.fillMaxSize().testTag("question-${value.id}"), shape = RoundedCornerShape(18.dp), colors = CardDefaults.cardColors(containerColor = Color(0xFFFFF3D4))) {
         Column(Modifier.fillMaxSize().padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             Text(value.title.ifBlank { "Answer needed" }, color = Color(0xFF352A00), fontSize = 18.sp, fontWeight = FontWeight.Bold)
             when {
@@ -1032,7 +1033,7 @@ private fun QuestionForm(
             Modifier.fillMaxWidth().weight(1f).verticalScroll(rememberScrollState()).padding(end = 3.dp),
             verticalArrangement = Arrangement.spacedBy(9.dp)
         ) {
-            Text("${page + 1} of ${value.questions.size}", color = Color(0xFF6C5B00), fontSize = 13.sp, fontWeight = FontWeight.Bold)
+            Text("${page + 1} of ${value.questions.size}", modifier = Modifier.testTag("question-page"), color = Color(0xFF6C5B00), fontSize = 13.sp, fontWeight = FontWeight.Bold)
             if (question.header.isNotBlank()) Text(question.header, color = Color(0xFF352A00), fontSize = 14.sp, fontWeight = FontWeight.Bold)
             Text(question.prompt, color = Color(0xFF352A00), fontSize = 16.sp)
             options.forEach { option ->
@@ -1050,7 +1051,7 @@ private fun QuestionForm(
                     }
                 }
                 Surface(
-                    modifier = Modifier.fillMaxWidth().clickable(onClick = choose),
+                    modifier = Modifier.fillMaxWidth().clickable(onClick = choose).testTag("question-option-${question.id}-${option.id}"),
                     shape = RoundedCornerShape(12.dp),
                     color = if (selected) Color(0xFFFFE29A) else Color(0xFFFFF9EA)
                 ) {
@@ -1071,7 +1072,7 @@ private fun QuestionForm(
                             if (!selected) (current.choiceIds + "__other__").distinct() else current.choiceIds - "__other__"
                         } else if (!selected) listOf("__other__") else emptyList()
                         draft = updateQuestionDraft(draft, current.copy(choiceIds = choices, text = if (!selected) current.text else ""))
-                    },
+                    }.testTag("question-option-${question.id}-other"),
                     shape = RoundedCornerShape(12.dp),
                     color = if (selected) Color(0xFFFFE29A) else Color(0xFFFFF9EA)
                 ) {
@@ -1087,7 +1088,7 @@ private fun QuestionForm(
                     onValueChange = {
                         if (it.length <= 8 * 1024 && '\u0000' !in it) draft = updateQuestionDraft(draft, current.copy(text = it))
                     },
-                    modifier = Modifier.fillMaxWidth(),
+                    modifier = Modifier.fillMaxWidth().testTag("question-text-${question.id}"),
                     placeholder = { Text("Type your answer…") },
                     minLines = 2,
                     maxLines = 5,
@@ -1114,7 +1115,8 @@ private fun QuestionForm(
             if (needsAction) {
                 Button(
                     onClick = { advanceOrSend(draft, questionDraft(draft, question.id)) },
-                    enabled = validQuestionAnswer(question, latest)
+                    enabled = validQuestionAnswer(question, latest),
+                    modifier = Modifier.testTag("question-submit")
                 ) { Text(if (retry && page == value.questions.lastIndex) "Retry" else if (question.type == "multi") "Done" else "Send") }
             } else Text("Tap an answer", color = Color(0xFF6C5B00), fontSize = 13.sp)
         }

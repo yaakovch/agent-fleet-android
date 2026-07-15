@@ -129,6 +129,20 @@ data class FleetSnapshot(
     val limits: List<FleetLimit> = emptyList()
 )
 
+data class FleetDoctorCheck(
+    val id: String,
+    val status: String,
+    val summary: String,
+    val detail: String
+)
+
+data class FleetDoctorResult(
+    val hostId: String,
+    val checkedAt: String,
+    val status: String,
+    val checks: List<FleetDoctorCheck>
+)
+
 sealed interface FleetLoadState {
     object Loading : FleetLoadState
     data class Ready(val snapshot: FleetSnapshot) : FleetLoadState

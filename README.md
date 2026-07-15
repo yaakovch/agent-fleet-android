@@ -31,6 +31,7 @@ APK-baseline recovery targets.
 - [Security](SECURITY.md)
 - [Private release runbook](docs/PRIVATE_RELEASES.md)
 - [Migration and rollback runbook](docs/MIGRATION_AND_ROLLBACK.md)
+- [Emulator-first debugging](docs/ANDROID_DEBUGGING.md)
 
 The upstream Termux documentation is preserved below because its package,
 terminal, plugin-signing, and troubleshooting details remain applicable.

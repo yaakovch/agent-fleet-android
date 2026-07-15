@@ -39,8 +39,10 @@ android {
         applicationId "com.termux"
         minSdkVersion project.properties.minSdkVersion.toInteger()
         targetSdkVersion project.properties.targetSdkVersion.toInteger()
-        versionCode 1033
-        versionName "0.118.4-agentfleet.31"
+        versionCode 1034
+        versionName "0.118.4-agentfleet.32"
+        testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
+        testInstrumentationRunnerArguments clearPackageData: "true"
 
         if (appVersionName) versionName = appVersionName
         if (appVersionCode) versionCode = appVersionCode.toInteger()
@@ -123,6 +125,15 @@ android {
     testOptions {
         unitTests {
             includeAndroidResources = true
+        }
+        managedDevices {
+            devices {
+                agentFleetPixel7Api36(com.android.build.api.dsl.ManagedVirtualDevice) {
+                    device = "Pixel 7"
+                    apiLevel = 36
+                    systemImageSource = "google"
+                }
+            }
         }
     }
 
@@ -232,6 +243,11 @@ preBuild.dependsOn(prepareAgentFleetRuntimeAssets)
 dependencies {
     testImplementation "junit:junit:4.13.2"
     testImplementation "org.robolectric:robolectric:4.14.1"
+    androidTestImplementation "androidx.test.ext:junit:1.1.5"
+    androidTestImplementation "androidx.test:runner:1.5.2"
+    androidTestImplementation "androidx.test:rules:1.5.0"
+    androidTestImplementation "androidx.compose.ui:ui-test-junit4:1.5.4"
+    debugImplementation "androidx.compose.ui:ui-test-manifest:1.5.4"
 }
 
 task versionName {

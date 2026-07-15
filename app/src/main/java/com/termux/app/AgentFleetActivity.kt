@@ -102,6 +102,11 @@ import com.termux.app.fleet.RuntimeUpdateResult
 import com.termux.app.fleet.supportsEmbeddedRuntime
 import com.termux.app.fleet.shouldInstallEmbeddedBaseline
 import com.termux.app.fleet.UpdateUiState
+import com.termux.app.fleet.AgentFleetDiagnosticJournal
+import com.termux.app.fleet.AgentFleetDiagnosticReport
+import com.termux.app.fleet.AgentFleetDiagnosticEvent
+import com.termux.app.fleet.AgentFleetDiagnosticsRunner
+import com.termux.app.fleet.DiagnosticsUiState
 import java.io.File
 import java.util.concurrent.Executors
 import java.util.concurrent.ConcurrentHashMap
@@ -117,10 +122,13 @@ class AgentFleetActivity : ComponentActivity() {
     private val updateState = mutableStateOf<UpdateUiState>(UpdateUiState.Idle)
     private val updateManifestUrl = mutableStateOf("")
     private val runtimeUi = mutableStateOf(RuntimeUiState())
+    private val diagnosticsUi = mutableStateOf(DiagnosticsUiState())
+    private val diagnosticError = mutableStateOf<AgentFleetDiagnosticEvent?>(null)
     private val fleetExecutor = Executors.newSingleThreadExecutor()
     private val updateExecutor = Executors.newSingleThreadExecutor()
     private val runtimeExecutor = Executors.newSingleThreadExecutor()
     private val fileExecutor = Executors.newFixedThreadPool(2)
+    private val diagnosticsExecutor = Executors.newSingleThreadExecutor()
     private val fileDownloads = ConcurrentHashMap.newKeySet<FleetDownloadCancellation>()
     private lateinit var fleetRuntime: FleetRuntime
     private lateinit var recentSessionStore: RecentSessionStore
@@ -128,6 +136,8 @@ class AgentFleetActivity : ComponentActivity() {
     private lateinit var embeddedRuntime: EmbeddedRuntimeManager
     private lateinit var runtimeUpdateManager: RuntimeUpdateManager
     private lateinit var clientPolicyStore: ClientPolicyStore
+    private lateinit var diagnosticJournal: AgentFleetDiagnosticJournal
+    private lateinit var diagnosticsRunner: AgentFleetDiagnosticsRunner
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -137,6 +147,10 @@ class AgentFleetActivity : ComponentActivity() {
         embeddedRuntime = EmbeddedRuntimeManager(applicationContext)
         runtimeUpdateManager = RuntimeUpdateManager(applicationContext, embeddedRuntime)
         clientPolicyStore = ClientPolicyStore(applicationContext)
+        diagnosticJournal = AgentFleetDiagnosticJournal(applicationContext)
+        diagnosticsRunner = AgentFleetDiagnosticsRunner(
+            applicationContext, embeddedRuntime, clientPolicyStore, fleetRuntime, diagnosticJournal
+        )
         refreshUpdatePolicy()
         recentSessions.value = recentSessionStore.load()
         val cleanTerminal = !File(filesDir, "usr/bin/bash").canExecute()
@@ -160,6 +174,8 @@ class AgentFleetActivity : ComponentActivity() {
                     updateState = updateState.value,
                     updateManifestUrl = updateManifestUrl.value,
                     runtimeUi = runtimeUi.value,
+                    diagnosticsUi = diagnosticsUi.value,
+                    diagnosticError = diagnosticError.value,
                     onSharedImagesHandled = { pendingSharedImages.value = emptyList() },
                     onRefresh = ::refreshFleet,
                     onOpenSession = ::openFleetSession,
@@ -189,6 +205,11 @@ class AgentFleetActivity : ComponentActivity() {
                     onOpenAppearance = {
                         startActivity(Intent(this, TerminalAppearanceActivity::class.java))
                     },
+                    onRunDiagnostics = ::runDiagnostics,
+                    onCopyDiagnostics = ::copyDiagnostics,
+                    onExportDiagnostics = ::exportDiagnostics,
+                    onCopyDiagnosticError = ::copyDiagnosticError,
+                    onDiagnosticErrorHandled = { diagnosticError.value = null },
                     onOpenClassicTerminal = {
                         try {
                             fleetRuntime.openLocalShell()
@@ -234,6 +255,7 @@ class AgentFleetActivity : ComponentActivity() {
         updateExecutor.shutdownNow()
         runtimeExecutor.shutdownNow()
         fileExecutor.shutdownNow()
+        diagnosticsExecutor.shutdownNow()
         if (::fleetRuntime.isInitialized) fleetRuntime.shutdown()
         super.onDestroy()
     }
@@ -242,12 +264,82 @@ class AgentFleetActivity : ComponentActivity() {
         FleetSnapshotStore.refresh(showLoading = true)
     }
 
+    private fun runDiagnostics() {
+        if (diagnosticsUi.value.running) return
+        diagnosticsUi.value = diagnosticsUi.value.copy(running = true, error = "")
+        val snapshot = (fleetState.value as? FleetLoadState.Ready)?.snapshot
+        diagnosticsExecutor.execute {
+            val result = runCatching { diagnosticsRunner.run(snapshot) }
+            runOnUiThread {
+                diagnosticsUi.value = result.fold(
+                    onSuccess = { DiagnosticsUiState(report = it) },
+                    onFailure = {
+                        diagnosticJournal.record("diagnostics.run", "failure", code = "run_failed", message = it.message.orEmpty())
+                        DiagnosticsUiState(error = it.message ?: "Diagnostics could not finish")
+                    }
+                )
+            }
+        }
+    }
+
+    private fun copyDiagnostics(report: AgentFleetDiagnosticReport) {
+        val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+        clipboard.setPrimaryClip(ClipData.newPlainText("Agent Fleet diagnostics", report.preview()))
+        diagnosticJournal.record("diagnostics.copy", "healthy", message = "Metadata-only summary copied")
+        Toast.makeText(this, "Diagnostic summary copied", Toast.LENGTH_SHORT).show()
+    }
+
+    private fun copyDiagnosticError(event: AgentFleetDiagnosticEvent) {
+        val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+        clipboard.setPrimaryClip(ClipData.newPlainText("Agent Fleet error", "${event.id} · ${event.message}"))
+        Toast.makeText(this, "Error details copied", Toast.LENGTH_SHORT).show()
+    }
+
+    private fun reportDiagnosticError(
+        operation: String,
+        error: Throwable,
+        hostId: String? = null,
+        sessionId: String? = null,
+        show: Boolean = true
+    ): AgentFleetDiagnosticEvent {
+        val event = diagnosticJournal.record(
+            operation = operation,
+            status = "failure",
+            code = (error as? com.termux.app.fleet.FleetUnavailableException)?.code.orEmpty().ifBlank { "operation_failed" },
+            message = error.message ?: "Operation failed",
+            hostId = hostId,
+            sessionId = sessionId
+        )
+        if (show) diagnosticError.value = event
+        return event
+    }
+
+    private fun exportDiagnostics(report: AgentFleetDiagnosticReport) {
+        diagnosticsExecutor.execute {
+            val result = runCatching { diagnosticsRunner.export(report) }
+            runOnUiThread {
+                result.onSuccess { file ->
+                    val uri = FileProvider.getUriForFile(this, "$packageName.agentfleet.images", file)
+                    val send = Intent(Intent.ACTION_SEND)
+                        .setType("application/zip")
+                        .putExtra(Intent.EXTRA_STREAM, uri)
+                        .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                    startActivity(Intent.createChooser(send, "Share diagnostics"))
+                }.onFailure {
+                    diagnosticJournal.record("diagnostics.export", "failure", code = "export_failed", message = it.message.orEmpty())
+                    Toast.makeText(this, it.message ?: "Diagnostics export failed", Toast.LENGTH_LONG).show()
+                }
+            }
+        }
+    }
+
     private fun openFleetSession(session: FleetSession) {
         try {
             recentSessionStore.record(session)
             recentSessions.value = recentSessionStore.load()
             fleetRuntime.openSession(session)
         } catch (error: Exception) {
+            reportDiagnosticError("session.open", error, session.hostId, session.id)
             Toast.makeText(this, error.message, Toast.LENGTH_LONG).show()
         }
     }
@@ -258,6 +350,7 @@ class AgentFleetActivity : ComponentActivity() {
             recentSessions.value = recentSessionStore.load()
             fleetRuntime.openSession(session, images)
         } catch (error: Exception) {
+            reportDiagnosticError("session.open_with_images", error, session.hostId, session.id)
             Toast.makeText(this, error.message, Toast.LENGTH_LONG).show()
         }
     }
@@ -275,6 +368,7 @@ class AgentFleetActivity : ComponentActivity() {
             ?: return callback(Result.failure(IllegalStateException("Fleet is still loading.")))
         fleetExecutor.execute {
             val result = runCatching { fleetRuntime.listDirectory(snapshot, hostId, backend, path) }
+            result.exceptionOrNull()?.let { reportDiagnosticError("directory.list", it, hostId = hostId, show = false) }
             runOnUiThread { callback(result) }
         }
     }
@@ -284,6 +378,7 @@ class AgentFleetActivity : ComponentActivity() {
             ?: return callback(Result.failure(IllegalStateException("Fleet is still loading.")))
         fleetExecutor.execute {
             val result = runCatching { fleetRuntime.createDirectory(snapshot, hostId, backend, parentPath, name) }
+            result.exceptionOrNull()?.let { reportDiagnosticError("directory.create", it, hostId = hostId, show = false) }
             runOnUiThread { callback(result) }
         }
     }
@@ -299,6 +394,7 @@ class AgentFleetActivity : ComponentActivity() {
             ?: return callback(Result.failure(IllegalStateException("Fleet is still loading.")))
         fleetExecutor.execute {
             val result = runCatching { fleetRuntime.listRepository(snapshot, session, relativePath, includeHidden, cursor) }
+            result.exceptionOrNull()?.let { reportDiagnosticError("repository.list", it, session.hostId, session.id, show = false) }
             runOnUiThread { callback(result) }
         }
     }
@@ -313,6 +409,7 @@ class AgentFleetActivity : ComponentActivity() {
             ?: return callback(Result.failure(IllegalStateException("Fleet is still loading.")))
         fleetExecutor.execute {
             val result = runCatching { fleetRuntime.searchRepository(snapshot, session, query, includeHidden) }
+            result.exceptionOrNull()?.let { reportDiagnosticError("repository.search", it, session.hostId, session.id, show = false) }
             runOnUiThread { callback(result) }
         }
     }
@@ -330,6 +427,7 @@ class AgentFleetActivity : ComponentActivity() {
                     runOnUiThread { callback(progress) }
                 }
             }
+            result.exceptionOrNull()?.let { reportDiagnosticError("repository.download", it, session.hostId, session.id, show = false) }
             runOnUiThread {
                 callback(result.getOrElse { error ->
                     FleetDownloadState(
@@ -353,6 +451,7 @@ class AgentFleetActivity : ComponentActivity() {
             val mime = MimeTypeMap.getSingleton().getMimeTypeFromExtension(extension) ?: "application/octet-stream"
             startActivity(Intent(Intent.ACTION_VIEW).setDataAndType(uri, mime).addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION))
         } catch (error: Exception) {
+            reportDiagnosticError("repository.open_download", error)
             Toast.makeText(this, error.message ?: "No app can open this file", Toast.LENGTH_LONG).show()
         }
     }
@@ -388,6 +487,7 @@ class AgentFleetActivity : ComponentActivity() {
         try {
             fleetRuntime.openPairing(invitation.trim())
         } catch (error: Exception) {
+            reportDiagnosticError("pairing.open", error)
             Toast.makeText(this, error.message ?: "Pairing could not start", Toast.LENGTH_LONG).show()
         }
     }
@@ -432,7 +532,10 @@ class AgentFleetActivity : ComponentActivity() {
                         if (update == null) UpdateUiState.Current(updateManager.installedVersionName())
                         else UpdateUiState.Available(update)
                     },
-                    onFailure = { UpdateUiState.Error(it.message ?: "Update check failed") }
+                    onFailure = {
+                        reportDiagnosticError("app_update.check", it, show = false)
+                        UpdateUiState.Error(it.message ?: "Update check failed")
+                    }
                 )
             }
         }
@@ -458,6 +561,7 @@ class AgentFleetActivity : ComponentActivity() {
                     refreshFleet()
                     if (status.usable && runtimeUpdateManager.shouldCheck()) checkRuntimeUpdate(manual = false)
                 }.onFailure { error ->
+                    reportDiagnosticError("runtime.prepare", error, show = false)
                     runtimeUi.value = RuntimeUiState(
                         busy = false, blocking = blocking,
                         detail = if (blocking) "Terminal preparation stopped" else "Built-in runtime needs attention",
@@ -483,6 +587,7 @@ class AgentFleetActivity : ComponentActivity() {
                     runtimeUi.value = runtimeUi.value.copy(busy = false, updateDetail = detail)
                     prepareEmbeddedRuntime(autoRepair = false, blocking = false)
                 }.onFailure { error ->
+                    reportDiagnosticError("runtime.update", error, show = false)
                     runtimeUi.value = runtimeUi.value.copy(
                         busy = false, updateDetail = "Runtime update failed",
                         error = error.message ?: "Runtime update failed"
@@ -560,6 +665,7 @@ class AgentFleetActivity : ComponentActivity() {
                     FleetSnapshotStore.publish(it)
                     Toast.makeText(this, successMessage, Toast.LENGTH_SHORT).show()
                 }.onFailure {
+                    reportDiagnosticError("fleet.mutate", it)
                     Toast.makeText(this, it.message ?: "Fleet action failed", Toast.LENGTH_LONG).show()
                     refreshFleet()
                 }
@@ -620,6 +726,8 @@ fun AgentFleetApp(
     updateState: UpdateUiState,
     updateManifestUrl: String,
     runtimeUi: RuntimeUiState,
+    diagnosticsUi: DiagnosticsUiState,
+    diagnosticError: AgentFleetDiagnosticEvent?,
     onSharedImagesHandled: () -> Unit,
     onRefresh: () -> Unit,
     onOpenSession: (FleetSession) -> Unit,
@@ -647,6 +755,11 @@ fun AgentFleetApp(
     onRollbackRuntime: () -> Unit,
     onRestoreBaseline: () -> Unit,
     onOpenAppearance: () -> Unit,
+    onRunDiagnostics: () -> Unit,
+    onCopyDiagnostics: (AgentFleetDiagnosticReport) -> Unit,
+    onExportDiagnostics: (AgentFleetDiagnosticReport) -> Unit,
+    onCopyDiagnosticError: (AgentFleetDiagnosticEvent) -> Unit,
+    onDiagnosticErrorHandled: () -> Unit,
     onOpenClassicTerminal: () -> Unit
 ) {
     if (runtimeUi.blocking) {
@@ -661,6 +774,7 @@ fun AgentFleetApp(
     var repositorySession by rememberSaveable { mutableStateOf<String?>(null) }
     var showCreateSession by rememberSaveable { mutableStateOf(false) }
     var showPairing by rememberSaveable { mutableStateOf(false) }
+    var showDiagnostics by rememberSaveable { mutableStateOf(false) }
     val currentSnapshot = (fleetState as? FleetLoadState.Ready)?.snapshot
     val sessionsById = currentSnapshot?.sessions?.associateBy { it.id }.orEmpty()
     LaunchedEffect(pendingPairInvitation) {
@@ -685,6 +799,7 @@ fun AgentFleetApp(
             NavigationBar(containerColor = MaterialTheme.colorScheme.surface) {
                 FleetSection.values().forEach { item ->
                     NavigationBarItem(
+                        modifier = Modifier.testTag("nav-${item.label.lowercase(Locale.US)}"),
                         selected = section == item,
                         onClick = { section = item },
                         icon = { Text(item.glyph, fontWeight = FontWeight.Bold, fontSize = 17.sp) },
@@ -712,7 +827,8 @@ fun AgentFleetApp(
                 onCheckRuntime,
                 onRollbackRuntime,
                 onRestoreBaseline,
-                onOpenAppearance
+                onOpenAppearance,
+                { showDiagnostics = true }
             )
         }
     }
@@ -778,6 +894,45 @@ fun AgentFleetApp(
             onPairInvitationHandled()
             onPairInvitation(invitation)
         }
+    }
+    if (showDiagnostics) {
+        DiagnosticsDialog(
+            state = diagnosticsUi,
+            onDismiss = { showDiagnostics = false },
+            onRun = onRunDiagnostics,
+            onCopy = onCopyDiagnostics,
+            onExport = onExportDiagnostics
+        )
+    }
+    diagnosticError?.let { event ->
+        var showErrorDetails by rememberSaveable(event.id) { mutableStateOf(false) }
+        AlertDialog(
+            onDismissRequest = onDiagnosticErrorHandled,
+            title = { Text("Something needs attention") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text("Event ${event.id}", fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    if (showErrorDetails) {
+                        Text(event.message.ifBlank { "The operation failed." })
+                        Text(
+                            "${event.operation} · ${event.code.ifBlank { "operation_failed" }}",
+                            fontSize = 13.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { onDiagnosticErrorHandled(); showDiagnostics = true }) { Text("Open Diagnostics") }
+            },
+            dismissButton = {
+                Row {
+                    TextButton(onClick = { showErrorDetails = !showErrorDetails }) { Text("Details") }
+                    TextButton(onClick = { onCopyDiagnosticError(event) }) { Text("Copy") }
+                    TextButton(onClick = onDiagnosticErrorHandled) { Text("Dismiss") }
+                }
+            }
+        )
     }
     if (pendingSharedImages.isNotEmpty() && currentSnapshot != null) {
         SharedImagesSessionDialog(
@@ -889,10 +1044,10 @@ private fun SessionCard(session: FleetSession, hostName: String, onOpen: () -> U
                 )
             }
             Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                Button(onClick = onOpen, modifier = Modifier.weight(1f), shape = RoundedCornerShape(14.dp)) {
+                Button(onClick = onOpen, modifier = Modifier.weight(1f).testTag("session-open-${session.id}"), shape = RoundedCornerShape(14.dp)) {
                     Text(if (session.attached) "Return" else "Enter", fontSize = 17.sp)
                 }
-                OutlinedButton(onClick = onMore, shape = RoundedCornerShape(14.dp)) { Text("More", fontSize = 16.sp) }
+                OutlinedButton(onClick = onMore, modifier = Modifier.testTag("session-more-${session.id}"), shape = RoundedCornerShape(14.dp)) { Text("More", fontSize = 16.sp) }
             }
         }
     }
@@ -1007,7 +1162,7 @@ private fun RepositoryBrowserDialog(
 
     Dialog(onDismissRequest = onDismiss) {
         Surface(
-            modifier = Modifier.fillMaxWidth().heightIn(max = 720.dp),
+            modifier = Modifier.fillMaxWidth().heightIn(max = 720.dp).testTag("repository-dialog"),
             shape = RoundedCornerShape(24.dp),
             tonalElevation = 8.dp
         ) {
@@ -1028,7 +1183,7 @@ private fun RepositoryBrowserDialog(
                 OutlinedTextField(
                     value = query,
                     onValueChange = { query = it },
-                    modifier = Modifier.fillMaxWidth(),
+                    modifier = Modifier.fillMaxWidth().testTag("repository-search-input"),
                     label = { Text("Search files") },
                     singleLine = true
                 )
@@ -1037,7 +1192,7 @@ private fun RepositoryBrowserDialog(
                         onClick = { load(page?.parentPath ?: "") },
                         enabled = page?.relativePath?.isNotBlank() == true && !loading
                     ) { Text("Up") }
-                    Button(onClick = { search(query) }, enabled = !loading) { Text("Search") }
+                    Button(onClick = { search(query) }, enabled = !loading, modifier = Modifier.testTag("repository-search")) { Text("Search") }
                     Spacer(Modifier.weight(1f))
                     if (loading) Text("Loading…", color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
@@ -1048,7 +1203,7 @@ private fun RepositoryBrowserDialog(
                     if (searching) TextButton(onClick = { load("") }, enabled = !loading) { Text("Clear search") }
                 }
                 if (error.isNotBlank()) {
-                    Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer)) {
+                    Card(modifier = Modifier.testTag("repository-error"), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer)) {
                         Row(
                             Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 8.dp),
                             verticalAlignment = Alignment.CenterVertically,
@@ -1061,7 +1216,7 @@ private fun RepositoryBrowserDialog(
                                 fontSize = 15.sp
                             )
                             retryAction?.let { retry ->
-                                TextButton(onClick = retry, enabled = !loading) { Text("Retry") }
+                                TextButton(onClick = retry, enabled = !loading, modifier = Modifier.testTag("repository-retry")) { Text("Retry") }
                             }
                         }
                     }
@@ -1081,7 +1236,7 @@ private fun RepositoryBrowserDialog(
                                 else if ((entry.size ?: 0) > 50L * 1024 * 1024) pending = entry
                                 else cancellation = onDownload(session, entry) { download = it }
                             },
-                            modifier = Modifier.fillMaxWidth(),
+                            modifier = Modifier.fillMaxWidth().testTag("repository-entry-${entry.relativePath}"),
                             enabled = download?.status != "running"
                         ) {
                             Text(if (entry.kind == "directory") "▰" else "▤", fontSize = 18.sp)
@@ -1120,7 +1275,7 @@ private fun RepositoryBrowserDialog(
                     }
                 }
                 download?.let { state ->
-                    Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)) {
+                    Card(modifier = Modifier.testTag("repository-download-state"), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)) {
                         Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                             Text(state.name, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
                             Text(state.message, color = if (state.status == "failed") MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant)
@@ -1585,7 +1740,8 @@ private fun MoreScreen(
     onCheckRuntime: () -> Unit,
     onRollbackRuntime: () -> Unit,
     onRestoreBaseline: () -> Unit,
-    onOpenAppearance: () -> Unit
+    onOpenAppearance: () -> Unit,
+    onOpenDiagnostics: () -> Unit
 ) {
     val context = androidx.compose.ui.platform.LocalContext.current
     var nativeSessionEnabled by rememberSaveable {
@@ -1724,11 +1880,119 @@ private fun MoreScreen(
         }
         item {
             val status = runtimeUi.status
-            FeatureCard(
-                "Diagnostics",
-                "Runtime ${status?.current.orEmpty().ifBlank { "unavailable" }} · baseline ${status?.baseline.orEmpty().ifBlank { "not installed" }} · policy ${if (updateManifestUrl.isBlank()) "not paired" else "paired"}"
-            )
+            Card(
+                modifier = Modifier.testTag("open-diagnostics"),
+                shape = RoundedCornerShape(18.dp),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
+            ) {
+                Row(Modifier.fillMaxWidth().padding(18.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Column(Modifier.weight(1f)) {
+                        Text("Diagnostics", fontSize = 18.sp, fontWeight = FontWeight.Bold)
+                        Text(
+                            "Runtime ${status?.current.orEmpty().ifBlank { "unavailable" }} · policy ${if (updateManifestUrl.isBlank()) "not paired" else "paired"}",
+                            fontSize = 16.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                    Button(onClick = onOpenDiagnostics, modifier = Modifier.testTag("open-diagnostics-button"), shape = RoundedCornerShape(14.dp)) { Text("Open") }
+                }
+            }
         }
+    }
+}
+
+@Composable
+private fun DiagnosticsDialog(
+    state: DiagnosticsUiState,
+    onDismiss: () -> Unit,
+    onRun: () -> Unit,
+    onCopy: (AgentFleetDiagnosticReport) -> Unit,
+    onExport: (AgentFleetDiagnosticReport) -> Unit
+) {
+    var previewExport by remember { mutableStateOf(false) }
+    Dialog(onDismissRequest = onDismiss) {
+        Surface(
+            modifier = Modifier.fillMaxWidth().heightIn(max = 720.dp).testTag("diagnostics-dialog"),
+            shape = RoundedCornerShape(24.dp),
+            color = MaterialTheme.colorScheme.surface
+        ) {
+            Column(
+                Modifier.fillMaxWidth().padding(22.dp),
+                verticalArrangement = Arrangement.spacedBy(14.dp)
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Column(Modifier.weight(1f)) {
+                        Text("Diagnostics", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
+                        Text("Private, bounded health checks", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                    TextButton(onClick = onDismiss) { Text("Close") }
+                }
+                Text(
+                    "Reports contain metadata only—never prompts, responses, transcripts, terminal output, credentials, invitations, attachments, or repository paths.",
+                    fontSize = 14.sp,
+                    lineHeight = 20.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                if (state.running) {
+                    LinearProgressIndicator(Modifier.fillMaxWidth().testTag("diagnostics-progress"))
+                    Text("Checking this phone and reachable hosts…")
+                }
+                if (state.error.isNotBlank()) {
+                    Text(state.error, color = MaterialTheme.colorScheme.error, modifier = Modifier.testTag("diagnostics-error"))
+                }
+                state.report?.let { report ->
+                    Column(
+                        Modifier.weight(1f, fill = false).verticalScroll(rememberScrollState()).testTag("diagnostics-report"),
+                        verticalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        Text(
+                            "${report.overall.name} · ${report.checks.count { it.status == com.termux.app.fleet.DiagnosticStatus.Healthy }}/${report.checks.size} healthy",
+                            fontSize = 18.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                        report.checks.forEach { check ->
+                            Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)) {
+                                Column(Modifier.fillMaxWidth().padding(13.dp), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                                    Text("${when (check.status) { com.termux.app.fleet.DiagnosticStatus.Healthy -> "✓"; com.termux.app.fleet.DiagnosticStatus.Attention -> "!"; com.termux.app.fleet.DiagnosticStatus.Failure -> "×" }}  ${check.title}", fontWeight = FontWeight.Bold)
+                                    Text(check.summary, fontSize = 14.sp)
+                                    if (check.detail.isNotBlank()) Text(check.detail, fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                }
+                            }
+                        }
+                    }
+                    Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Button(onClick = onRun, enabled = !state.running, modifier = Modifier.testTag("diagnostics-run")) { Text("Run again") }
+                        OutlinedButton(onClick = { onCopy(report) }, modifier = Modifier.testTag("diagnostics-copy")) { Text("Copy summary") }
+                        OutlinedButton(onClick = { previewExport = true }, modifier = Modifier.testTag("diagnostics-export")) { Text("Export") }
+                    }
+                } ?: Button(
+                    onClick = onRun,
+                    enabled = !state.running,
+                    modifier = Modifier.fillMaxWidth().testTag("diagnostics-run")
+                ) { Text(if (state.running) "Running checks…" else "Run checks") }
+            }
+        }
+    }
+    if (previewExport) {
+        val report = state.report
+        AlertDialog(
+            onDismissRequest = { previewExport = false },
+            title = { Text("Preview diagnostic report") },
+            text = {
+                Text(
+                    report?.preview().orEmpty(),
+                    modifier = Modifier.verticalScroll(rememberScrollState()).testTag("diagnostics-preview")
+                )
+            },
+            confirmButton = {
+                TextButton(
+                    enabled = report != null,
+                    onClick = { previewExport = false; report?.let(onExport) },
+                    modifier = Modifier.testTag("diagnostics-share")
+                ) { Text("Share ZIP") }
+            },
+            dismissButton = { TextButton(onClick = { previewExport = false }) { Text("Cancel") } }
+        )
     }
 }
 
@@ -1846,6 +2110,8 @@ private fun AgentFleetPreview() {
                 ),
                 detail = "Built-in terminal is ready"
             ),
+            diagnosticsUi = DiagnosticsUiState(),
+            diagnosticError = null,
             onSharedImagesHandled = {},
             onRefresh = {},
             onOpenSession = {},
@@ -1873,6 +2139,11 @@ private fun AgentFleetPreview() {
             onRollbackRuntime = {},
             onRestoreBaseline = {},
             onOpenAppearance = {},
+            onRunDiagnostics = {},
+            onCopyDiagnostics = {},
+            onExportDiagnostics = {},
+            onCopyDiagnosticError = {},
+            onDiagnosticErrorHandled = {},
             onOpenClassicTerminal = {}
         )
     }
