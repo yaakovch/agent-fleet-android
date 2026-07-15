@@ -25,4 +25,11 @@ class AgentFleetPrototypeTest {
         assertTrue(filterSessions(sessions, hosts, "Claude").all { it.tool == "claude" })
         assertEquals(1, filterSessions(sessions, hosts, "agent-fleet").size)
     }
+
+    @Test
+    fun repositoryErrorNeverAlsoShowsAnEmptyFolderMessage() {
+        assertTrue(shouldShowRepositoryEmpty(loading = false, error = "", entryCount = 0))
+        assertTrue(!shouldShowRepositoryEmpty(loading = false, error = "Host is offline", entryCount = 0))
+        assertTrue(!shouldShowRepositoryEmpty(loading = true, error = "", entryCount = 0))
+    }
 }

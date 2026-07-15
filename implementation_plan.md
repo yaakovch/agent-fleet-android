@@ -237,3 +237,13 @@ readable and interactive with no blank frames or unexpected terminal input.
   signed `0.118.4-agentfleet.29` (`1031`) after Windows beta.7 and before host
   activation. Preserve `.28`, its APK runtime baseline, and current phone data
   as rollback paths.
+
+## Milestone 16: Repository Browser Readiness Hotfix
+
+- Keep one correlated bridge only while the repository browser is in use,
+  reusing it for navigation/search and releasing it on dismissal or background.
+- Give the S23FE a full-width search layout, exclusive loading/error/empty
+  states, and Retry of the exact failed list or search operation.
+- Embed the matched wtmux runtime, pass lifecycle/UI/JVM/release checks, and ship
+  signed `0.118.4-agentfleet.30` (`1032`) after Windows beta.8 while preserving
+  `.29` and phone data for rollback.

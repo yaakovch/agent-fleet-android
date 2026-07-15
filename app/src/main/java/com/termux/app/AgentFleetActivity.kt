@@ -54,6 +54,7 @@ import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -169,6 +170,7 @@ class AgentFleetActivity : ComponentActivity() {
                     onListRepository = ::listFleetRepository,
                     onSearchRepository = ::searchFleetRepository,
                     onDownloadRepository = ::downloadFleetRepository,
+                    onCloseRepository = fleetRuntime::closeRepositoryBrowser,
                     onOpenDownload = ::openFleetDownload,
                     onRenameSession = ::renameFleetSession,
                     onScheduleContinue = ::scheduleContinue,
@@ -220,6 +222,7 @@ class AgentFleetActivity : ComponentActivity() {
     }
 
     override fun onStop() {
+        if (::fleetRuntime.isInitialized) fleetRuntime.closeRepositoryBrowser()
         FleetSnapshotStore.removeObserver(this)
         super.onStop()
     }
@@ -231,6 +234,7 @@ class AgentFleetActivity : ComponentActivity() {
         updateExecutor.shutdownNow()
         runtimeExecutor.shutdownNow()
         fileExecutor.shutdownNow()
+        if (::fleetRuntime.isInitialized) fleetRuntime.shutdown()
         super.onDestroy()
     }
 
@@ -626,6 +630,7 @@ fun AgentFleetApp(
     onListRepository: (FleetSession, String, Boolean, String, (Result<FleetRepositoryPage>) -> Unit) -> Unit,
     onSearchRepository: (FleetSession, String, Boolean, (Result<FleetRepositoryPage>) -> Unit) -> Unit,
     onDownloadRepository: (FleetSession, FleetRepositoryEntry, (FleetDownloadState) -> Unit) -> FleetDownloadCancellation,
+    onCloseRepository: () -> Unit,
     onOpenDownload: (FleetDownloadState) -> Unit,
     onRenameSession: (FleetSession, String) -> Unit,
     onScheduleContinue: (FleetSession, Long) -> Unit,
@@ -731,6 +736,7 @@ fun AgentFleetApp(
             onList = onListRepository,
             onSearch = onSearchRepository,
             onDownload = onDownloadRepository,
+            onCloseBridge = onCloseRepository,
             onOpen = onOpenDownload
         )
     }
@@ -937,6 +943,7 @@ private fun RepositoryBrowserDialog(
     onList: (FleetSession, String, Boolean, String, (Result<FleetRepositoryPage>) -> Unit) -> Unit,
     onSearch: (FleetSession, String, Boolean, (Result<FleetRepositoryPage>) -> Unit) -> Unit,
     onDownload: (FleetSession, FleetRepositoryEntry, (FleetDownloadState) -> Unit) -> FleetDownloadCancellation,
+    onCloseBridge: () -> Unit,
     onOpen: (FleetDownloadState) -> Unit
 ) {
     var page by remember(session.id) { mutableStateOf<FleetRepositoryPage?>(null) }
@@ -948,6 +955,11 @@ private fun RepositoryBrowserDialog(
     var pending by remember(session.id) { mutableStateOf<FleetRepositoryEntry?>(null) }
     var download by remember(session.id) { mutableStateOf<FleetDownloadState?>(null) }
     var cancellation by remember(session.id) { mutableStateOf<FleetDownloadCancellation?>(null) }
+    var retryAction by remember(session.id) { mutableStateOf<(() -> Unit)?>(null) }
+
+    DisposableEffect(session.id) {
+        onDispose { onCloseBridge() }
+    }
 
     fun load(path: String, cursor: String = "", append: Boolean = false) {
         if (loading && page != null) return
@@ -961,7 +973,33 @@ private fun RepositoryBrowserDialog(
                 } else next
                 searching = false
                 if (!append) query = ""
-            }.onFailure { error = it.message ?: "Repository could not be loaded" }
+                retryAction = null
+            }.onFailure {
+                error = it.message ?: "Repository could not be loaded"
+                retryAction = { load(path, cursor, append) }
+            }
+        }
+    }
+
+    fun search(value: String) {
+        val clean = value.trim()
+        if (clean.length < 2) {
+            error = "Search needs at least two characters"
+            retryAction = null
+            return
+        }
+        loading = true
+        error = ""
+        onSearch(session, clean, showHidden) { result ->
+            loading = false
+            result.onSuccess {
+                page = it
+                searching = true
+                retryAction = null
+            }.onFailure {
+                error = it.message ?: "Search failed"
+                retryAction = { search(clean) }
+            }
         }
     }
 
@@ -987,49 +1025,55 @@ private fun RepositoryBrowserDialog(
                     }
                     TextButton(onClick = onDismiss) { Text("Close") }
                 }
+                OutlinedTextField(
+                    value = query,
+                    onValueChange = { query = it },
+                    modifier = Modifier.fillMaxWidth(),
+                    label = { Text("Search files") },
+                    singleLine = true
+                )
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
                     OutlinedButton(
                         onClick = { load(page?.parentPath ?: "") },
                         enabled = page?.relativePath?.isNotBlank() == true && !loading
                     ) { Text("Up") }
-                    OutlinedTextField(
-                        value = query,
-                        onValueChange = { query = it },
-                        modifier = Modifier.weight(1f),
-                        label = { Text("Search files") },
-                        singleLine = true
-                    )
-                    Button(onClick = {
-                        val clean = query.trim()
-                        if (clean.length < 2) error = "Search needs at least two characters"
-                        else {
-                            loading = true
-                            error = ""
-                            onSearch(session, clean, showHidden) { result ->
-                                loading = false
-                                result.onSuccess { page = it; searching = true }
-                                    .onFailure { error = it.message ?: "Search failed" }
-                            }
-                        }
-                    }, enabled = !loading) { Text("Search") }
+                    Button(onClick = { search(query) }, enabled = !loading) { Text("Search") }
+                    Spacer(Modifier.weight(1f))
+                    if (loading) Text("Loading…", color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     TextButton(onClick = { showHidden = !showHidden }, enabled = !loading) {
                         Text(if (showHidden) "Hide hidden" else "Show hidden")
                     }
                     if (searching) TextButton(onClick = { load("") }, enabled = !loading) { Text("Clear search") }
-                    Spacer(Modifier.weight(1f))
-                    if (loading) Text("Loading…", color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
                 if (error.isNotBlank()) {
-                    Text(error, color = MaterialTheme.colorScheme.error, fontSize = 15.sp)
+                    Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer)) {
+                        Row(
+                            Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 8.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            Text(
+                                error,
+                                modifier = Modifier.weight(1f),
+                                color = MaterialTheme.colorScheme.onErrorContainer,
+                                fontSize = 15.sp
+                            )
+                            retryAction?.let { retry ->
+                                TextButton(onClick = retry, enabled = !loading) { Text("Retry") }
+                            }
+                        }
+                    }
                 }
                 LazyColumn(
                     modifier = Modifier.fillMaxWidth().weight(1f, fill = false).heightIn(min = 180.dp, max = 390.dp),
                     verticalArrangement = Arrangement.spacedBy(6.dp)
                 ) {
                     val entries = page?.entries.orEmpty()
-                    if (!loading && entries.isEmpty()) item { EmptyState(if (searching) "No matching files." else "This folder is empty.") }
+                    if (shouldShowRepositoryEmpty(loading, error, entries.size)) {
+                        item { EmptyState(if (searching) "No matching files." else "This folder is empty.") }
+                    }
                     items(entries, key = { it.relativePath }) { entry ->
                         OutlinedButton(
                             onClick = {
@@ -1732,6 +1776,9 @@ private fun EmptyState(message: String) {
     }
 }
 
+internal fun shouldShowRepositoryEmpty(loading: Boolean, error: String, entryCount: Int): Boolean =
+    !loading && error.isBlank() && entryCount == 0
+
 @Composable
 private fun StatusDot(color: Color) {
     Box(Modifier.size(11.dp).background(color, CircleShape))
@@ -1809,6 +1856,7 @@ private fun AgentFleetPreview() {
             onListRepository = { _, _, _, _, callback -> callback(Result.failure(IllegalStateException("Preview"))) },
             onSearchRepository = { _, _, _, callback -> callback(Result.failure(IllegalStateException("Preview"))) },
             onDownloadRepository = { _, _, _ -> FleetDownloadCancellation() },
+            onCloseRepository = {},
             onOpenDownload = {},
             onRenameSession = { _, _ -> },
             onScheduleContinue = { _, _ -> },

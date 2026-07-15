@@ -11,8 +11,10 @@ import com.termux.app.TermuxService
 import com.termux.shared.termux.TermuxConstants.TERMUX_APP.TERMUX_SERVICE
 import java.io.ByteArrayOutputStream
 import java.io.BufferedReader
+import java.io.BufferedWriter
 import java.io.File
 import java.io.InputStreamReader
+import java.io.OutputStreamWriter
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -24,10 +26,49 @@ import java.util.concurrent.atomic.AtomicBoolean
 import org.json.JSONObject
 import kotlin.concurrent.thread
 
+internal class ReusableRepositoryBridge<T : Any>(
+    private val isAlive: (T) -> Boolean,
+    private val closeResource: (T) -> Unit
+) {
+    private val lock = Any()
+    private var current: T? = null
+
+    fun acquire(factory: () -> T): T = synchronized(lock) {
+        current?.takeIf(isAlive) ?: factory().also { replacement ->
+            current?.let(closeResource)
+            current = replacement
+        }
+    }
+
+    fun discard(resource: T) {
+        synchronized(lock) {
+            if (current === resource) current = null
+        }
+        closeResource(resource)
+    }
+
+    fun close() {
+        val resource = synchronized(lock) { current.also { current = null } }
+        resource?.let(closeResource)
+    }
+}
+
 class FleetRuntime(private val context: Context) {
+    private data class RepositoryBridge(
+        val process: Process,
+        val reader: BufferedReader,
+        val writer: BufferedWriter
+    )
+
     private val home = context.filesDir.parentFile ?: File("/data/data/com.termux")
     private val prefix = File(home, "files/usr")
     private val userHome = File(home, "files/home")
+    private val repositoryRequestLock = Any()
+    private val repositoryReaderExecutor = Executors.newSingleThreadExecutor()
+    private val repositoryBridge = ReusableRepositoryBridge<RepositoryBridge>(
+        isAlive = { it.process.isAlive },
+        closeResource = ::closeRepositoryBridge
+    )
 
     fun loadSnapshot(): FleetSnapshot {
         val bridge = executable("wtmux-bridge")
@@ -243,7 +284,7 @@ class FleetRuntime(private val context: Context) {
         cursor: String = ""
     ): FleetRepositoryPage {
         require(validRepositoryPath(relativePath, true) && validRepositoryCursor(cursor)) { "Repository path is invalid." }
-        val result = request(
+        val result = repositoryRequest(
             "repository.list",
             JSONObject()
                 .put("hostId", session.hostId)
@@ -265,7 +306,7 @@ class FleetRuntime(private val context: Context) {
     ): FleetRepositoryPage {
         val cleanQuery = query.trim()
         require(cleanQuery.length in 2..160 && cleanQuery.none(Char::isISOControl)) { "Search needs at least two characters." }
-        val result = request(
+        val result = repositoryRequest(
             "repository.search",
             JSONObject()
                 .put("hostId", session.hostId)
@@ -276,6 +317,15 @@ class FleetRuntime(private val context: Context) {
                 .put("idempotencyKey", UUID.randomUUID().toString())
         )
         return parseRepositoryPage(result)
+    }
+
+    fun closeRepositoryBrowser() {
+        repositoryBridge.close()
+    }
+
+    fun shutdown() {
+        closeRepositoryBrowser()
+        repositoryReaderExecutor.shutdownNow()
     }
 
     fun downloadRepositoryFile(
@@ -485,6 +535,84 @@ class FleetRuntime(private val context: Context) {
         }
     }
 
+    private fun repositoryRequest(method: String, params: JSONObject): JSONObject = synchronized(repositoryRequestLock) {
+        val channel = ensureRepositoryBridge()
+        val requestId = UUID.randomUUID().toString()
+        val request = JSONObject()
+            .put("protocolVersion", 1)
+            .put("type", "request")
+            .put("requestId", requestId)
+            .put("method", method)
+            .put("timestamp", isoUtc(System.currentTimeMillis()))
+            .put("params", params)
+        try {
+            channel.writer.write(request.toString())
+            channel.writer.newLine()
+            channel.writer.flush()
+        } catch (error: Exception) {
+            discardRepositoryBridge(channel)
+            throw FleetUnavailableException("Repository connection was lost. Tap Retry to reconnect.")
+        }
+
+        val responseFuture = repositoryReaderExecutor.submit<JSONObject> {
+            repeat(2_000) {
+                val line = channel.reader.readLine()
+                    ?: throw FleetUnavailableException("Repository connection closed without a response.")
+                if (line.length <= MAX_OUTPUT_BYTES) {
+                    val frame = runCatching { JSONObject(line) }.getOrNull()
+                    if (frame?.optString("type") == "response" && frame.optString("requestId") == requestId) {
+                        return@submit frame
+                    }
+                }
+            }
+            throw FleetUnavailableException("Repository response exceeded the safety limit.")
+        }
+        val response = try {
+            responseFuture.get(REPOSITORY_REQUEST_TIMEOUT_SECONDS, TimeUnit.SECONDS)
+        } catch (error: Exception) {
+            responseFuture.cancel(true)
+            discardRepositoryBridge(channel)
+            throw FleetUnavailableException("Repository request timed out. Tap Retry to reconnect.")
+        }
+        if (!response.optBoolean("ok")) {
+            val detail = response.optJSONObject("error")
+            throw FleetUnavailableException(
+                safeError(detail?.optString("message").orEmpty().ifBlank { "Repository request failed." }),
+                detail?.optString("code").orEmpty()
+            )
+        }
+        response.optJSONObject("result")
+            ?: throw FleetUnavailableException("Repository response did not include a result.")
+    }
+
+    private fun ensureRepositoryBridge(): RepositoryBridge = repositoryBridge.acquire {
+        val bridge = executable("wtmux-bridge")
+            ?: throw FleetUnavailableException("wtmux bridge is not installed.")
+        val python = executable("python3")
+            ?: throw FleetUnavailableException("Python is missing from the restored Termux environment.")
+        val process = ProcessBuilder(python.absolutePath, bridge.absolutePath, "--stdio")
+            .directory(userHome)
+            .redirectErrorStream(true)
+            .apply { configureEnvironment(environment()) }
+            .start()
+        RepositoryBridge(
+            process,
+            BufferedReader(InputStreamReader(process.inputStream, Charsets.UTF_8)),
+            BufferedWriter(OutputStreamWriter(process.outputStream, Charsets.UTF_8))
+        )
+    }
+
+    private fun discardRepositoryBridge(channel: RepositoryBridge) {
+        repositoryBridge.discard(channel)
+    }
+
+    private fun closeRepositoryBridge(channel: RepositoryBridge) {
+        runCatching { channel.process.destroy() }
+        runCatching { channel.writer.close() }
+        runCatching { channel.reader.close() }
+        if (channel.process.isAlive) runCatching { channel.process.destroyForcibly() }
+    }
+
     private fun parseDirectoryListing(value: JSONObject): FleetDirectoryListing {
         val backend = value.optString("backend").also { require(it in setOf("linux", "windows")) }
         val path = value.optString("path").also { require(validDirectoryPath(it, backend, false)) }
@@ -566,6 +694,7 @@ class FleetRuntime(private val context: Context) {
     companion object {
         private const val MAX_OUTPUT_BYTES = 256 * 1024
         private const val MAX_ERROR_BYTES = 4 * 1024
+        private const val REPOSITORY_REQUEST_TIMEOUT_SECONDS = 20L
         private const val MAX_FILE_BYTES = 2L * 1024 * 1024 * 1024
     }
 }
