@@ -4,6 +4,8 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
+import org.json.JSONArray
+import org.json.JSONObject
 import org.robolectric.RobolectricTestRunner
 
 @RunWith(RobolectricTestRunner::class)
@@ -55,5 +57,25 @@ class FleetSnapshotParserTest {
         assertEquals("/srv/work", session.projectPath)
         assertEquals("custom", session.locationKind)
         assertEquals("wtmux", session.name)
+    }
+
+    @Test
+    fun keepsOnlyActiveAttentionStates() {
+        val states = listOf("detected", "offering", "offered", "scheduled", "resolved", "expired", "future")
+        val items = JSONArray()
+        states.forEachIndexed { index, state ->
+            items.put(JSONObject()
+                .put("id", "limit-$index")
+                .put("hostId", "gaming")
+                .put("kind", "hard-limit")
+                .put("sessionId", "gaming:wtmux-main")
+                .put("agent", "codex")
+                .put("resetAt", "2026-07-12T06:00:00Z")
+                .put("state", state)
+                .put("detectedAt", "2026-07-12T05:00:00Z")
+                .put("updatedAt", "2026-07-12T05:00:00Z"))
+        }
+        val updated = JSONObject(validSnapshot).put("attention", items).toString()
+        assertEquals(listOf("detected", "offering", "offered"), FleetSnapshotParser.parse(updated).attention.map { it.state })
     }
 }

@@ -26,4 +26,12 @@ class NativeReliabilityTest {
         assertFalse(TermuxTerminalSessionClient.shouldShowRoutineSessionToast(true, false))
         assertTrue(TermuxTerminalSessionClient.shouldShowRoutineSessionToast(false, false))
     }
+
+    @Test
+    fun optimisticallyDismissedAttentionIsHiddenUntilHostAcknowledgesIt() {
+        val attention = FleetAttention("limit-1", "host", "host:session", "codex", null, "detected")
+        val snapshot = FleetSnapshot("rev", "2026-07-15T00:00:00Z", emptyList(), emptyList(), emptyList(), listOf(attention), emptyList())
+        assertEquals(attention, activeAttentionForSession(snapshot, "host:session"))
+        assertEquals(null, activeAttentionForSession(snapshot, "host:session", "limit-1"))
+    }
 }

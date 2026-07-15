@@ -296,3 +296,15 @@ trusted fleet.
 - Completed files open only after an explicit tap through the app's scoped
   FileProvider URI. Repository metadata and downloaded content never enter
   fleet snapshots, app logs, diagnostics, or Compose saved state.
+
+## Stale Hard-Limit Attention
+
+- Parse and retain only `detected`, `offering`, and `offered` hard-limit
+  attention. Resolved, expired, dismissed, scheduled, and unknown future states
+  never produce cards in Sessions, Limits, or Native view.
+- Dismiss hides the Native card immediately and keeps it hidden during the host
+  round trip. A successful or already-resolved response stays hidden; a genuine
+  transport or host failure restores the card with an error.
+- The app never infers recovery from terminal pixels or rendered conversation
+  rows. The embedded wtmux runtime remains authoritative for verified later
+  Codex/Claude activity and linked schedule cancellation.

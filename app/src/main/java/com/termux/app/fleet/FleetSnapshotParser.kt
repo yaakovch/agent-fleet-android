@@ -65,7 +65,7 @@ object FleetSnapshotParser {
                     resetAt = attention.optionalString("resetAt", 40),
                     state = attention.requiredString("state", 32)
                 )
-            },
+            }.filter { it.state in setOf("detected", "offering", "offered") },
             limits = root.optionalArray("limits").mapObjects { limit ->
                 FleetLimit(
                     id = limit.requiredString("id", 160),

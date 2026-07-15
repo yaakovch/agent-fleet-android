@@ -226,3 +226,14 @@ readable and interactive with no blank frames or unexpected terminal input.
 - Add parser, transfer, cancellation, Compose, full JVM, release-build, and S23FE
   smoke coverage. Ship signed `0.118.4-agentfleet.28` (`1030`) after Windows
   beta.6 and before activating the matching host runtime.
+
+## Milestone 15: Stale Hard-Limit Attention Hotfix
+
+- Defensively filter fleet attention to active states and suppress the Native
+  card immediately on Dismiss while retaining exact host identity.
+- Keep optimistic suppression across snapshot churn, restore only after a real
+  failure, and cover filtering plus suppression with JVM tests.
+- Embed wtmux `git-838dd1a`, run the full JVM and runtime-bundle checks, and ship
+  signed `0.118.4-agentfleet.29` (`1031`) after Windows beta.7 and before host
+  activation. Preserve `.28`, its APK runtime baseline, and current phone data
+  as rollback paths.

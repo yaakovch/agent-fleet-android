@@ -45,6 +45,7 @@ class NativeSessionController(
     private var retryIndex = 0
     private var lastFallbackText = ""
     private var pendingShellId: String? = null
+    private var dismissedAttentionId: String? = null
 
     init {
         composeView.setViewCompositionStrategy(ViewCompositionStrategy.DisposeOnDetachedFromWindow)
@@ -77,6 +78,7 @@ class NativeSessionController(
         stopProcess()
         FleetSnapshotStore.removeObserver(this)
         fleetSnapshot = null
+        dismissedAttentionId = null
         retryBlocked = false
         val host = intent?.getStringExtra(AgentFleetContract.EXTRA_HOST_ID).orEmpty()
         val session = intent?.getStringExtra(AgentFleetContract.EXTRA_INTERNAL_SESSION).orEmpty()
@@ -254,9 +256,9 @@ class NativeSessionController(
     private fun applyFleetSnapshot(snapshot: FleetSnapshot) {
         fleetSnapshot = snapshot
         val sessionId = "${uiState.value.hostId}:${uiState.value.internalSession}"
-        val attention = snapshot.attention.firstOrNull {
-            it.sessionId == sessionId && it.state in setOf("detected", "offering", "offered")
-        }
+        val hiddenId = dismissedAttentionId
+        if (hiddenId != null && snapshot.attention.none { it.id == hiddenId }) dismissedAttentionId = null
+        val attention = activeAttentionForSession(snapshot, sessionId, dismissedAttentionId)
         val sameAttention = attention?.id == uiState.value.attention?.id
         uiState.value = uiState.value.copy(
             attention = attention,
@@ -327,7 +329,8 @@ class NativeSessionController(
             FleetSnapshotStore.refresh()
             return
         }
-        uiState.value = uiState.value.copy(attentionBusy = true, attentionError = null)
+        dismissedAttentionId = attention.id
+        uiState.value = uiState.value.copy(attention = null, attentionBusy = false, attentionError = null)
         val idempotencyKey = UUID.randomUUID().toString()
         thread(name = "native-session-limit-dismiss", isDaemon = true) {
             var result = runCatching { fleetRuntime.dismissAttention(snapshot, attention, idempotencyKey) }
@@ -342,7 +345,19 @@ class NativeSessionController(
                     if (current == null) fresh else fleetRuntime.dismissAttention(fresh, current, idempotencyKey)
                 }
             }
-            main.post { finishAttentionMutation(result) }
+            main.post { finishAttentionDismiss(result, attention) }
+        }
+    }
+
+    private fun finishAttentionDismiss(result: Result<FleetSnapshot>, attention: FleetAttention) {
+        result.onSuccess { FleetSnapshotStore.publish(it) }.onFailure {
+            if (dismissedAttentionId == attention.id) dismissedAttentionId = null
+            uiState.value = uiState.value.copy(
+                attention = attention,
+                attentionBusy = false,
+                attentionError = it.message ?: "The limit action could not be completed."
+            )
+            FleetSnapshotStore.refresh()
         }
     }
 
@@ -801,4 +816,13 @@ class NativeSessionController(
             }
         }
     }
+}
+
+internal fun activeAttentionForSession(
+    snapshot: FleetSnapshot,
+    sessionId: String,
+    hiddenAttentionId: String? = null
+): FleetAttention? = snapshot.attention.firstOrNull {
+    it.sessionId == sessionId && it.id != hiddenAttentionId &&
+        it.state in setOf("detected", "offering", "offered")
 }
