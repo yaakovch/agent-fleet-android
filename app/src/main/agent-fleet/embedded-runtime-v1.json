@@ -1,15 +1,15 @@
 {
   "schemaVersion": 1,
-  "baselineVersion": "git-8740aef",
-  "wtmuxCommit": "8740aef9aedb4bd4b8c4af4d244b76bbb11aabd5",
+  "baselineVersion": "git-543ed3f",
+  "wtmuxCommit": "543ed3f645bd664b3b7399e407d04e1fb6e52edb",
   "protocolVersion": 2,
   "supportedAbis": [
     "arm64-v8a"
   ],
   "runtime": {
-    "file": "wtmux-runtime-git-8740aef.tar",
-    "sha256": "cd4724d6d4c34ce123ff84ec90c002b9fb9c823e2f944f36e1f4308ea224e317",
-    "size": 696320
+    "file": "wtmux-runtime-git-543ed3f.tar",
+    "sha256": "244e212643e40e31162d3b9ce553c0db055ee9458639ec7cf1fa7d99db0b31b1",
+    "size": 706560
   },
   "packageLock": {
     "file": "termux-packages-aarch64.json",

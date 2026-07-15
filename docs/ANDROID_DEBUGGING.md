@@ -32,7 +32,14 @@ The runner uses an isolated ADB server on port 5038, accepts only an API 36
 x86_64 emulator, and verifies `ro.kernel.qemu=1` before uninstalling or
 installing anything. A physical `ANDROID_SERIAL` is rejected. Results are kept
 under `build/reports/agent-fleet/emulator/`; successful output is deliberately
-short and failures point to the full log and instrumentation report.
+short and failures point to the full log and instrumentation report. Failed
+instrumentation runs also pull screenshot actual/diff output into that run's
+`device-output` directory before exiting.
+
+When the runner cold-starts the Windows AVD, it passes the same isolated ADB
+port into the emulator process. This is required because an emulator that
+registers itself with the default port 5037 remains invisible to the safe test
+runner even after Android finishes booting.
 
 The canonical local AVD is `AgentFleet_S23FE_API36`, configured as a Pixel 7 at
 1080×2400 and 420 dpi. The Gradle managed-device equivalent is

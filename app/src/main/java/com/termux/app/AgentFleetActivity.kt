@@ -79,6 +79,7 @@ import com.termux.app.fleet.FleetDownloadCancellation
 import com.termux.app.fleet.FleetDownloadState
 import com.termux.app.fleet.FleetRepositoryEntry
 import com.termux.app.fleet.FleetRepositoryPage
+import com.termux.app.fleet.isRetryableRepositoryFailure
 import com.termux.app.fleet.FleetLoadState
 import com.termux.app.fleet.FleetLimit
 import com.termux.app.fleet.FleetLimitWindow
@@ -549,9 +550,13 @@ class AgentFleetActivity : ComponentActivity() {
         runtimeExecutor.execute {
             val result = runCatching {
                 val inspected = embeddedRuntime.inspect()
-                if (shouldInstallEmbeddedBaseline(inspected, autoRepair)) embeddedRuntime.repair { detail ->
+                val preserveCurrent = runtimeUpdateManager.shouldPreserveCurrentRuntime(inspected)
+                val prepared = if (shouldInstallEmbeddedBaseline(inspected, autoRepair)) embeddedRuntime.repair(
+                    preserveCurrent = preserveCurrent
+                ) { detail ->
                     runOnUiThread { runtimeUi.value = runtimeUi.value.copy(detail = detail) }
                 } else inspected
+                runtimeUpdateManager.reconcileRuntimeFloor(prepared)
             }
             runOnUiThread {
                 result.onSuccess { status ->
@@ -1131,7 +1136,7 @@ private fun RepositoryBrowserDialog(
                 retryAction = null
             }.onFailure {
                 error = it.message ?: "Repository could not be loaded"
-                retryAction = { load(path, cursor, append) }
+                retryAction = if (isRetryableRepositoryFailure(it)) ({ load(path, cursor, append) }) else null
             }
         }
     }
@@ -1153,7 +1158,7 @@ private fun RepositoryBrowserDialog(
                 retryAction = null
             }.onFailure {
                 error = it.message ?: "Search failed"
-                retryAction = { search(clean) }
+                retryAction = if (isRetryableRepositoryFailure(it)) ({ search(clean) }) else null
             }
         }
     }

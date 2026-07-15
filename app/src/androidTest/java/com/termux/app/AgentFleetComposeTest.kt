@@ -2,6 +2,7 @@ package com.termux.app
 
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsNotDisplayed
+import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.assertTextContains
 import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.junit4.createComposeRule
@@ -27,6 +28,7 @@ import com.termux.app.fleet.FleetDirectoryListing
 import com.termux.app.fleet.FleetDownloadCancellation
 import com.termux.app.fleet.FleetDownloadState
 import com.termux.app.fleet.FleetHost
+import com.termux.app.fleet.FleetUnavailableException
 import com.termux.app.fleet.FleetLoadState
 import com.termux.app.fleet.FleetRepositoryEntry
 import com.termux.app.fleet.FleetRepositoryPage
@@ -54,7 +56,7 @@ class AgentFleetComposeTest {
         compose.setContent {
             FixtureApp(
                 onListRepository = { _, _, _, _, callback ->
-                    if (attempts.incrementAndGet() == 1) callback(Result.failure(IllegalStateException("Host temporarily offline")))
+                    if (attempts.incrementAndGet() == 1) callback(Result.failure(FleetUnavailableException("Host temporarily offline", "host_offline")))
                     else callback(Result.success(repositoryPage))
                 },
                 onDownloadRepository = { _, entry, callback ->
@@ -71,6 +73,24 @@ class AgentFleetComposeTest {
         compose.onNodeWithTag("repository-download-state").assertIsDisplayed()
         compose.onNodeWithText("Downloading · 33%").assertIsDisplayed()
         assertEquals(2, attempts.get())
+    }
+
+    @Test
+    fun permanentRepositoryFailureDoesNotOfferRetry() {
+        compose.setContent {
+            FixtureApp(
+                onListRepository = { _, _, _, _, callback ->
+                    callback(Result.failure(FleetUnavailableException(
+                        "Repository path is unavailable for this session", "repository_unavailable"
+                    )))
+                }
+            )
+        }
+        compose.onNodeWithTag("session-more-gaming:wtmux").performClick()
+        compose.onNodeWithText("Download a file").performClick()
+        compose.onNodeWithTag("repository-error").assertIsDisplayed()
+        compose.onNodeWithText("Repository path is unavailable", substring = true).assertIsDisplayed()
+        compose.onAllNodes(hasTestTag("repository-retry")).assertCountEquals(0)
     }
 
     @Test

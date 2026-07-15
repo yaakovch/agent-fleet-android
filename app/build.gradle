@@ -39,8 +39,8 @@ android {
         applicationId "com.termux"
         minSdkVersion project.properties.minSdkVersion.toInteger()
         targetSdkVersion project.properties.targetSdkVersion.toInteger()
-        versionCode 1034
-        versionName "0.118.4-agentfleet.32"
+        versionCode 1035
+        versionName "0.118.4-agentfleet.33"
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         testInstrumentationRunnerArguments clearPackageData: "true"
 

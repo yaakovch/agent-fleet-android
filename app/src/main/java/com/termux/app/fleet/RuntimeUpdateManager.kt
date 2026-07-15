@@ -138,8 +138,37 @@ class RuntimeUpdateManager(
         return now - preferences.getLong("last-check-at", 0) >= policy.checkIntervalSeconds * 1000L
     }
 
+    fun shouldPreserveCurrentRuntime(status: EmbeddedRuntimeStatus): Boolean {
+        val floor = installedVersionCode()
+        return status.current.isNotBlank() && status.current != status.baseline &&
+            acceptedSequence() >= floor && healthySequence() >= floor
+    }
+
+    fun reconcileRuntimeFloor(status: EmbeddedRuntimeStatus): EmbeddedRuntimeStatus {
+        val floor = installedVersionCode()
+        if (acceptedSequence() >= floor && healthySequence() >= floor) return status
+        require(status.supported && status.usable && status.baseline == status.embeddedBaseline) {
+            "APK runtime floor cannot be recorded before its baseline is healthy"
+        }
+        val reconciled = if (status.current == status.baseline) status else embedded.restoreBaseline()
+        require(reconciled.usable && reconciled.current == reconciled.baseline && reconciled.baseline == reconciled.embeddedBaseline) {
+            "APK runtime floor activation failed"
+        }
+        check(preferences.edit()
+            .putLong("accepted-sequence", maxOf(acceptedSequence(), floor))
+            .putLong("healthy-sequence", maxOf(healthySequence(), floor))
+            .putString("last-error", "")
+            .commit()
+        ) { "Runtime floor state could not be persisted" }
+        return reconciled
+    }
+
     fun checkAndInstall(manual: Boolean = false): RuntimeUpdateResult {
         val policy = policyStore.load() ?: return RuntimeUpdateResult.NoPolicy
+        val floor = installedVersionCode()
+        require(acceptedSequence() >= floor && healthySequence() >= floor) {
+            "Built-in runtime must be prepared before checking for fixes"
+        }
         if (!manual && !shouldCheck()) {
             return RuntimeUpdateResult.Current(preferences.getString("last-source", "").orEmpty(), acceptedSequence())
         }
@@ -155,7 +184,7 @@ class RuntimeUpdateManager(
                 val update = RuntimeUpdateManifestVerifier.verify(
                     text, keys, descriptor.protocolVersion, installedVersionCode(), policy.artifactOrigins
                 )
-                if (update.sequence <= acceptedSequence()) {
+                if (update.sequence <= maxOf(acceptedSequence(), floor)) {
                     require(update.sequence <= healthySequence()) {
                         "This signed runtime update previously failed its health check and will not be retried"
                     }

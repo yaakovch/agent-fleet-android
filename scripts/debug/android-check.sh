@@ -67,7 +67,7 @@ serial="$(emulator_serial)"
 if [[ -z "$serial" ]]; then
   [[ -x "$emulator" ]] || fail "Android emulator executable was not found"
   say "starting $avd (the phone will not be used)"
-  /init "$cmd_exe" /c "$emulator_windows" -avd "$avd" -no-window -no-snapshot-save -no-boot-anim -no-audio \
+  /init "$cmd_exe" /d /c "set ADB_SERVER_PORT=$adb_port&& set ANDROID_ADB_SERVER_PORT=$adb_port&& $emulator_windows -avd $avd -no-window -no-snapshot-save -no-boot-anim -no-audio" \
     >"$artifacts/emulator.log" 2>&1 &
   for _ in $(seq 1 90); do
     sleep 2
@@ -125,6 +125,9 @@ adb_run -s "$serial" shell am instrument "${instrument_args[@]}" com.termux.test
 status=$?
 set -e
 if [[ $status -ne 0 ]] || grep -qE 'FAILURES|INSTRUMENTATION_FAILED' "$artifacts/instrumentation.txt"; then
+  mkdir -p "$artifacts/device-output"
+  output_windows="$(wslpath -w "$artifacts/device-output")"
+  adb_run -s "$serial" pull /sdcard/Android/media/com.termux/. "$output_windows" >>"$log" 2>&1 || true
   tail -n 60 "$artifacts/instrumentation.txt" >&2
   fail "instrumentation tests failed"
 fi

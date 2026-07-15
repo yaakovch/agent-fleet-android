@@ -283,3 +283,21 @@ readable and interactive with no blank frames or unexpected terminal input.
 Gate: JVM and isolated emulator suites pass, reference screenshots are reviewed,
 no seeded secret or private path reaches an export, and the runner cannot select
 the connected S23FE.
+
+## Milestone 19: Repository Recovery And Runtime Floor
+
+- Consume typed repository failure codes and show Retry only for offline,
+  disconnect, and timeout failures. Keep permanent legacy/custom/path failures
+  readable without a button that cannot succeed.
+- Treat the installed APK version code as the minimum healthy runtime sequence.
+  After its embedded baseline passes health checks, activate it when accepted or
+  healthy runtime state is below that floor and persist the floor atomically.
+  Preserve an active runtime only when its signed accepted and healthy sequence
+  is already at or above the APK floor.
+- Require runtime release sequence numbers to share the app version-code
+  namespace from 1035 onward. Publish sequence 1035 for app code 1034+, embed the
+  same wtmux commit in signed `.33` (`1035`), and prevent any older feed entry
+  from replacing that baseline.
+- Cover transient/permanent repository UI, floor reconciliation, hotfix
+  preservation, and release ordering in JVM and isolated API 36 emulator suites.
+  Publish for manual in-app phone update only; do not operate the S23FE over ADB.

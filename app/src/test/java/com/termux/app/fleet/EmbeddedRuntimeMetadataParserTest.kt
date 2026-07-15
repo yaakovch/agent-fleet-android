@@ -107,5 +107,9 @@ class EmbeddedRuntimeMetadataParserTest {
         )
         assertTrue(shouldInstallEmbeddedBaseline(status, explicitRepair = false))
         assertFalse(shouldInstallEmbeddedBaseline(status.copy(baseline = "git-new0000"), explicitRepair = false))
+        assertTrue(shouldRestorePreservedRuntime(true, "git-hotfix0", status.copy(
+            baseline = "git-new0000", current = "git-new0000", previous = "git-hotfix0"
+        )))
+        assertFalse(shouldRestorePreservedRuntime(false, "git-hotfix0", status))
     }
 }

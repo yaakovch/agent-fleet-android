@@ -11,6 +11,9 @@ on a controller with the private Agent Fleet key.
    `scripts/release/backup-runtime-signing-key.sh /media/backup-a /media/backup-b`.
    The APK contains only its public key. Runtime hotfixes use
    `scripts/release/build-runtime-hotfix.sh` and never use the APK keystore.
+   From version code 1035 onward, use the same monotonic number space for APK
+   version codes and runtime sequences; the runtime sequence must be at least
+   its declared minimum app version code.
 3. Regenerate and review the pinned Termux package lock only when intentionally
    raising package floors. `scripts/runtime/verify-embedded-runtime.py
    app/src/main/agent-fleet` must pass before every build.

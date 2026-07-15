@@ -282,6 +282,10 @@ trusted fleet.
   payload bytes, a key ID, and an Ed25519 signature. The decoded payload has an
   exact field set and monotonic integer sequence; the last accepted sequence is
   persisted before a release is considered healthy.
+- From app version code 1035 onward, runtime sequences share that monotonic
+  namespace. A healthy embedded baseline records at least the installed APK
+  code as both accepted and healthy; only a signed healthy runtime at or above
+  that floor may remain active across an APK baseline refresh.
 
 ## Session Repository Downloads
 
@@ -296,6 +300,9 @@ trusted fleet.
 - Completed files open only after an explicit tap through the app's scoped
   FileProvider URI. Repository metadata and downloaded content never enter
   fleet snapshots, app logs, diagnostics, or Compose saved state.
+- Repository errors retain their typed host code. Retry is offered only for
+  offline, disconnect, and timeout failures; permanent session/path failures
+  remain readable without an ineffective Retry action.
 
 ## Stale Hard-Limit Attention
 

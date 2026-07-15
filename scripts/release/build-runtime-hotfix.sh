@@ -12,6 +12,7 @@ artifact_url="$4"
 min_app="$5"
 created_at="$6"
 [[ "$sequence" =~ ^[1-9][0-9]*$ && "$min_app" =~ ^[1-9][0-9]*$ ]] || { echo "sequence and app version must be positive integers" >&2; exit 2; }
+((sequence >= min_app)) || { echo "runtime sequence must be at least the minimum app version code" >&2; exit 2; }
 [[ "$artifact_url" == https://* ]] || { echo "artifact URL must use HTTPS" >&2; exit 2; }
 [[ -x "$wtmux_repo/scripts/wtmux-runtime" && -x "$wtmux_repo/scripts/wtmux-runtime-release" ]] || {
   echo "wtmux repository does not contain runtime release tools" >&2

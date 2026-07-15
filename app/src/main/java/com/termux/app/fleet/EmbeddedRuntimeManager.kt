@@ -56,6 +56,12 @@ fun supportsEmbeddedRuntime(primaryAbi: String?, supportedAbis: List<String>): B
 internal fun shouldInstallEmbeddedBaseline(status: EmbeddedRuntimeStatus, explicitRepair: Boolean): Boolean =
     explicitRepair || (status.supported && status.embeddedBaseline != status.baseline)
 
+internal fun shouldRestorePreservedRuntime(
+    preserveCurrent: Boolean,
+    previousCurrent: String,
+    status: EmbeddedRuntimeStatus
+): Boolean = preserveCurrent && previousCurrent.isNotBlank() && previousCurrent != status.current && status.previous == previousCurrent
+
 internal fun installedPackageVersions(output: String): Map<String, String> = output.lineSequence().mapNotNull { line ->
     val parts = line.split('\t', limit = 3)
     if (parts.size == 3 && parts[2].trim() == "install ok installed") {
@@ -210,8 +216,9 @@ class EmbeddedRuntimeManager(private val context: Context) {
     }
 
     @Synchronized
-    fun repair(progress: (String) -> Unit = {}): EmbeddedRuntimeStatus {
+    fun repair(preserveCurrent: Boolean = false, progress: (String) -> Unit = {}): EmbeddedRuntimeStatus {
         val descriptor = descriptor()
+        val previousCurrent = inspect().current
         require(supportsEmbeddedRuntime(Build.SUPPORTED_ABIS.firstOrNull(), descriptor.supportedAbis)) {
             "This APK has no offline fleet payload for ${Build.SUPPORTED_ABIS.firstOrNull() ?: "this device"}"
         }
@@ -242,6 +249,13 @@ class EmbeddedRuntimeManager(private val context: Context) {
         val status = inspect()
         require(status.usable && status.baseline == descriptor.baselineVersion && status.missingOrOldPackages == 0) {
             "Built-in runtime did not pass its final health check"
+        }
+        if (shouldRestorePreservedRuntime(preserveCurrent, previousCurrent, status)) {
+            val restored = rollback()
+            require(restored.usable && restored.baseline == descriptor.baselineVersion && restored.current == previousCurrent) {
+                "The newer healthy runtime could not be restored after baseline repair"
+            }
+            return restored
         }
         return status
     }

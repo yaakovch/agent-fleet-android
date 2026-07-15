@@ -592,13 +592,13 @@ class FleetRuntime(private val context: Context) {
             channel.writer.flush()
         } catch (error: Exception) {
             discardRepositoryBridge(channel)
-            throw FleetUnavailableException("Repository connection was lost. Tap Retry to reconnect.")
+            throw FleetUnavailableException("Repository connection was lost. Tap Retry to reconnect.", "bridge_disconnected")
         }
 
         val responseFuture = repositoryReaderExecutor.submit<JSONObject> {
             repeat(2_000) {
                 val line = channel.reader.readLine()
-                    ?: throw FleetUnavailableException("Repository connection closed without a response.")
+                    ?: throw FleetUnavailableException("Repository connection closed without a response.", "bridge_disconnected")
                 if (line.length <= MAX_OUTPUT_BYTES) {
                     val frame = runCatching { JSONObject(line) }.getOrNull()
                     if (frame?.optString("type") == "response" && frame.optString("requestId") == requestId) {
@@ -606,14 +606,14 @@ class FleetRuntime(private val context: Context) {
                     }
                 }
             }
-            throw FleetUnavailableException("Repository response exceeded the safety limit.")
+            throw FleetUnavailableException("Repository response exceeded the safety limit.", "invalid_response")
         }
         val response = try {
             responseFuture.get(REPOSITORY_REQUEST_TIMEOUT_SECONDS, TimeUnit.SECONDS)
         } catch (error: Exception) {
             responseFuture.cancel(true)
             discardRepositoryBridge(channel)
-            throw FleetUnavailableException("Repository request timed out. Tap Retry to reconnect.")
+            throw FleetUnavailableException("Repository request timed out. Tap Retry to reconnect.", "timeout")
         }
         if (!response.optBoolean("ok")) {
             val detail = response.optJSONObject("error")
@@ -623,14 +623,14 @@ class FleetRuntime(private val context: Context) {
             )
         }
         response.optJSONObject("result")
-            ?: throw FleetUnavailableException("Repository response did not include a result.")
+            ?: throw FleetUnavailableException("Repository response did not include a result.", "invalid_response")
     }
 
     private fun ensureRepositoryBridge(): RepositoryBridge = repositoryBridge.acquire {
         val bridge = executable("wtmux-bridge")
-            ?: throw FleetUnavailableException("wtmux bridge is not installed.")
+            ?: throw FleetUnavailableException("wtmux bridge is not installed.", "runtime_unavailable")
         val python = executable("python3")
-            ?: throw FleetUnavailableException("Python is missing from the restored Termux environment.")
+            ?: throw FleetUnavailableException("Python is missing from the restored Termux environment.", "runtime_unavailable")
         val process = ProcessBuilder(python.absolutePath, bridge.absolutePath, "--stdio")
             .directory(userHome)
             .redirectErrorStream(true)

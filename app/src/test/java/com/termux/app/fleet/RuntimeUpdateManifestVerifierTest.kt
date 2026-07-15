@@ -9,6 +9,7 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertThrows
 import org.junit.Test
 import org.junit.runner.RunWith
+import org.robolectric.RuntimeEnvironment
 import org.robolectric.RobolectricTestRunner
 
 @RunWith(RobolectricTestRunner::class)
@@ -73,6 +74,22 @@ class RuntimeUpdateManifestVerifierTest {
             RuntimeUpdateManifestVerifier.verify(changed, mapOf(keyId to pair.public.encoded), 2, 1020,
                 setOf("https://controller.tailnet.ts.net"))
         }
+    }
+
+    @Test
+    fun recordsTheInstalledAppAsTheMinimumHealthyRuntimeSequence() {
+        val context = RuntimeEnvironment.getApplication()
+        context.getSharedPreferences("agent-fleet-runtime-updates", 0).edit().clear().commit()
+        val manager = RuntimeUpdateManager(context)
+        val versionCode = context.packageManager.getPackageInfo(context.packageName, 0).longVersionCode
+        val status = EmbeddedRuntimeStatus(
+            supported = true, usable = true, repairNeeded = false,
+            embeddedBaseline = "git-baseline", baseline = "git-baseline", current = "git-baseline", previous = "",
+            missingOrOldPackages = 0, packageCount = 70, trustedKeyIds = emptyList(), detail = "ready"
+        )
+        assertEquals(status, manager.reconcileRuntimeFloor(status))
+        assertEquals(versionCode, manager.acceptedSequence())
+        assertEquals(versionCode, manager.healthySequence())
     }
 }
 
