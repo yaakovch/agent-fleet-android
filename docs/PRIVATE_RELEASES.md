@@ -27,6 +27,12 @@ on a controller with the private Agent Fleet key.
    remote primary use `user@gaming-desktop:/srv/agent-fleet`; optionally set
    `AGENT_FLEET_PUBLISH_FALLBACK=user@work-m:/srv/agent-fleet`. Then run
    `scripts/release/publish-release.sh DIST_DIRECTORY`.
+   The local path is the filesystem root seen by the HTTP backend after any
+   reverse-proxy mount prefix is removed. For the current Tailscale Serve
+   `/agent-fleet` proxy, publish to
+   `/home/sapir_cz/.local/share/agent-fleet/public`, not a nested
+   `public/agent-fleet` directory. Verify both `manifest.json` and the APK URL
+   through the externally served URL before announcing the release.
 7. Put the primary/fallback app and runtime manifest URLs plus their approved
    artifact origins in a strict `client-policy-v1` file. Pass it to
    `wtmux-pairing prepare-artifacts --client-policy FILE`; pairing installs it
