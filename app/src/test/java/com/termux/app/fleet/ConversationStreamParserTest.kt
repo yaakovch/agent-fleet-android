@@ -116,6 +116,55 @@ class ConversationStreamParserTest {
     }
 
     @Test
+    fun retiresAnUnansweredQuestionWhenTheConversationHasContinued() {
+        val question = ConversationItem(
+            "question-1", "question", "2026-07-16T01:00:00Z", "", "Answer needed", "", "",
+            "pending", "question", emptyList(), emptyList()
+        )
+        val later = ConversationItem(
+            "message-2", "message", "2026-07-16T01:01:00Z", "user", "", "continue", "",
+            "complete", "codex", emptyList(), emptyList()
+        )
+
+        val merged = mergeConversationItems(emptyList(), listOf(question, later))
+        assertEquals("complete", merged.first().state)
+        assertEquals("No longer active", merged.first().title)
+        assertEquals(null, activePendingAction(merged))
+    }
+
+    @Test
+    fun ignoresAStaleQuestionAppendedAfterNewerSnapshotItems() {
+        val later = ConversationItem(
+            "tool-2", "tool", "2026-07-16T01:01:00Z", "", "Tool completed", "", "",
+            "complete", "exec", emptyList(), emptyList()
+        )
+        val stale = ConversationItem(
+            "question-1", "question", "2026-07-16T01:00:00Z", "", "Answer needed", "", "",
+            "pending", "question", emptyList(), emptyList()
+        )
+
+        val merged = mergeConversationItems(emptyList(), listOf(later, stale))
+        assertEquals("complete", merged.last().state)
+        assertEquals(null, activePendingAction(merged))
+    }
+
+    @Test
+    fun keepsTheNewestQuestionActionable() {
+        val earlier = ConversationItem(
+            "message-1", "message", "2026-07-16T01:00:00Z", "assistant", "", "choose", "",
+            "complete", "codex", emptyList(), emptyList()
+        )
+        val question = ConversationItem(
+            "question-1", "question", "2026-07-16T01:01:00Z", "", "Answer needed", "", "",
+            "pending", "question", emptyList(), emptyList()
+        )
+
+        val merged = mergeConversationItems(emptyList(), listOf(earlier, question))
+        assertEquals("pending", merged.last().state)
+        assertEquals("question-1", activePendingAction(merged)?.id)
+    }
+
+    @Test
     fun parsesAndMergesHumanToolPresentationWithoutDroppingRawData() {
         val line = """
             {"protocolVersion":2,"type":"conversation.event","session":"s","adapter":"codex","item":{"id":"t1","kind":"tool","timestamp":"","role":"","title":"Running exec_command","text":"","detail":"","state":"running","tool":"exec_command","attachments":[],"choices":[],"action":"command","target":"git status","input":"{\"cmd\":\"git status --short\"}","result":"","presentation":{"version":1,"title":"Run command","subtitle":"git status","previewLines":12,"inputBlocks":[{"title":"Cmd","kind":"code","content":"git status --short"}],"resultBlocks":[]}}}

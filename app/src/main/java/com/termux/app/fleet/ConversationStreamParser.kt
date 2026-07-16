@@ -175,8 +175,32 @@ internal fun mergeConversationItems(current: List<ConversationItem>, incoming: L
     if (prepend) incoming.forEach(::add)
     current.forEach(::add)
     if (!prepend) incoming.forEach(::add)
-    return values.values.toList().takeLast(2_000)
+    return retireSupersededQuestions(values.values.toList().takeLast(2_000))
 }
+
+internal fun retireSupersededQuestions(items: List<ConversationItem>): List<ConversationItem> {
+    val latestTimestamp = items.asSequence().map { it.timestamp }.filter { it.isNotBlank() }.maxOrNull().orEmpty()
+    val latestTimestampIndex = if (latestTimestamp.isBlank()) -1 else items.indexOfLast { it.timestamp == latestTimestamp }
+    return items.mapIndexed { index, value ->
+        if (value.kind != "question" || value.state == "complete") return@mapIndexed value
+        val superseded = if (value.timestamp.isNotBlank() && latestTimestamp.isNotBlank()) {
+            latestTimestamp > value.timestamp ||
+                (latestTimestamp == value.timestamp && latestTimestampIndex > index && items[latestTimestampIndex].id != value.id)
+        } else {
+            items.drop(index + 1).any { it.id != value.id }
+        }
+        if (superseded) value.copy(
+            title = "No longer active",
+            state = "complete",
+            completedAt = latestTimestamp
+        ) else value
+    }
+}
+
+internal fun activePendingAction(items: List<ConversationItem>): ConversationItem? =
+    retireSupersededQuestions(items).lastOrNull {
+        it.kind in setOf("question", "approval") && it.state != "complete"
+    }
 
 private fun mergeConversationItem(first: ConversationItem, second: ConversationItem): ConversationItem {
     if (first.kind == "task_list" && second.kind == "task_list") {

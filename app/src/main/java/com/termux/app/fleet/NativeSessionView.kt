@@ -116,9 +116,7 @@ fun NativeSessionScreen(
     var dismissedActionId by rememberSaveable { mutableStateOf("") }
     var feedNearBottom by remember { mutableStateOf(true) }
     var viewerOpen by remember { mutableStateOf(false) }
-    val pendingAction = state.items.lastOrNull {
-        it.kind in setOf("question", "approval") && it.state != "complete"
-    }
+    val pendingAction = activePendingAction(state.items)
     LaunchedEffect(pendingAction?.id, feedNearBottom, viewerOpen, state.focusQuestionSerial) {
         if (pendingAction == null) {
             actionSheetId = ""

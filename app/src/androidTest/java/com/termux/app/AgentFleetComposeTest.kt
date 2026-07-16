@@ -172,6 +172,29 @@ class AgentFleetComposeTest {
     }
 
     @Test
+    fun staleQuestionDoesNotReplaceTheComposerWithAnActionPrompt() {
+        val newerTool = ConversationItem(
+            id = "tool-after-question", kind = "tool", timestamp = "2026-07-16T01:01:00Z", role = "assistant",
+            title = "Tool completed", text = "", detail = "", state = "complete", tool = "exec",
+            attachments = emptyList(), choices = emptyList()
+        )
+        val staleQuestion = ConversationItem(
+            id = "stale-question", kind = "question", timestamp = "2026-07-16T01:00:00Z", role = "assistant",
+            title = "Answer needed", text = "", detail = "", state = "pending", tool = "question",
+            attachments = emptyList(), choices = emptyList(), revision = "stale-revision",
+            questions = listOf(question("spec", "Do a SPEC first?"))
+        )
+        compose.setContent {
+            NativeStateFixture(NativeSessionUiState(
+                "Fixture", "gaming", "wtmux-main", adapter = "codex", connection = "Live",
+                items = listOf(newerTool, staleQuestion)
+            ))
+        }
+
+        compose.onAllNodes(hasTestTag("native-pending-action")).assertCountEquals(0)
+    }
+
+    @Test
     fun groupedToolsTasksAndDetailsExposeUsefulSemantics() {
         val tools = (1..10).map { index ->
             ConversationItem(

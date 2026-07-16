@@ -199,7 +199,7 @@ class NativeSessionController(
 
     fun showPendingQuestion() {
         if (!enabled) return
-        val pending = uiState.value.items.lastOrNull { it.kind == "question" && it.state != "complete" } ?: return
+        val pending = activePendingAction(uiState.value.items)?.takeIf { it.kind == "question" } ?: return
         applyViewMode(NativeViewMode.Native)
         uiState.value = uiState.value.copy(
             focusQuestionId = pending.id,
@@ -208,10 +208,8 @@ class NativeSessionController(
     }
 
     private fun updateComposerState() {
-        val pendingQuestion = uiState.value.items.lastOrNull { it.kind == "question" && it.state != "complete" }?.id.orEmpty()
-        val pendingAction = uiState.value.items.lastOrNull {
-            it.kind in setOf("question", "approval") && it.state != "complete"
-        }
+        val pendingAction = activePendingAction(uiState.value.items)
+        val pendingQuestion = pendingAction?.takeIf { it.kind == "question" }?.id.orEmpty()
         AgentFleetComposer.updateNativeState(composerTarget, uiState.value.interactionMode, pendingQuestion)
         val native = enabled && uiState.value.viewMode == NativeViewMode.Native
         activity.setAgentFleetNativeView(
@@ -226,9 +224,7 @@ class NativeSessionController(
         val previousMode = uiState.value.viewMode
         uiState.value = uiState.value.copy(viewMode = mode)
         val native = enabled && mode == NativeViewMode.Native
-        val hasPendingAction = uiState.value.items.any {
-            it.kind in setOf("question", "approval") && it.state != "complete"
-        }
+        val hasPendingAction = activePendingAction(uiState.value.items) != null
         composeView.visibility = if (native) View.VISIBLE else View.GONE
         activity.setAgentFleetNativeView(
             enabled,
