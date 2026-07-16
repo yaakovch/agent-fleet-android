@@ -9,6 +9,7 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
@@ -23,13 +24,16 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
@@ -40,13 +44,19 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.boundsInRoot
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
@@ -54,6 +64,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
+import androidx.compose.ui.zIndex
 import com.termux.app.fleet.AgentFleetContract
 import com.termux.app.fleet.AgentFleetComposer
 import com.termux.app.fleet.AndroidWorkspaceState
@@ -72,6 +83,7 @@ import com.termux.app.fleet.WorkspaceTerminalViewClient
 import com.termux.app.fleet.WorkspaceViewMode
 import com.termux.app.fleet.isFleetSessionAvailable
 import com.termux.app.fleet.workspacePanes
+import com.termux.app.fleet.workspacePaneChrome
 import com.termux.app.fleet.buildAgentFleetComposerText
 import com.termux.shared.terminal.TermuxTerminalSessionClientBase
 import com.termux.terminal.TerminalSession
@@ -112,7 +124,7 @@ fun DesktopWorkspaceScreen(
     state: AndroidWorkspaceState,
     broker: WorkspaceTerminalBroker,
     onStateChange: (AndroidWorkspaceState) -> Unit,
-    onMoreSession: (FleetSession) -> Unit,
+    onMoreSession: (FleetSession, String?) -> Unit,
     onRefresh: () -> Unit
 ) {
     var query by remember { mutableStateOf("") }
@@ -120,6 +132,29 @@ fun DesktopWorkspaceScreen(
     val filtered = sessions.filter { session ->
         query.isBlank() || listOf(session.name, session.project, session.tool, hosts[session.hostId]?.name.orEmpty())
             .any { it.contains(query.trim(), ignoreCase = true) }
+    }
+    val panes = workspacePanes(state.layout.root)
+    val focusedPane = panes.firstOrNull { it.id == state.layout.focusedPaneId } ?: panes.first()
+    val focusedSession = focusedPane.sessionId?.let { id ->
+        sessions.firstOrNull { it.id == id } ?: snapshot?.sessions?.firstOrNull { it.id == id }
+    }
+    val focusedAvailable = focusedSession != null && snapshot?.let { isFleetSessionAvailable(it, focusedSession) } == true
+    val focusedBinding = focusedSession?.let { broker.state(it.id).value }
+    val focusedChrome = workspacePaneChrome(
+        focusedPane, focusedSession, focusedAvailable,
+        focusedBinding?.status ?: "connecting", focusedBinding?.message ?: "Opening session…"
+    )
+    val paneNumbers = panes.mapIndexed { index, pane -> pane.id to index + 1 }.toMap()
+    val paneBounds = remember { mutableStateMapOf<String, Rect>() }
+    var draggedPaneId by remember { mutableStateOf<String?>(null) }
+    var dragPointer by remember { mutableStateOf<Offset?>(null) }
+    var emptyPaneMenu by remember(focusedPane.id) { mutableStateOf(false) }
+    val dragTargetPaneId = dragPointer?.let { pointer ->
+        paneBounds.entries.firstOrNull { it.value.contains(pointer) }?.key
+    }
+    val closePane: (String) -> Unit = { paneId ->
+        workspacePanes(state.layout.root).firstOrNull { it.id == paneId }?.sessionId?.let(broker::detach)
+        onStateChange(state.copy(layout = WorkspaceReducer.close(state.layout, paneId)))
     }
 
     LaunchedEffect(snapshot?.revision, state.layout) {
@@ -204,7 +239,7 @@ fun DesktopWorkspaceScreen(
                                                 maxLines = 1
                                             )
                                         }
-                                        TextButton(onClick = { onMoreSession(session) }) { Text("•••") }
+                                        TextButton(onClick = { onMoreSession(session, null) }) { Text("•••") }
                                     }
                                     Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                                         TextButton(enabled = available, onClick = {
@@ -240,7 +275,47 @@ fun DesktopWorkspaceScreen(
                 horizontalArrangement = Arrangement.spacedBy(6.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Text("Workspace", fontSize = 20.sp, fontWeight = FontWeight.Bold)
+                WorkspaceFocusedIdentity(
+                    number = paneNumbers[focusedPane.id] ?: 1,
+                    title = focusedChrome.title,
+                    context = focusedChrome.context,
+                    status = focusedChrome.status
+                )
+                OutlinedButton(
+                    enabled = focusedChrome.nativeEnabled,
+                    onClick = { onStateChange(state.copy(layout = WorkspaceReducer.setView(state.layout, focusedPane.id, WorkspaceViewMode.Native))) },
+                    modifier = Modifier.testTag("workspace-mode-native")
+                ) { Text("Native") }
+                OutlinedButton(
+                    enabled = focusedChrome.terminalEnabled,
+                    onClick = { onStateChange(state.copy(layout = WorkspaceReducer.setView(state.layout, focusedPane.id, WorkspaceViewMode.Terminal))) },
+                    modifier = Modifier.testTag("workspace-mode-terminal")
+                ) { Text("Terminal") }
+                Box(Modifier.width(72.dp)) {
+                    if (focusedChrome.retryVisible && focusedSession != null) OutlinedButton(
+                        onClick = { broker.attach(focusedSession) },
+                        modifier = Modifier.testTag("workspace-retry")
+                    ) { Text("Retry") }
+                }
+                Box {
+                    TextButton(
+                        onClick = {
+                            if (focusedSession != null) onMoreSession(focusedSession, focusedPane.id)
+                            else emptyPaneMenu = true
+                        },
+                        modifier = Modifier.testTag("workspace-more")
+                    ) { Text("•••") }
+                }
+                OutlinedButton(
+                    enabled = panes.size < 4,
+                    onClick = { onStateChange(state.copy(layout = WorkspaceReducer.split(state.layout, focusedPane.id, WorkspaceDirection.Row))) },
+                    modifier = Modifier.testTag("workspace-split-right")
+                ) { Text("Split →") }
+                OutlinedButton(
+                    enabled = panes.size < 4,
+                    onClick = { onStateChange(state.copy(layout = WorkspaceReducer.split(state.layout, focusedPane.id, WorkspaceDirection.Column))) },
+                    modifier = Modifier.testTag("workspace-split-down")
+                ) { Text("Split ↓") }
                 WorkspacePreset.values().forEach { preset ->
                     OutlinedButton(onClick = {
                         val old = workspacePanes(state.layout.root).mapNotNull { it.sessionId }.toSet()
@@ -251,6 +326,15 @@ fun DesktopWorkspaceScreen(
                     }) { Text(presetLabel(preset)) }
                 }
             }
+            if (emptyPaneMenu) AlertDialog(
+                onDismissRequest = { emptyPaneMenu = false },
+                title = { Text("Empty pane") },
+                text = { Text("Close this pane and keep every session running?") },
+                confirmButton = {
+                    TextButton(onClick = { emptyPaneMenu = false; closePane(focusedPane.id) }) { Text("Close pane") }
+                },
+                dismissButton = { TextButton(onClick = { emptyPaneMenu = false }) { Text("Cancel") } }
+            )
             WorkspaceTree(
                 node = state.layout.root,
                 focusedPaneId = state.layout.focusedPaneId,
@@ -258,13 +342,23 @@ fun DesktopWorkspaceScreen(
                 sessions = sessions,
                 broker = broker,
                 modifier = Modifier.weight(1f),
+                paneNumbers = paneNumbers,
+                dragTargetPaneId = dragTargetPaneId,
+                onPaneBounds = { pane, bounds -> paneBounds[pane] = bounds },
+                onPaneDragStart = { pane, pointer -> draggedPaneId = pane; dragPointer = pointer },
+                onPaneDrag = { pointer -> dragPointer = pointer },
+                onPaneDragEnd = {
+                    val source = draggedPaneId
+                    val target = dragPointer?.let { pointer -> paneBounds.entries.firstOrNull { it.value.contains(pointer) }?.key }
+                    if (source != null && target != null && source != target) {
+                        onStateChange(state.copy(layout = WorkspaceReducer.swap(state.layout, source, target)))
+                    }
+                    draggedPaneId = null
+                    dragPointer = null
+                },
                 onFocus = { onStateChange(state.copy(layout = WorkspaceReducer.focus(state.layout, it))) },
                 onView = { pane, mode -> onStateChange(state.copy(layout = WorkspaceReducer.setView(state.layout, pane, mode))) },
-                onSplit = { pane, direction -> onStateChange(state.copy(layout = WorkspaceReducer.split(state.layout, pane, direction))) },
-                onClose = { pane ->
-                    workspacePanes(state.layout.root).firstOrNull { it.id == pane }?.sessionId?.let(broker::detach)
-                    onStateChange(state.copy(layout = WorkspaceReducer.close(state.layout, pane)))
-                },
+                onClose = closePane,
                 onResize = { split, ratio -> onStateChange(state.copy(layout = WorkspaceReducer.resize(state.layout, split, ratio))) }
             )
         }
@@ -279,27 +373,33 @@ private fun WorkspaceTree(
     sessions: List<FleetSession>,
     broker: WorkspaceTerminalBroker,
     modifier: Modifier,
+    paneNumbers: Map<String, Int>,
+    dragTargetPaneId: String?,
+    onPaneBounds: (String, Rect) -> Unit,
+    onPaneDragStart: (String, Offset) -> Unit,
+    onPaneDrag: (Offset) -> Unit,
+    onPaneDragEnd: () -> Unit,
     onFocus: (String) -> Unit,
     onView: (String, WorkspaceViewMode) -> Unit,
-    onSplit: (String, WorkspaceDirection) -> Unit,
     onClose: (String) -> Unit,
     onResize: (String, Float) -> Unit
 ) {
     when (node) {
         is WorkspacePane -> WorkspacePaneView(
-            node, node.id == focusedPaneId, snapshot, sessions, broker, modifier,
-            onFocus, onView, onSplit, onClose
+            node, paneNumbers[node.id] ?: 1, node.id == focusedPaneId, node.id == dragTargetPaneId,
+            snapshot, sessions, broker, modifier, onPaneBounds, onPaneDragStart, onPaneDrag, onPaneDragEnd,
+            onFocus, onView, onClose
         )
         is WorkspaceSplit -> {
             val horizontal = node.direction == WorkspaceDirection.Row
             if (horizontal) Row(modifier) {
-                WorkspaceTree(node.first, focusedPaneId, snapshot, sessions, broker, Modifier.weight(node.ratio).fillMaxHeight(), onFocus, onView, onSplit, onClose, onResize)
+                WorkspaceTree(node.first, focusedPaneId, snapshot, sessions, broker, Modifier.weight(node.ratio).fillMaxHeight(), paneNumbers, dragTargetPaneId, onPaneBounds, onPaneDragStart, onPaneDrag, onPaneDragEnd, onFocus, onView, onClose, onResize)
                 SplitHandle(node, horizontal = true, onResize)
-                WorkspaceTree(node.second, focusedPaneId, snapshot, sessions, broker, Modifier.weight(1f - node.ratio).fillMaxHeight(), onFocus, onView, onSplit, onClose, onResize)
+                WorkspaceTree(node.second, focusedPaneId, snapshot, sessions, broker, Modifier.weight(1f - node.ratio).fillMaxHeight(), paneNumbers, dragTargetPaneId, onPaneBounds, onPaneDragStart, onPaneDrag, onPaneDragEnd, onFocus, onView, onClose, onResize)
             } else Column(modifier) {
-                WorkspaceTree(node.first, focusedPaneId, snapshot, sessions, broker, Modifier.weight(node.ratio).fillMaxWidth(), onFocus, onView, onSplit, onClose, onResize)
+                WorkspaceTree(node.first, focusedPaneId, snapshot, sessions, broker, Modifier.weight(node.ratio).fillMaxWidth(), paneNumbers, dragTargetPaneId, onPaneBounds, onPaneDragStart, onPaneDrag, onPaneDragEnd, onFocus, onView, onClose, onResize)
                 SplitHandle(node, horizontal = false, onResize)
-                WorkspaceTree(node.second, focusedPaneId, snapshot, sessions, broker, Modifier.weight(1f - node.ratio).fillMaxWidth(), onFocus, onView, onSplit, onClose, onResize)
+                WorkspaceTree(node.second, focusedPaneId, snapshot, sessions, broker, Modifier.weight(1f - node.ratio).fillMaxWidth(), paneNumbers, dragTargetPaneId, onPaneBounds, onPaneDragStart, onPaneDrag, onPaneDragEnd, onFocus, onView, onClose, onResize)
             }
         }
     }
@@ -321,44 +421,56 @@ private fun SplitHandle(split: WorkspaceSplit, horizontal: Boolean, onResize: (S
 @Composable
 private fun WorkspacePaneView(
     pane: WorkspacePane,
+    number: Int,
     focused: Boolean,
+    dragTarget: Boolean,
     snapshot: FleetSnapshot?,
     sessions: List<FleetSession>,
     broker: WorkspaceTerminalBroker,
     modifier: Modifier,
+    onPaneBounds: (String, Rect) -> Unit,
+    onPaneDragStart: (String, Offset) -> Unit,
+    onPaneDrag: (Offset) -> Unit,
+    onPaneDragEnd: () -> Unit,
     onFocus: (String) -> Unit,
     onView: (String, WorkspaceViewMode) -> Unit,
-    onSplit: (String, WorkspaceDirection) -> Unit,
     onClose: (String) -> Unit
 ) {
     val session = pane.sessionId?.let { id -> sessions.firstOrNull { it.id == id } ?: snapshot?.sessions?.firstOrNull { it.id == id } }
     val available = session != null && snapshot?.let { isFleetSessionAvailable(it, session) } == true
+    val binding = session?.let { broker.state(it.id).value }
+    val chrome = workspacePaneChrome(
+        pane, session, available, binding?.status ?: "connecting", binding?.message ?: "Opening session…"
+    )
+    val borderColor = when {
+        dragTarget -> MaterialTheme.colorScheme.tertiary
+        focused -> MaterialTheme.colorScheme.primary
+        else -> MaterialTheme.colorScheme.outlineVariant
+    }
     Surface(
         modifier = modifier
             .padding(2.dp)
-            .border(if (focused) 2.dp else 1.dp, if (focused) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(12.dp))
+            .onGloballyPositioned { onPaneBounds(pane.id, it.boundsInRoot()) }
+            .pointerInput(pane.id, focused) {
+                if (!focused) awaitPointerEventScope {
+                    while (true) {
+                        val event = awaitPointerEvent(PointerEventPass.Initial)
+                        if (event.changes.any { !it.previousPressed && it.pressed }) onFocus(pane.id)
+                    }
+                }
+            }
+            .border(if (focused || dragTarget) 2.dp else 1.dp, borderColor, RoundedCornerShape(12.dp))
             .testTag("workspace-pane-${pane.id}"),
         shape = RoundedCornerShape(12.dp),
         color = MaterialTheme.colorScheme.surface
     ) {
-        Column(Modifier.fillMaxSize()) {
-            Row(
-                Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 5.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(4.dp)
-            ) {
-                TextButton(onClick = { onFocus(pane.id) }, modifier = Modifier.weight(1f)) {
-                    Text(session?.name ?: "Empty pane", maxLines = 1, overflow = TextOverflow.Ellipsis)
-                }
-                TextButton(enabled = available, onClick = { onView(pane.id, WorkspaceViewMode.Native) }) { Text("Native") }
-                TextButton(enabled = available, onClick = { onView(pane.id, WorkspaceViewMode.Terminal) }) { Text("Terminal") }
-                TextButton(onClick = { onSplit(pane.id, WorkspaceDirection.Row) }) { Text("↔") }
-                TextButton(onClick = { onSplit(pane.id, WorkspaceDirection.Column) }) { Text("↕") }
-                TextButton(onClick = { onClose(pane.id) }) { Text("×") }
-            }
+        Box(Modifier.fillMaxSize()) {
             when {
                 session == null -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                    Text("Choose a session from the rail", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text(
+                        if (pane.sessionId == null) "Choose a session from the rail" else "Opening session…",
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
                 }
                 !available -> Box(Modifier.fillMaxSize().padding(20.dp), contentAlignment = Alignment.Center) {
                     Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -366,17 +478,117 @@ private fun WorkspacePaneView(
                         Text("This last-known session will reconnect or become ended after the host returns.", color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                 }
-                pane.viewMode == WorkspaceViewMode.Terminal -> EmbeddedTerminal(session, broker, Modifier.weight(1f).fillMaxWidth())
+                chrome.opening -> Box(Modifier.fillMaxSize().padding(top = 36.dp), contentAlignment = Alignment.Center) {
+                    Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Text("Opening session…", fontSize = 19.sp, fontWeight = FontWeight.Bold)
+                        Text(binding?.message ?: "Preparing local attachment", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                }
+                binding?.status == "error" -> Box(Modifier.fillMaxSize().padding(top = 36.dp), contentAlignment = Alignment.Center) {
+                    Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Text("Local attachment unavailable", fontSize = 19.sp, fontWeight = FontWeight.Bold)
+                        Text(binding.message, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text("Use Retry in the focused-pane toolbar.", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                }
+                pane.viewMode == WorkspaceViewMode.Terminal -> EmbeddedTerminal(
+                    session, broker, Modifier.fillMaxSize().padding(top = 36.dp)
+                )
                 else -> EmbeddedNative(
                     session,
                     broker,
-                    Modifier.weight(1f).fillMaxWidth(),
+                    Modifier.fillMaxSize().padding(top = 36.dp),
                     onTerminal = { onView(pane.id, WorkspaceViewMode.Terminal) },
                     onClose = { onClose(pane.id) }
                 )
             }
+            WorkspacePaneTitleChip(
+                pane = pane,
+                number = number,
+                title = chrome.title,
+                status = chrome.status,
+                modeBadge = chrome.modeBadge,
+                focused = focused,
+                modifier = Modifier.align(Alignment.TopStart).padding(start = 6.dp, top = 5.dp).zIndex(2f),
+                onFocus = onFocus,
+                onDragStart = onPaneDragStart,
+                onDrag = onPaneDrag,
+                onDragEnd = onPaneDragEnd
+            )
         }
     }
+}
+
+@Composable
+private fun WorkspacePaneTitleChip(
+    pane: WorkspacePane,
+    number: Int,
+    title: String,
+    status: String,
+    modeBadge: String,
+    focused: Boolean,
+    modifier: Modifier,
+    onFocus: (String) -> Unit,
+    onDragStart: (String, Offset) -> Unit,
+    onDrag: (Offset) -> Unit,
+    onDragEnd: () -> Unit
+) {
+    var origin by remember(pane.id) { mutableStateOf(Offset.Zero) }
+    OutlinedButton(
+        onClick = { onFocus(pane.id) },
+        modifier = modifier
+            .widthIn(min = 112.dp, max = 300.dp)
+            .height(31.dp)
+            .onGloballyPositioned { origin = it.localToRoot(Offset.Zero) }
+            .pointerInput(pane.id) {
+                detectDragGestures(
+                    onDragStart = { onDragStart(pane.id, origin + it) },
+                    onDragEnd = onDragEnd,
+                    onDragCancel = onDragEnd
+                ) { change, _ ->
+                    change.consume()
+                    onDrag(origin + change.position)
+                }
+            }
+            .testTag("workspace-pane-chip-${pane.id}"),
+        border = BorderStroke(1.dp, if (focused) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline),
+        shape = RoundedCornerShape(9.dp),
+        contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 6.dp, vertical = 2.dp)
+    ) {
+        Text(number.toString(), fontSize = 10.sp, fontWeight = FontWeight.Black)
+        Spacer(Modifier.width(5.dp))
+        WorkspaceStatusDot(status)
+        Spacer(Modifier.width(5.dp))
+        Text(title, modifier = Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis, fontSize = 11.sp)
+        Text(modeBadge, fontSize = 10.sp, fontWeight = FontWeight.Black)
+    }
+}
+
+@Composable
+private fun WorkspaceFocusedIdentity(number: Int, title: String, context: String, status: String) {
+    Row(
+        Modifier.widthIn(min = 170.dp, max = 310.dp).testTag("workspace-focused-identity"),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(7.dp)
+    ) {
+        Text(number.toString(), fontSize = 12.sp, fontWeight = FontWeight.Black, color = MaterialTheme.colorScheme.primary)
+        WorkspaceStatusDot(status)
+        Column(Modifier.weight(1f)) {
+            Text(title, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text(context, fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        }
+    }
+}
+
+@Composable
+private fun WorkspaceStatusDot(status: String) {
+    val color = when (status) {
+        "live" -> Color(0xFF51D5AA)
+        "connecting", "reconnecting" -> Color(0xFFFFC65C)
+        "offline", "ended", "error" -> MaterialTheme.colorScheme.error
+        else -> MaterialTheme.colorScheme.outline
+    }
+    Box(Modifier.size(8.dp).background(color, CircleShape))
 }
 
 @Composable
@@ -470,7 +682,7 @@ private fun EmbeddedNative(
                     }
                     override fun closeAgentFleetSessionTab() { broker.detach(session.id); onClose() }
                 }
-                controller = NativeSessionController(host, composeView).also { native ->
+                controller = NativeSessionController(host, composeView, showChrome = false).also { native ->
                     native.bind(Intent().apply {
                         putExtra(AgentFleetContract.EXTRA_COMPOSE_INPUT, session.tool in setOf("codex", "claude", "copilot"))
                         putExtra(AgentFleetContract.EXTRA_NATIVE_SESSION, true)

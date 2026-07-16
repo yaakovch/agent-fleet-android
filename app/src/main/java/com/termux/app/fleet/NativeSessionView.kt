@@ -108,7 +108,8 @@ fun NativeSessionScreen(
     onDismissAttention: () -> Unit,
     onComposerText: (String, Boolean) -> Boolean = { _, _ -> false },
     onAttach: () -> Unit = {},
-    inlineComposer: Boolean = false
+    inlineComposer: Boolean = false,
+    showChrome: Boolean = true
 ) {
     var actionMenu by rememberSaveable { mutableStateOf(false) }
     var confirmKill by rememberSaveable { mutableStateOf(false) }
@@ -132,7 +133,7 @@ fun NativeSessionScreen(
         modifier = Modifier.fillMaxSize().testTag("native-session-screen"),
         containerColor = MaterialTheme.colorScheme.background,
         topBar = {
-            TopAppBar(
+            if (showChrome) TopAppBar(
                 title = {
                     Column {
                         Text(state.sessionLabel, fontSize = 20.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)

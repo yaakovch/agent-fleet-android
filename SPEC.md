@@ -249,6 +249,19 @@ trusted fleet.
   visible, and alternate-screen detection continues to switch safely to the
   terminal without waiting for a conversation stream.
 
+## Focused-Pane Desktop Chrome
+
+- Desktop/DeX replaces repeated pane headers and embedded Native top bars with
+  one shared focused-pane toolbar. It contains identity, Native/Terminal,
+  conditional Retry, and More; Detach/Close acts on the focused pane.
+- Every pane retains a compact draggable chip with pane number, status, title,
+  and N/T badge. Tapping anywhere focuses the pane, while dragging its chip
+  swaps the complete session assignment and view mode.
+- Empty and opening panes keep stable disabled controls and Close in More.
+  Terminal and embedded Native content reserve only the chip clearance.
+- The compact phone presentation keeps its existing fullscreen Native and
+  Terminal controls because it has no multi-pane workspace chrome.
+
 ## Native Structured Work And Interaction Reliability
 
 - Consume additive `task_list` and `plan` records from wtmux. One stable task

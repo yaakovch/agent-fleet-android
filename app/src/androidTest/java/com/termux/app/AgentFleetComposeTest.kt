@@ -12,6 +12,7 @@ import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.performScrollToNode
 import androidx.compose.ui.test.performTextInput
+import androidx.compose.ui.test.performTouchInput
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.termux.app.fleet.AgentFleetDiagnosticCheck
 import com.termux.app.fleet.AgentFleetDiagnosticReport
@@ -41,7 +42,10 @@ import com.termux.app.fleet.ToolPresentationBlock
 import com.termux.app.fleet.UpdateUiState
 import com.termux.app.fleet.AndroidWorkspaceState
 import com.termux.app.fleet.WorkspaceTerminalBroker
+import com.termux.app.fleet.WorkspacePreset
+import com.termux.app.fleet.WorkspaceReducer
 import com.termux.app.fleet.emptyWorkspaceLayout
+import com.termux.app.fleet.workspacePanes
 import androidx.test.core.app.ApplicationProvider
 import java.util.concurrent.atomic.AtomicInteger
 import androidx.compose.runtime.mutableStateOf
@@ -91,7 +95,7 @@ class AgentFleetComposeTest {
                     state = state.value,
                     broker = broker,
                     onStateChange = { state.value = it },
-                    onMoreSession = {},
+                    onMoreSession = { _, _ -> },
                     onRefresh = {}
                 )
             }
@@ -102,6 +106,79 @@ class AgentFleetComposeTest {
             assertEquals(session.id, com.termux.app.fleet.workspacePanes(state.value.layout.root).single().sessionId)
         }
         compose.onNodeWithTag("workspace-pane-${state.value.layout.focusedPaneId}").assertIsDisplayed()
+        compose.onAllNodes(hasTestTag("workspace-mode-native")).assertCountEquals(1)
+        compose.onAllNodes(hasTestTag("workspace-mode-terminal")).assertCountEquals(1)
+        compose.onAllNodes(hasTestTag("workspace-more")).assertCountEquals(1)
+        broker.close()
+    }
+
+    @Test
+    fun wideWorkspaceUsesOneControlSetAndAChipForEveryPane() {
+        val layout = WorkspaceReducer.preset(emptyWorkspaceLayout(), WorkspacePreset.Grid)
+        val state = mutableStateOf(AndroidWorkspaceState(layout))
+        val broker = WorkspaceTerminalBroker(ApplicationProvider.getApplicationContext())
+        compose.setContent {
+            AgentFleetTheme(darkTheme = true) {
+                DesktopWorkspaceScreen(
+                    snapshot = snapshot,
+                    sessions = snapshot.sessions,
+                    state = state.value,
+                    broker = broker,
+                    onStateChange = { state.value = it },
+                    onMoreSession = { _, _ -> },
+                    onRefresh = {}
+                )
+            }
+        }
+        compose.onAllNodes(hasTestTag("workspace-mode-native")).assertCountEquals(1)
+        compose.onAllNodes(hasTestTag("workspace-mode-terminal")).assertCountEquals(1)
+        compose.onAllNodes(hasTestTag("workspace-more")).assertCountEquals(1)
+        workspacePanes(state.value.layout.root).forEach { pane ->
+            compose.onNodeWithTag("workspace-pane-chip-${pane.id}").assertIsDisplayed()
+        }
+        val second = workspacePanes(state.value.layout.root)[1]
+        compose.onNodeWithTag("workspace-pane-chip-${second.id}").performClick()
+        compose.runOnIdle { assertEquals(second.id, state.value.layout.focusedPaneId) }
+        compose.onNodeWithTag("workspace-more").performScrollTo().performClick()
+        compose.onNodeWithText("Close pane").performClick()
+        compose.runOnIdle { assertEquals(3, workspacePanes(state.value.layout.root).size) }
+        broker.close()
+    }
+
+    @Test
+    fun wideWorkspaceDragsTitleChipToSwapPaneAssignments() {
+        var layout = WorkspaceReducer.preset(emptyWorkspaceLayout(), WorkspacePreset.TwoColumns)
+        val initial = workspacePanes(layout.root)
+        layout = WorkspaceReducer.assign(layout, initial[0].id, session.id)
+        layout = WorkspaceReducer.assign(layout, initial[1].id, "work-m:pending")
+        val state = mutableStateOf(AndroidWorkspaceState(layout, railCollapsed = true))
+        val broker = WorkspaceTerminalBroker(ApplicationProvider.getApplicationContext())
+        compose.setContent {
+            AgentFleetTheme(darkTheme = true) {
+                DesktopWorkspaceScreen(
+                    snapshot = snapshot,
+                    sessions = snapshot.sessions,
+                    state = state.value,
+                    broker = broker,
+                    onStateChange = { state.value = it },
+                    onMoreSession = { _, _ -> },
+                    onRefresh = {}
+                )
+            }
+        }
+        val panes = workspacePanes(state.value.layout.root)
+        val source = compose.onNodeWithTag("workspace-pane-chip-${panes[0].id}")
+        val sourceCenter = source.fetchSemanticsNode().boundsInRoot.center
+        val targetCenter = compose.onNodeWithTag("workspace-pane-chip-${panes[1].id}").fetchSemanticsNode().boundsInRoot.center
+        source.performTouchInput {
+            down(center)
+            moveBy(targetCenter - sourceCenter)
+            up()
+        }
+        compose.runOnIdle {
+            assertEquals(listOf("work-m:pending", session.id), workspacePanes(state.value.layout.root).map { it.sessionId })
+            assertEquals(panes[1].id, state.value.layout.focusedPaneId)
+        }
         broker.close()
     }
 

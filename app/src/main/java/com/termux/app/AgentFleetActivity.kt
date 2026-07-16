@@ -115,8 +115,10 @@ import com.termux.app.fleet.AndroidWorkspaceStore
 import com.termux.app.fleet.isFleetSessionAvailable
 import com.termux.app.fleet.WorkspacePresentationMode
 import com.termux.app.fleet.WorkspacePresentationStore
+import com.termux.app.fleet.WorkspaceReducer
 import com.termux.app.fleet.WorkspaceTerminalBroker
 import com.termux.app.fleet.isDesktopPresentation
+import com.termux.app.fleet.workspacePanes
 import java.io.File
 import java.util.concurrent.Executors
 import java.util.concurrent.ConcurrentHashMap
@@ -819,6 +821,7 @@ fun AgentFleetApp(
     }
     var section by rememberSaveable { mutableStateOf(FleetSection.Sessions) }
     var actionSession by rememberSaveable { mutableStateOf<String?>(null) }
+    var actionPane by rememberSaveable { mutableStateOf<String?>(null) }
     var renameSession by rememberSaveable { mutableStateOf<String?>(null) }
     var scheduleSession by rememberSaveable { mutableStateOf<String?>(null) }
     var killSession by rememberSaveable { mutableStateOf<String?>(null) }
@@ -833,6 +836,7 @@ fun AgentFleetApp(
         if (requested != null && handledInitialAction != initialActionSerial && currentSnapshot?.sessions?.any { it.id == requested } == true) {
             section = FleetSection.Sessions
             actionSession = requested
+            actionPane = null
             handledInitialAction = initialActionSerial
         }
     }
@@ -860,6 +864,7 @@ fun AgentFleetApp(
         )
         workspaceStore.save(workspaceState)
         actionSession = null
+        actionPane = null
     }
     LaunchedEffect(pendingPairInvitation) {
         if (pendingPairInvitation != null) showPairing = true
@@ -892,7 +897,7 @@ fun AgentFleetApp(
                             state = workspaceState,
                             broker = workspaceTerminalBroker!!,
                             onStateChange = { updated -> workspaceState = updated; workspaceStore.save(updated) },
-                            onMoreSession = { actionSession = it.id },
+                            onMoreSession = { session, pane -> actionSession = session.id; actionPane = pane },
                             onRefresh = onRefresh
                         )
                         FleetSection.Limits -> LimitsScreen(PaddingValues(0.dp), fleetState, onScheduleAttention, onDismissAttention)
@@ -934,7 +939,7 @@ fun AgentFleetApp(
         }
     ) { padding ->
         when (section) {
-            FleetSection.Sessions -> SessionsScreen(padding, fleetState, visibleSessions, localAttachments, onRefresh, onOpenSession, { actionSession = it.id }, { showCreateSession = true }, { showPairing = true }, onOpenClassicTerminal)
+            FleetSection.Sessions -> SessionsScreen(padding, fleetState, visibleSessions, localAttachments, onRefresh, onOpenSession, { actionSession = it.id; actionPane = null }, { showCreateSession = true }, { showPairing = true }, onOpenClassicTerminal)
             FleetSection.Terminal -> TerminalScreen(padding, recentSessions, onOpenSession, onOpenClassicTerminal, onOpenAppearance)
             FleetSection.Limits -> LimitsScreen(padding, fleetState, onScheduleAttention, onDismissAttention)
             FleetSection.More -> MoreScreen(
@@ -964,14 +969,25 @@ fun AgentFleetApp(
         SessionActionsDialog(
             session = session,
             available = available,
-            onDismiss = { actionSession = null },
-            onOpen = { actionSession = null; onOpenSession(session) },
-            onRename = { actionSession = null; renameSession = session.id },
-            onSchedule = { actionSession = null; scheduleSession = session.id },
-            onDownload = { actionSession = null; repositorySession = session.id },
-            onCopy = { actionSession = null; onCopyAttachCommand(session) },
-            onKill = { actionSession = null; killSession = session.id },
-            onHide = { hideUnavailable(session) }
+            onDismiss = { actionSession = null; actionPane = null },
+            onOpen = { actionSession = null; actionPane = null; onOpenSession(session) },
+            onRename = { actionSession = null; actionPane = null; renameSession = session.id },
+            onSchedule = { actionSession = null; actionPane = null; scheduleSession = session.id },
+            onDownload = { actionSession = null; actionPane = null; repositorySession = session.id },
+            onCopy = { actionSession = null; actionPane = null; onCopyAttachCommand(session) },
+            onKill = { actionSession = null; actionPane = null; killSession = session.id },
+            onHide = { hideUnavailable(session) },
+            onDetach = actionPane?.takeIf { pane ->
+                workspacePanes(workspaceState.layout.root).any { it.id == pane && it.sessionId == session.id }
+            }?.let { pane ->
+                {
+                    workspaceTerminalBroker?.detach(session.id)
+                    workspaceState = workspaceState.copy(layout = WorkspaceReducer.close(workspaceState.layout, pane))
+                    workspaceStore.save(workspaceState)
+                    actionSession = null
+                    actionPane = null
+                }
+            }
         )
     }
     sessionsById[repositorySession]?.let { session ->
@@ -1214,7 +1230,8 @@ private fun SessionActionsDialog(
     onDownload: () -> Unit,
     onCopy: () -> Unit,
     onKill: () -> Unit,
-    onHide: () -> Unit
+    onHide: () -> Unit,
+    onDetach: (() -> Unit)? = null
 ) {
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -1230,6 +1247,7 @@ private fun SessionActionsDialog(
                 DialogAction("Schedule Continue", onSchedule, enabled = available)
                 DialogAction("Download a file", onDownload, enabled = available)
                 DialogAction("Copy attach command", onCopy)
+                if (onDetach != null) DialogAction("Detach from pane", onDetach)
                 if (available) DialogAction("Stop session…", onKill, WarningAmber)
                 else DialogAction("Remove from this device", onHide, WarningAmber)
             }

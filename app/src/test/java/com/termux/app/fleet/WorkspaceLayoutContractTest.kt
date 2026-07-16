@@ -27,8 +27,11 @@ class WorkspaceLayoutContractTest {
         layout = WorkspaceReducer.split(layout, first, WorkspaceDirection.Row)
         val second = layout.focusedPaneId
         layout = WorkspaceReducer.assign(layout, second, "host:two")
+        layout = WorkspaceReducer.swap(layout, first, second)
+        assertEquals(listOf("host:two", "host:one"), workspacePanes(layout.root).map { it.sessionId })
+        assertEquals(second, layout.focusedPaneId)
         layout = WorkspaceReducer.assign(layout, second, "host:one")
-        assertEquals(first, layout.focusedPaneId)
+        assertEquals(second, layout.focusedPaneId)
         assertEquals(1, workspacePanes(layout.root).count { it.sessionId == "host:one" })
         val split = layout.root as WorkspaceSplit
         layout = WorkspaceReducer.resize(layout, split.id, 9f)
@@ -37,6 +40,30 @@ class WorkspaceLayoutContractTest {
         assertEquals(4, workspacePanes(layout.root).size)
         layout = WorkspaceReducer.split(layout, layout.focusedPaneId, WorkspaceDirection.Row)
         assertEquals(4, workspacePanes(layout.root).size)
+    }
+
+    @Test
+    fun derivesStableFocusedPaneChromeForEmptyOpeningReadyAndUnavailableStates() {
+        val empty = WorkspacePane("pane-one")
+        assertEquals(
+            WorkspacePaneChrome("Empty pane", "Choose a session from the rail", "N", "empty", false, false, false, false, false),
+            workspacePaneChrome(empty, null, available = false)
+        )
+        val assigned = empty.copy(sessionId = "gaming:one")
+        assertTrue(workspacePaneChrome(assigned, null, available = false).opening)
+        val session = FleetSession(
+            "gaming:one", "gaming", "one", "One", "codex", "project", "codex", "linux",
+            "active", false, null, 0
+        )
+        val ready = workspacePaneChrome(assigned, session, available = true, "live", "Live")
+        assertTrue(ready.nativeEnabled)
+        assertTrue(ready.terminalEnabled)
+        assertEquals("N", ready.modeBadge)
+        val retry = workspacePaneChrome(assigned, session, available = true, "error", "Attachment failed")
+        assertTrue(retry.retryVisible)
+        assertTrue(!retry.nativeEnabled && !retry.terminalEnabled)
+        val unavailable = workspacePaneChrome(assigned, session, available = false, "offline", "Offline")
+        assertTrue(!unavailable.retryVisible && unavailable.hasSessionActions)
     }
 
     @Test

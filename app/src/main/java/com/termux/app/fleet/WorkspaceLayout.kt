@@ -114,6 +114,21 @@ object WorkspaceReducer {
         return layout.copy(root = resizeNode(layout.root))
     }
 
+    fun swap(layout: WorkspaceLayout, firstPaneId: String, secondPaneId: String): WorkspaceLayout {
+        if (firstPaneId == secondPaneId) return layout
+        val panes = workspacePanes(layout.root)
+        val first = panes.firstOrNull { it.id == firstPaneId } ?: return layout
+        val second = panes.firstOrNull { it.id == secondPaneId } ?: return layout
+        val root = mapNode(layout.root) { pane ->
+            when (pane.id) {
+                firstPaneId -> pane.copy(sessionId = second.sessionId, viewMode = second.viewMode)
+                secondPaneId -> pane.copy(sessionId = first.sessionId, viewMode = first.viewMode)
+                else -> pane
+            }
+        }
+        return layout.copy(root = root, focusedPaneId = secondPaneId)
+    }
+
     fun preset(layout: WorkspaceLayout, preset: WorkspacePreset): WorkspaceLayout {
         val focused = workspacePanes(layout.root).firstOrNull { it.id == layout.focusedPaneId }?.sessionId
         val sessions = (listOfNotNull(focused) + layout.sessionMru + workspacePanes(layout.root).mapNotNull { it.sessionId })

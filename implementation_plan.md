@@ -398,3 +398,28 @@ and embedded-runtime verification and was published for manual S23FE update.
   refresh emits exactly one notification and never reenters itself.
 - Add a focused Robolectric regression, run fast and full isolated API 36
   suites, and publish signed `.37`/1039 for manual in-app S23FE update.
+
+## Milestone 25: Focused-Pane Desktop Chrome
+
+- Replace Desktop/DeX pane rows with compact draggable title chips and one
+  focused toolbar containing identity, Native/Terminal, Retry, split/layout,
+  and More controls. Add Detach to the focused session action dialog.
+- Suppress the embedded Native top bar only inside multi-pane Desktop/DeX;
+  preserve the fullscreen phone UI and independent workspace persistence.
+- Add pure chrome/swap tests plus Compose coverage for one control set, one chip
+  per pane, focus, Close, and drag-to-swap. Run isolated API 36 fast/full suites
+  and signed-release verification for `.40`/1042 without automated S23FE use.
+
+Implementation record (2026-07-16): the pure reducer/chrome tests and 15-test
+fast Compose run passed, followed by the full isolated Pixel 7/API 36 suite at
+`build/reports/agent-fleet/emulator/20260716T163934Z-full` (20 instrumentation
+tests, one optional golden candidate skipped, zero failures). Embedded runtime
+verification passed for wtmux `git-fea7c08`, and the minified `.40`/1042
+production APK set built successfully with zero lint errors. The physical
+S23FE was not accessed. The signed arm64 and universal APKs passed checksum,
+certificate-continuity, version, and embedded-runtime verification and were
+published to the private update channel. The external HTTPS manifest and
+arm64 APK verified byte-for-byte with SHA-256
+`24856f2340c4bd6978db0307a01833fa0400248e385b57ba030cf5558a89d092`
+and `8d1476a65de9b80f7b80e1ae4091e14241dfa9a26dbdf24a565551ff6ccd367f`
+respectively.

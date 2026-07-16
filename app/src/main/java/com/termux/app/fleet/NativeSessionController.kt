@@ -29,9 +29,10 @@ interface NativeSessionHost {
     fun closeAgentFleetSessionTab()
 }
 
-class NativeSessionController(
+class NativeSessionController @JvmOverloads constructor(
     private val activity: NativeSessionHost,
-    private val composeView: ComposeView
+    private val composeView: ComposeView,
+    private val showChrome: Boolean = true
 ) {
     private companion object {
         const val HISTORY_PAGE_SIZE = 20
@@ -82,7 +83,8 @@ class NativeSessionController(
                     onDismissAttention = ::dismissAttention,
                     onComposerText = activity::sendAgentFleetComposerText,
                     onAttach = activity::pickAgentFleetImages,
-                    inlineComposer = activity.nativeInlineComposer
+                    inlineComposer = activity.nativeInlineComposer,
+                    showChrome = showChrome
                 )
             }
         }
