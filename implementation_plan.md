@@ -388,3 +388,13 @@ and embedded-runtime verification and was published for manual S23FE update.
   drawer isolation, image reuse, and pre-render cleanup in JVM and isolated API
   36 tests. Publish signed `.36`/1038 for manual in-app S23FE update without
   automated physical-device access.
+
+## Milestone 24: Classic Drawer Recursion Hotfix
+
+- Reproduce the S23FE `StackOverflowError` caused by the Classic drawer adapter
+  rebuilding itself through `ArrayAdapter.clear()` inside its overridden data
+  notification callback.
+- Rebuild the filtered session list through an adapter-owned backing list so a
+  refresh emits exactly one notification and never reenters itself.
+- Add a focused Robolectric regression, run fast and full isolated API 36
+  suites, and publish signed `.37`/1039 for manual in-app S23FE update.

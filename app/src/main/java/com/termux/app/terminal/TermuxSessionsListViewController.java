@@ -31,15 +31,21 @@ public class TermuxSessionsListViewController extends ArrayAdapter<TermuxSession
 
     final TermuxActivity mActivity;
     final List<TermuxSession> mAllSessions;
+    final List<TermuxSession> mVisibleSessions;
 
     final StyleSpan boldSpan = new StyleSpan(Typeface.BOLD);
     final StyleSpan italicSpan = new StyleSpan(Typeface.ITALIC);
 
     public TermuxSessionsListViewController(TermuxActivity activity, List<TermuxSession> sessionList) {
-        super(activity.getApplicationContext(), R.layout.item_terminal_sessions_list, new ArrayList<>());
+        this(activity, sessionList, new ArrayList<>());
+    }
+
+    private TermuxSessionsListViewController(TermuxActivity activity, List<TermuxSession> sessionList,
+                                             List<TermuxSession> visibleSessions) {
+        super(activity.getApplicationContext(), R.layout.item_terminal_sessions_list, visibleSessions);
         this.mActivity = activity;
         this.mAllSessions = sessionList;
-        setNotifyOnChange(false);
+        this.mVisibleSessions = visibleSessions;
         rebuildVisibleSessions();
     }
 
@@ -50,11 +56,11 @@ public class TermuxSessionsListViewController extends ArrayAdapter<TermuxSession
     }
 
     private void rebuildVisibleSessions() {
-        clear();
+        mVisibleSessions.clear();
         for (TermuxSession session : mAllSessions) {
             if (session.getExecutionCommand() == null ||
                 AgentFleetAttachmentPolicy.sessionId(session.getExecutionCommand().commandDescription) == null)
-                add(session);
+                mVisibleSessions.add(session);
         }
     }
 

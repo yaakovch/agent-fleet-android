@@ -47,8 +47,8 @@ The canonical local AVD is `AgentFleet_S23FE_API36`, configured as a Pixel 7 at
 
 ## Coverage
 
-JVM tests cover parsers, lifecycle decisions, diagnostic redaction, bounded
-journal rotation, and metadata-only archives. Compose instrumentation covers
+JVM tests cover parsers, lifecycle decisions, Classic drawer refresh safety,
+diagnostic redaction, bounded journal rotation, and metadata-only archives. Compose instrumentation covers
 Sessions and More, repository retry/download states, Native bottom-anchored
 conversation structures, grouped tools, task boards, active/stale limits, and
 one- and three-question Plan prompts with exactly-once submission.
