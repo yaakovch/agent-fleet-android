@@ -11,6 +11,7 @@ import android.widget.Toast
 import androidx.core.content.FileProvider
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
@@ -106,6 +107,8 @@ import com.termux.app.fleet.RuntimeUpdateResult
 import com.termux.app.fleet.supportsEmbeddedRuntime
 import com.termux.app.fleet.shouldInstallEmbeddedBaseline
 import com.termux.app.fleet.UpdateUiState
+import com.termux.app.migration.AgentFleetMigrationArchive
+import com.termux.app.migration.AgentFleetMigrationPeer
 import com.termux.app.fleet.AgentFleetDiagnosticJournal
 import com.termux.app.fleet.AgentFleetDiagnosticReport
 import com.termux.app.fleet.AgentFleetDiagnosticEvent
@@ -154,6 +157,26 @@ class AgentFleetActivity : ComponentActivity() {
     private lateinit var diagnosticJournal: AgentFleetDiagnosticJournal
     private lateinit var diagnosticsRunner: AgentFleetDiagnosticsRunner
     private lateinit var workspaceTerminalBroker: WorkspaceTerminalBroker
+    private val migrationLauncher = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
+        val uri = result.data?.data
+        if (result.resultCode != RESULT_OK || uri == null) return@registerForActivityResult
+        fileExecutor.submit {
+            runCatching { AgentFleetMigrationArchive.import(applicationContext, uri) }
+                .onSuccess { imported ->
+                    runOnUiThread {
+                        Toast.makeText(
+                            this,
+                            "Imported ${imported.preferenceStores} settings groups and ${imported.files} Fleet files. Restarting Agent Fleet…",
+                            Toast.LENGTH_LONG
+                        ).show()
+                        recreate()
+                    }
+                }
+                .onFailure { error ->
+                    runOnUiThread { Toast.makeText(this, error.message ?: "Migration import failed", Toast.LENGTH_LONG).show() }
+                }
+        }
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -224,18 +247,12 @@ class AgentFleetActivity : ComponentActivity() {
                     onOpenAppearance = {
                         startActivity(Intent(this, TerminalAppearanceActivity::class.java))
                     },
+                    onMigrateFleetState = ::migrateFleetState,
                     onRunDiagnostics = ::runDiagnostics,
                     onCopyDiagnostics = ::copyDiagnostics,
                     onExportDiagnostics = ::exportDiagnostics,
                     onCopyDiagnosticError = ::copyDiagnosticError,
                     onDiagnosticErrorHandled = { diagnosticError.value = null },
-                    onOpenClassicTerminal = {
-                        try {
-                            fleetRuntime.openLocalShell()
-                        } catch (error: Exception) {
-                            Toast.makeText(this, error.message, Toast.LENGTH_LONG).show()
-                        }
-                    },
                     workspaceTerminalBroker = workspaceTerminalBroker,
                     initialActionSession = focusedSession.value,
                     initialActionSerial = focusedSessionSerial.value
@@ -256,6 +273,12 @@ class AgentFleetActivity : ComponentActivity() {
             ::runtimeUpdateManager.isInitialized && !runtimeUi.value.busy && runtimeUi.value.status?.usable == true &&
             runtimeUpdateManager.shouldCheck()
         ) checkRuntimeUpdate(manual = false)
+    }
+
+    private fun migrateFleetState() {
+        runCatching { AgentFleetMigrationPeer.exportIntent(this) }
+            .onSuccess(migrationLauncher::launch)
+            .onFailure { Toast.makeText(this, it.message ?: "The other Agent Fleet app is unavailable", Toast.LENGTH_LONG).show() }
     }
 
     override fun onNewIntent(intent: Intent) {
@@ -805,12 +828,12 @@ fun AgentFleetApp(
     onRollbackRuntime: () -> Unit,
     onRestoreBaseline: () -> Unit,
     onOpenAppearance: () -> Unit,
+    onMigrateFleetState: () -> Unit,
     onRunDiagnostics: () -> Unit,
     onCopyDiagnostics: (AgentFleetDiagnosticReport) -> Unit,
     onExportDiagnostics: (AgentFleetDiagnosticReport) -> Unit,
     onCopyDiagnosticError: (AgentFleetDiagnosticEvent) -> Unit,
     onDiagnosticErrorHandled: () -> Unit,
-    onOpenClassicTerminal: () -> Unit,
     workspaceTerminalBroker: WorkspaceTerminalBroker? = null,
     initialActionSession: String? = null,
     initialActionSerial: Long = 0
@@ -905,7 +928,7 @@ fun AgentFleetApp(
                             PaddingValues(0.dp), fleetState, updateState, updateManifestUrl, runtimeUi,
                             { showPairing = true }, onCancelSchedule, onCheckUpdate, onInstallUpdate,
                             onRepairRuntime, onCheckRuntime, onRollbackRuntime, onRestoreBaseline,
-                            onOpenAppearance, { showDiagnostics = true }, presentationMode
+                            onOpenAppearance, onMigrateFleetState, { showDiagnostics = true }, presentationMode
                         ) { mode -> presentationMode = mode; presentationStore.save(mode) }
                     }
                 }
@@ -939,8 +962,8 @@ fun AgentFleetApp(
         }
     ) { padding ->
         when (section) {
-            FleetSection.Sessions -> SessionsScreen(padding, fleetState, visibleSessions, localAttachments, onRefresh, onOpenSession, { actionSession = it.id; actionPane = null }, { showCreateSession = true }, { showPairing = true }, onOpenClassicTerminal)
-            FleetSection.Terminal -> TerminalScreen(padding, recentSessions, onOpenSession, onOpenClassicTerminal, onOpenAppearance)
+            FleetSection.Sessions -> SessionsScreen(padding, fleetState, visibleSessions, localAttachments, onRefresh, onOpenSession, { actionSession = it.id; actionPane = null }, { showCreateSession = true }, { showPairing = true })
+            FleetSection.Terminal -> TerminalScreen(padding, recentSessions, onOpenSession, onOpenAppearance)
             FleetSection.Limits -> LimitsScreen(padding, fleetState, onScheduleAttention, onDismissAttention)
             FleetSection.More -> MoreScreen(
                 padding,
@@ -957,6 +980,7 @@ fun AgentFleetApp(
                 onRollbackRuntime,
                 onRestoreBaseline,
                 onOpenAppearance,
+                onMigrateFleetState,
                 { showDiagnostics = true },
                 presentationMode
             ) { mode -> presentationMode = mode; presentationStore.save(mode) }
@@ -1102,8 +1126,7 @@ private fun SessionsScreen(
     onOpenSession: (FleetSession) -> Unit,
     onMoreSession: (FleetSession) -> Unit,
     onNewSession: () -> Unit,
-    onPair: () -> Unit,
-    onOpenTerminal: () -> Unit
+    onPair: () -> Unit
 ) {
     var query by rememberSaveable { mutableStateOf("") }
     val snapshot = (fleetState as? FleetLoadState.Ready)?.snapshot
@@ -1141,7 +1164,7 @@ private fun SessionsScreen(
         when (fleetState) {
             FleetLoadState.Loading -> item { EmptyState("Refreshing fleet…") }
             is FleetLoadState.Unavailable -> item {
-                FleetUnavailableCard(fleetState.reason, onRefresh, onPair, onOpenTerminal)
+                FleetUnavailableCard(fleetState.reason, onRefresh, onPair)
             }
             is FleetLoadState.Ready -> {
                 if (filtered.isEmpty()) {
@@ -1700,7 +1723,7 @@ private fun SharedImagesSessionDialog(
 }
 
 @Composable
-private fun FleetUnavailableCard(reason: String, onRefresh: () -> Unit, onPair: () -> Unit, onOpenTerminal: () -> Unit) {
+private fun FleetUnavailableCard(reason: String, onRefresh: () -> Unit, onPair: () -> Unit) {
     Card(shape = RoundedCornerShape(20.dp), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)) {
         Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Text("Fleet is not connected", fontSize = 20.sp, fontWeight = FontWeight.Bold)
@@ -1709,7 +1732,6 @@ private fun FleetUnavailableCard(reason: String, onRefresh: () -> Unit, onPair: 
                 Button(onClick = onPair, shape = RoundedCornerShape(14.dp)) { Text("Pair", fontSize = 16.sp) }
                 OutlinedButton(onClick = onRefresh, shape = RoundedCornerShape(14.dp)) { Text("Retry", fontSize = 16.sp) }
             }
-            TextButton(onClick = onOpenTerminal) { Text("Open terminal for manual restore") }
         }
     }
 }
@@ -1719,7 +1741,6 @@ private fun TerminalScreen(
     padding: PaddingValues,
     recentSessions: List<FleetSession>,
     onOpenSession: (FleetSession) -> Unit,
-    onOpenClassicTerminal: () -> Unit,
     onOpenAppearance: () -> Unit
 ) {
     LazyColumn(
@@ -1730,12 +1751,7 @@ private fun TerminalScreen(
         item {
             Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 Text("Terminal", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
-                Text("Recent local and fleet tabs", fontSize = 16.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                Button(
-                    onClick = onOpenClassicTerminal,
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(14.dp)
-                ) { Text("New shell", fontSize = 16.sp) }
+                Text("Recent fleet terminal sessions", fontSize = 16.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 OutlinedButton(
                     onClick = onOpenAppearance,
                     modifier = Modifier.fillMaxWidth(),
@@ -1913,6 +1929,7 @@ private fun MoreScreen(
     onRollbackRuntime: () -> Unit,
     onRestoreBaseline: () -> Unit,
     onOpenAppearance: () -> Unit,
+    onMigrateFleetState: () -> Unit,
     onOpenDiagnostics: () -> Unit,
     presentationMode: WorkspacePresentationMode,
     onPresentationMode: (WorkspacePresentationMode) -> Unit
@@ -1942,6 +1959,24 @@ private fun MoreScreen(
                             else OutlinedButton(onClick = { onPresentationMode(mode) }) { Text(mode.name) }
                         }
                     }
+                }
+            }
+        }
+        item {
+            val peerPackage = AgentFleetMigrationPeer.counterpart(context.packageName)
+            val peerReady = remember(peerPackage) { AgentFleetMigrationPeer.sameSigner(context, peerPackage) }
+            Card(shape = RoundedCornerShape(18.dp), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)) {
+                Row(Modifier.fillMaxWidth().padding(18.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Column(Modifier.weight(1f)) {
+                        Text("Move Fleet state", fontSize = 18.sp, fontWeight = FontWeight.Bold)
+                        Text(
+                            if (peerReady) "Copy Fleet settings, pairing, registry, and SSH files from the other app"
+                            else "Install the other same-signed Agent Fleet lane to transfer state",
+                            fontSize = 16.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                    Button(onClick = onMigrateFleetState, enabled = peerReady, shape = RoundedCornerShape(14.dp)) { Text("Import") }
                 }
             }
         }
@@ -2327,12 +2362,12 @@ private fun AgentFleetPreview() {
             onRollbackRuntime = {},
             onRestoreBaseline = {},
             onOpenAppearance = {},
+            onMigrateFleetState = {},
             onRunDiagnostics = {},
             onCopyDiagnostics = {},
             onExportDiagnostics = {},
             onCopyDiagnosticError = {},
-            onDiagnosticErrorHandled = {},
-            onOpenClassicTerminal = {}
+            onDiagnosticErrorHandled = {}
         )
     }
 }

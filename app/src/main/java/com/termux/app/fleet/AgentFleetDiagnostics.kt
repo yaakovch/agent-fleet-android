@@ -203,8 +203,8 @@ class AgentFleetDiagnosticsRunner(
             val bash = executable("bash") ?: error("Bash is missing")
             val process = ProcessBuilder(bash.absolutePath, "-lc", "printf agent-fleet-diagnostic-ok")
                 .directory(home).apply { configureEnvironment(environment()) }.start()
-            if (!process.waitFor(LOCAL_TIMEOUT_SECONDS, TimeUnit.SECONDS)) {
-                process.destroyForcibly()
+            if (!process.waitForCompat(LOCAL_TIMEOUT_SECONDS, TimeUnit.SECONDS)) {
+                process.destroyForciblyCompat()
                 error("Local shell timed out")
             }
             require(process.exitValue() == 0 && process.inputStream.bufferedReader().readText() == "agent-fleet-diagnostic-ok") {

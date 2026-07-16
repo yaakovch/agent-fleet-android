@@ -79,8 +79,6 @@ import io.noties.markwon.Markwon
 import kotlinx.coroutines.launch
 import org.json.JSONArray
 import org.json.JSONObject
-import java.time.Duration
-import java.time.Instant
 import java.util.Calendar
 import java.util.Date
 import java.util.Locale
@@ -985,9 +983,24 @@ private fun diffText(value: String): AnnotatedString = buildAnnotatedString {
 
 private fun toolDuration(value: ConversationItem): String = runCatching {
     if (value.startedAt.isBlank() || value.completedAt.isBlank()) return@runCatching ""
-    val milliseconds = Duration.between(Instant.parse(value.startedAt), Instant.parse(value.completedAt)).toMillis().coerceAtLeast(0)
+    val started = parseConversationTimestamp(value.startedAt) ?: return@runCatching ""
+    val completed = parseConversationTimestamp(value.completedAt) ?: return@runCatching ""
+    val milliseconds = (completed - started).coerceAtLeast(0)
     if (milliseconds < 1_000) "${milliseconds}ms" else String.format("%.1fs", milliseconds / 1_000.0)
 }.getOrDefault("")
+
+private fun parseConversationTimestamp(value: String): Long? {
+    for (pattern in listOf("yyyy-MM-dd'T'HH:mm:ss.SSSX", "yyyy-MM-dd'T'HH:mm:ssX")) {
+        val parsed = runCatching {
+            SimpleDateFormat(pattern, Locale.US).apply {
+                isLenient = false
+                timeZone = TimeZone.getTimeZone("UTC")
+            }.parse(value)?.time
+        }.getOrNull()
+        if (parsed != null) return parsed
+    }
+    return null
+}
 
 @Composable
 private fun QuestionCard(

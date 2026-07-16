@@ -403,3 +403,42 @@ trusted fleet.
   opened bridge must finish its bounded startup snapshot before checking the
   fleet revision for any mutation, so startup itself cannot manufacture a stale
   result.
+
+## Permanent Android Identity And Fixed Terminal Runtime
+
+- Move the daily-driver app permanently to `com.yaakovch.fleet`, remove the
+  shared UID, and rebuild every native Termux package for
+  `/data/data/com.yaakovch.fleet/files/usr`. Keep the Java/Kotlin source
+  namespace independent at `com.termux`; application identity, native prefix,
+  and public package artifacts must never be mixed.
+- Preserve the real terminal renderer, PTY service, remote wtmux attachments,
+  pairing, image workflows, downloads, diagnostics, and terminal appearance.
+  Remove visible local-shell/package management and exported generic Termux
+  surfaces (`RUN_COMMAND`, document provider, generic file receiver, shortcuts,
+  plugin/shared-UID coupling). Official Termux must install alongside Agent
+  Fleet without signature, UID, provider-authority, or prefix conflicts.
+- Build the fixed arm64 production and x86_64 emulator runtime in the public
+  `yaakovch/agent-fleet-termux-packages` fork from an exact upstream commit and
+  pinned builder digest. Publish immutable bootstrap, package closure, package
+  lock, source/license inventory, SBOM, checksums, and provenance. Package
+  floors change only in planned app releases.
+- Use the Windows clock mark for the Android adaptive/legacy launcher icon. The
+  temporary `com.termux` bridge is labeled `Agent Fleet Legacy` and uses an
+  obvious legacy badge so both apps are distinguishable when coinstalled.
+- Transfer only allowlisted Fleet preferences, wtmux configuration and client
+  policy, the current verified registry release, and bounded regular SSH files.
+  Require same signing certificates and explicit user confirmation, verify a
+  checksummed `agent-fleet-migration-v1` archive, rewrite only managed private
+  roots and update lanes, and support both forward and reverse transfer. Never
+  copy packages, arbitrary home content, history, caches, downloads,
+  attachments, transcripts, credentials outside `.ssh`, or runtime releases.
+- Keep the existing top-level private update lane for `com.termux` legacy
+  rollback. Publish `com.yaakovch.fleet` only through
+  `agent-fleet/fleet/latest`, and require manifests plus APK inspection to match
+  the lane application ID, version, checksum, and existing signing certificate.
+- Ship new-ID `.41`/1043 and bridge `.41-legacy`/1043. Retain `.40` and the
+  legacy bridge until at least 90 days have passed and two permanent-ID releases
+  have succeeded. The final S23FE acceptance is manual and must prove official
+  Termux coinstallation, forward/reverse migration, Native/Terminal sessions,
+  reconnect, resize/DeX, update, and rollback; automated tools never operate the
+  physical phone.

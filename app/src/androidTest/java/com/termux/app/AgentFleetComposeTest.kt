@@ -406,12 +406,12 @@ class AgentFleetComposeTest {
                 onRollbackRuntime = {},
                 onRestoreBaseline = {},
                 onOpenAppearance = {},
+                onMigrateFleetState = {},
                 onRunDiagnostics = {},
                 onCopyDiagnostics = {},
                 onExportDiagnostics = onExportDiagnostics,
                 onCopyDiagnosticError = {},
-                onDiagnosticErrorHandled = {},
-                onOpenClassicTerminal = {}
+                onDiagnosticErrorHandled = {}
             )
         }
     }

@@ -314,8 +314,8 @@ object AgentFleetComposer {
             environment()["PATH"] = "${File(home, ".local/bin")}:${File(prefix, "bin")}"
             enableTermuxExec(environment(), prefix)
         }.start()
-        if (!process.waitFor(30, TimeUnit.SECONDS)) {
-            process.destroyForcibly()
+        if (!process.waitForCompat(30, TimeUnit.SECONDS)) {
+            process.destroyForciblyCompat()
             error("image upload timed out")
         }
         val output = process.inputStream.bufferedReader().readText().take(64 * 1024)

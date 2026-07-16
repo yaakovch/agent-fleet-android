@@ -36,11 +36,11 @@ android {
     }
 
     defaultConfig {
-        applicationId "com.termux"
+        applicationId "com.yaakovch.fleet"
         minSdkVersion project.properties.minSdkVersion.toInteger()
         targetSdkVersion project.properties.targetSdkVersion.toInteger()
-        versionCode 1042
-        versionName "0.118.4-agentfleet.40"
+        versionCode 1043
+        versionName "0.118.4-agentfleet.41"
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         testInstrumentationRunnerArguments clearPackageData: "true"
 
@@ -48,8 +48,8 @@ android {
         if (appVersionCode) versionCode = appVersionCode.toInteger()
         validateVersionName(versionName)
 
-        manifestPlaceholders.TERMUX_PACKAGE_NAME = "com.termux"
-        manifestPlaceholders.TERMUX_APP_NAME = "Termux"
+        manifestPlaceholders.TERMUX_PACKAGE_NAME = "com.yaakovch.fleet"
+        manifestPlaceholders.TERMUX_APP_NAME = "Agent Fleet"
         manifestPlaceholders.TERMUX_API_APP_NAME = "Termux:API"
         manifestPlaceholders.TERMUX_BOOT_APP_NAME = "Termux:Boot"
         manifestPlaceholders.TERMUX_FLOAT_APP_NAME = "Termux:Float"
@@ -68,7 +68,7 @@ android {
                 enable ((gradle.startParameter.taskNames.any { it.contains("Debug") } && splitAPKsForDebugBuilds == "1") ||
                     (gradle.startParameter.taskNames.any { it.contains("Release") } && splitAPKsForReleaseBuilds == "1"))
                 reset ()
-                include 'x86', 'x86_64', 'armeabi-v7a', 'arm64-v8a'
+                include 'x86_64', 'arm64-v8a'
                 universalApk true
             }
         }
@@ -151,10 +151,10 @@ android {
         variant.outputs.all { output ->
             if (variant.buildType.name == "debug") {
                 def abi = output.getFilter(com.android.build.OutputFile.ABI)
-                outputFileName = new File("termux-app_" + (apkVersionTag ? apkVersionTag : "debug") + "_" + (abi ? abi : "universal") + ".apk")
+                outputFileName = new File("agent-fleet_" + (apkVersionTag ? apkVersionTag : "debug") + "_" + (abi ? abi : "universal") + ".apk")
             } else if (variant.buildType.name == "release") {
                 def abi = output.getFilter(com.android.build.OutputFile.ABI)
-                outputFileName = new File("termux-app_" + (apkVersionTag ? apkVersionTag : "release") + "_" + (abi ? abi : "universal") + ".apk")
+                outputFileName = new File("agent-fleet_" + (apkVersionTag ? apkVersionTag : "release") + "_" + (abi ? abi : "universal") + ".apk")
             }
         }
     }

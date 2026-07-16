@@ -68,7 +68,6 @@ import com.termux.app.AgentFleetTheme
 import com.termux.app.TerminalAppearanceActivity
 import com.termux.app.TermuxActivity
 import com.termux.app.TermuxService
-import com.termux.app.activities.SettingsActivity
 import com.termux.shared.shell.TermuxSession
 import kotlin.math.roundToInt
 import java.util.concurrent.Executors
@@ -124,14 +123,11 @@ class UnifiedTerminalDrawerController(
                     onRemoveRemote = ::removeRemote,
                     onOpenAgentFleetSession = ::openAgentFleetSession,
                     onRefresh = ::refreshNow,
-                    onOpenLocal = ::openLocal,
-                    onRenameLocal = ::renameLocal,
                     onCloseLocal = ::closeLocal,
                     onCreateLocal = ::createLocal,
                     onOpenAgentFleet = ::openAgentFleet,
                     onKeyboard = ::toggleKeyboard,
-                    onAppearance = ::openAppearance,
-                    onSettings = ::openSettings
+                    onAppearance = ::openAppearance
                 )
             }
         }
@@ -363,11 +359,6 @@ class UnifiedTerminalDrawerController(
         activity.drawer.closeDrawers()
     }
 
-    private fun openSettings() {
-        activity.startActivity(Intent(activity, SettingsActivity::class.java))
-        activity.drawer.closeDrawers()
-    }
-
     private fun showError(message: String) = Toast.makeText(activity, message, Toast.LENGTH_LONG).show()
 
     override fun onDrawerOpened(drawerView: android.view.View) {
@@ -403,14 +394,11 @@ fun UnifiedTerminalDrawer(
     onRemoveRemote: (DrawerRemoteSession) -> Unit,
     onOpenAgentFleetSession: (DrawerRemoteSession) -> Unit,
     onRefresh: () -> Unit,
-    onOpenLocal: (DrawerLocalSession) -> Unit,
-    onRenameLocal: (DrawerLocalSession) -> Unit,
     onCloseLocal: (DrawerLocalSession) -> Unit,
     onCreateLocal: (Boolean, String?) -> Unit,
     onOpenAgentFleet: () -> Unit,
     onKeyboard: () -> Unit,
-    onAppearance: () -> Unit,
-    onSettings: () -> Unit
+    onAppearance: () -> Unit
 ) {
     var query by remember { mutableStateOf("") }
     var actionSessionId by remember { mutableStateOf<String?>(null) }
@@ -419,7 +407,7 @@ fun UnifiedTerminalDrawer(
     var showLocalChooser by remember { mutableStateOf(false) }
     var showNamedLocal by remember { mutableStateOf(false) }
     var localName by remember { mutableStateOf("") }
-    val combinedCount = state.remoteSessions.size + state.localSessions.size
+    val combinedCount = state.remoteSessions.size
     val needle = query.trim()
     val remote = state.remoteSessions.filter { row ->
         needle.isEmpty() || listOf(
@@ -427,9 +415,7 @@ fun UnifiedTerminalDrawer(
             state.hostNames[row.session.hostId].orEmpty(), row.session.hostId
         ).any { it.contains(needle, ignoreCase = true) }
     }
-    val local = state.localSessions.filter { row ->
-        needle.isEmpty() || row.name.contains(needle, true) || row.title.contains(needle, true)
-    }
+    val local = emptyList<DrawerLocalSession>()
     val listState = rememberLazyListState()
 
     LaunchedEffect(state.drawerOpen, state.activeRemoteId, state.activeLocalHandle, remote.size, local.size, query) {
@@ -493,24 +479,7 @@ fun UnifiedTerminalDrawer(
                         onMore = { actionSessionId = row.session.id }
                     )
                 }
-                item("local-heading") {
-                    Row(Modifier.fillMaxWidth().padding(start = 18.dp, end = 8.dp, top = 18.dp, bottom = 6.dp), verticalAlignment = Alignment.CenterVertically) {
-                        Text("Local terminals", Modifier.weight(1f), fontSize = 14.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        TextButton(onClick = { showLocalChooser = true }, modifier = Modifier.testTag("drawer-new-local")) {
-                            Text("＋ New", fontSize = 15.sp, fontWeight = FontWeight.Bold)
-                        }
-                    }
-                }
-                items(local, key = { "local-${it.handle}" }) { row ->
-                    LocalDrawerRow(
-                        row = row,
-                        active = row.handle == state.activeLocalHandle,
-                        onOpen = { onOpenLocal(row) },
-                        onClose = { confirmLocalHandle = row.handle },
-                        onMore = { onRenameLocal(row) }
-                    )
-                }
-                if (remote.isEmpty() && local.isEmpty()) item("empty") {
+                if (remote.isEmpty()) item("empty") {
                     Text("No matching sessions", Modifier.padding(24.dp), fontSize = 16.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
             }
@@ -521,7 +490,6 @@ fun UnifiedTerminalDrawer(
             ) {
                 DrawerFooterAction("⌨", "Keyboard", onKeyboard, Modifier.weight(1f))
                 DrawerFooterAction("Aa", "Appearance", onAppearance, Modifier.weight(1f))
-                DrawerFooterAction("⚙", "Settings", onSettings, Modifier.weight(1f))
             }
         }
     }

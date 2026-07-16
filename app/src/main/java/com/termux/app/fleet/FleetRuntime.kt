@@ -95,13 +95,13 @@ class FleetRuntime(private val context: Context) {
         val writer: BufferedWriter
     )
 
-    private val home = context.filesDir.parentFile ?: File("/data/data/com.termux")
+    private val home = requireNotNull(context.filesDir.parentFile) { "Agent Fleet data directory is unavailable" }
     private val prefix = File(home, "files/usr")
     private val userHome = File(home, "files/home")
     private val repositoryRequestLock = Any()
     private val repositoryReaderExecutor = Executors.newSingleThreadExecutor()
     private val repositoryBridge = ReusableRepositoryBridge<RepositoryBridge>(
-        isAlive = { it.process.isAlive },
+        isAlive = { it.process.isAliveCompat() },
         closeResource = ::closeRepositoryBridge
     )
 
@@ -128,8 +128,8 @@ class FleetRuntime(private val context: Context) {
             }
         }
 
-        if (!process.waitFor(12, TimeUnit.SECONDS)) {
-            process.destroyForcibly()
+        if (!process.waitForCompat(12, TimeUnit.SECONDS)) {
+            process.destroyForciblyCompat()
             outputReader.join(1_000)
             throw FleetUnavailableException("Fleet refresh timed out. Check Tailscale and host reachability.")
         }
@@ -453,7 +453,7 @@ class FleetRuntime(private val context: Context) {
         if (exitCode != 0 || outputExceeded.get()) {
             throw FleetUnavailableException(safeError(errors.toString().ifBlank { "Download failed." }))
         }
-        val result = JSONObject(output.toString(Charsets.UTF_8).lineSequence().last { it.isNotBlank() })
+        val result = JSONObject(String(output.toByteArray(), Charsets.UTF_8).lineSequence().last { it.isNotBlank() })
         require(result.optString("status") == "downloaded") { "Host returned an invalid download result." }
         val resultName = result.getString("name").safeDirectoryLabel(255)
         require(!resultName.contains('/') && !resultName.contains('\\')) { "Host returned an invalid file name." }
@@ -613,7 +613,7 @@ class FleetRuntime(private val context: Context) {
             val response = try {
                 JSONObject(responseFuture.get(20, TimeUnit.SECONDS))
             } catch (error: Exception) {
-                process.destroyForcibly()
+                process.destroyForciblyCompat()
                 throw FleetUnavailableException("Fleet action timed out or returned an invalid response.")
             }
             if (!response.optBoolean("ok")) {
@@ -706,7 +706,7 @@ class FleetRuntime(private val context: Context) {
         runCatching { channel.process.destroy() }
         runCatching { channel.writer.close() }
         runCatching { channel.reader.close() }
-        if (channel.process.isAlive) runCatching { channel.process.destroyForcibly() }
+        if (channel.process.isAliveCompat()) runCatching { channel.process.destroyForciblyCompat() }
     }
 
     private fun parseDirectoryListing(value: JSONObject): FleetDirectoryListing {

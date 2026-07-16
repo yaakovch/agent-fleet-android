@@ -19,7 +19,7 @@ on a controller with the private Agent Fleet key.
    app/src/main/agent-fleet` must pass before every build.
 4. Build with a monotonically increasing version code and the HTTPS directory
    that will host the APK:
-   `scripts/release/build-signed-release.sh 0.118.4-agentfleet.1 1003 https://host.example/agent-fleet/latest`.
+   `scripts/release/build-signed-release.sh 0.118.4-agentfleet.41 1043 https://host.example/agent-fleet/fleet/latest`.
    The release contains an arm64 daily-driver APK plus a universal recovery APK.
 5. Verify with `scripts/release/verify-release.sh dist/0.118.4-agentfleet.1`.
 6. On the primary controller, set
@@ -31,7 +31,9 @@ on a controller with the private Agent Fleet key.
    reverse-proxy mount prefix is removed. For the current Tailscale Serve
    `/agent-fleet` proxy, publish to
    `/home/sapir_cz/.local/share/agent-fleet/public`, not a nested
-   `public/agent-fleet` directory. Verify both `manifest.json` and the APK URL
+   `public/agent-fleet` directory. The publisher writes the permanent-ID lane
+   under `fleet/latest`; the existing top-level `latest` remains the
+   `com.termux` legacy lane. Verify both `manifest.json` and the APK URL
    through the externally served URL before announcing the release.
 7. Put the primary/fallback app and runtime manifest URLs plus their approved
    artifact origins in a strict `client-policy-v1` file. Pass it to

@@ -1,3 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
+    <!-- Shared with the Windows Agent Fleet clock mark. -->
+    <color name="agent_fleet_icon_tile">#16191F</color>
+    <color name="agent_fleet_icon_track">#374151</color>
+    <color name="agent_fleet_icon_teal">#2DD4BF</color>
+    <color name="agent_fleet_icon_orange">#FB923C</color>
+    <color name="agent_fleet_icon_clock">#F8FAFC</color>
 </resources>

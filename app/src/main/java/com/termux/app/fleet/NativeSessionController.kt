@@ -40,7 +40,9 @@ class NativeSessionController @JvmOverloads constructor(
     }
 
     private val main = Handler(Looper.getMainLooper())
-    private val appRoot = activity.nativeContext.filesDir.parentFile ?: File("/data/data/com.termux")
+    private val appRoot = requireNotNull(activity.nativeContext.filesDir.parentFile) {
+        "Agent Fleet data directory is unavailable"
+    }
     private val prefix = File(appRoot, "files/usr")
     private val home = File(appRoot, "files/home")
     private val fleetRuntime = FleetRuntime(activity.nativeContext.applicationContext)
@@ -433,7 +435,7 @@ class NativeSessionController @JvmOverloads constructor(
             try {
                 val process = environment(ProcessBuilder(conversationCommand("stream", listOf("--limit", HISTORY_PAGE_SIZE.toString())))).start()
                 if (token != generation || !shouldRunStream()) {
-                    process.destroyForcibly()
+                    process.destroyForciblyCompat()
                     return@thread
                 }
                 streamProcess = process
@@ -445,7 +447,7 @@ class NativeSessionController @JvmOverloads constructor(
                         val line = reader.readLine() ?: break
                         if (line.length > 256 * 1024) {
                             postError(token, "The host sent an oversized conversation frame.")
-                            process.destroyForcibly()
+                            process.destroyForciblyCompat()
                             break
                         }
                         val frame = runCatching { ConversationStreamParser.parseFrame(line) }.getOrNull()
@@ -457,7 +459,7 @@ class NativeSessionController @JvmOverloads constructor(
                                 "The host sent an invalid conversation frame."
                             }
                             postError(token, message)
-                            process.destroyForcibly()
+                            process.destroyForciblyCompat()
                             break
                         }
                         main.post { if (token == generation) applyFrame(frame) }
@@ -515,7 +517,7 @@ class NativeSessionController @JvmOverloads constructor(
     private fun stopProcess() {
         val process = streamProcess
         process?.destroy()
-        if (process?.isAlive == true) process.destroyForcibly()
+        if (process?.isAliveCompat() == true) process.destroyForciblyCompat()
         streamProcess = null
     }
 
@@ -819,9 +821,9 @@ class NativeSessionController @JvmOverloads constructor(
                         buffer.write(chunk, 0, count)
                     }
                 }
-                val finished = process.waitFor(timeoutSeconds, TimeUnit.SECONDS)
-                if (!finished) process.destroyForcibly()
-                if (!finished) process.waitFor(2, TimeUnit.SECONDS)
+                val finished = process.waitForCompat(timeoutSeconds, TimeUnit.SECONDS)
+                if (!finished) process.destroyForciblyCompat()
+                if (!finished) process.waitForCompat(2, TimeUnit.SECONDS)
                 errorReader.join(1_000)
                 ActionResult(
                     if (finished) process.exitValue() else -1,

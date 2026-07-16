@@ -3,5 +3,6 @@
     <cache-path name="agent_fleet_camera" path="agent-fleet-camera/" />
     <cache-path name="agent_fleet_updates" path="agent-fleet-updates/" />
     <cache-path name="agent_fleet_diagnostics" path="agent-fleet-diagnostics/" />
+    <cache-path name="agent_fleet_migration" path="agent-fleet-migration/" />
     <external-path name="agent_fleet_downloads" path="Download/" />
 </paths>

@@ -423,3 +423,40 @@ arm64 APK verified byte-for-byte with SHA-256
 `24856f2340c4bd6978db0307a01833fa0400248e385b57ba030cf5558a89d092`
 and `8d1476a65de9b80f7b80e1ae4091e14241dfa9a26dbdf24a565551ff6ccd367f`
 respectively.
+
+## Milestone 26: Permanent App ID, Custom Runtime, And Migration Bridge
+
+1. Preserve `.40` at commit `270b5a0d`; maintain independent
+   `agent-fleet-main` and `legacy/com.termux` worktrees. Create the public
+   `yaakovch/agent-fleet-termux-packages` fork at upstream commit
+   `c7ca367ba4271dd58dee1bdc220899dda7dc4a71`, pin its builder image digest,
+   and produce arm64/x86_64 custom-prefix bootstrap, packages, lock, SBOM,
+   provenance, and immutable release checksums.
+2. Change the production application identity and all runtime path constants to
+   `com.yaakovch.fleet` / `/data/data/com.yaakovch.fleet/files/usr`, remove the
+   shared UID and exported generic Termux components, retain the internal PTY
+   terminal, and eliminate local-shell/package entry points from Agent Fleet.
+   Replace the launcher art with Android vectors derived from the Windows icon.
+3. Add strict `agent-fleet-migration-v1` export/import with same-certificate
+   protected activities, explicit confirmation, allowlisted preferences and
+   files, hash/size/path checks, atomic file activation, verified registry
+   handling, private-root/update-lane rewriting, and forward/reverse tests.
+4. Build `0.118.4-agentfleet.41-legacy`/1043 on `com.termux` with an explicit
+   label and badged icon. Keep the old top-level update lane for that app and
+   publish the permanent-ID app only under `agent-fleet/fleet/latest`; verify
+   the package ID from each signed APK rather than trusting filenames.
+5. Run the complete JVM suite, lint, production builds, embedded-runtime and
+   privacy verification, isolated API 36 arm64/x86_64 provisioning and
+   coinstallation/migration tests, plus Native/Terminal/reconnect/resize/DeX
+   checks. Sign with the existing external keystore, verify checksums and
+   certificate continuity, retain `.40`, and publish both lanes without
+   accessing the physical S23FE.
+6. Hand off a manual S23FE checklist: install legacy `.41`, migrate forward,
+   install official Termux alongside the new app, verify Fleet and terminal
+   workflows, migrate back, then return to the new app. Retain legacy support
+   until both 90 days and two successful permanent-ID releases have elapsed.
+
+Gate: no APK contains a bootstrap or package compiled for another application
+prefix; both signed apps coexist; forward and reverse Fleet-only migration pass;
+official Termux remains independent; the new release lane cannot serve a legacy
+APK; and all emulator, build, runtime, privacy, and release checks pass.

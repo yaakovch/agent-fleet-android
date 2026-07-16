@@ -11,7 +11,7 @@ fallback="${AGENT_FLEET_PUBLISH_FALLBACK:-}"
 publish() {
   local destination="$1" remote root release_path
   remote="${destination%%:*}"
-  root="${destination#*:}"
+  root="${destination#*:}/fleet"
   [[ "$remote" != "$destination" && -n "$root" ]] || return 1
   release_path="$root/releases/$version"
   if [[ "$remote" == local ]]; then

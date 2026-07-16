@@ -87,24 +87,13 @@ class AgentFleetDrawerComposeTest {
     }
 
     @Test
-    fun localSectionSupportsChooserAndConfirmedClose() {
-        val created = mutableListOf<Pair<Boolean, String?>>()
-        var closed = ""
+    fun localShellAndGenericSettingsAreNotExposed() {
         val local = DrawerLocalSession("local-1", "Shell", "bash", true)
-        setDrawer(
-            UnifiedDrawerState(localSessions = listOf(local), drawerOpen = true),
-            onCreateLocal = { failsafe, name -> created += failsafe to name },
-            onCloseLocal = { closed = it.handle }
-        )
+        setDrawer(UnifiedDrawerState(localSessions = listOf(local), drawerOpen = true))
 
-        compose.onNodeWithTag("drawer-new-local").performClick()
-        compose.onNodeWithText("Failsafe shell").performClick()
-        assertEquals(listOf(true to null), created)
-
-        compose.onNodeWithTag("drawer-local-local-1").performTouchInput { swipeLeft() }
-        compose.onNodeWithTag("drawer-swipe-action-local-1").performClick()
-        compose.onNodeWithTag("drawer-confirm-local-close").performClick()
-        assertEquals("local-1", closed)
+        compose.onAllNodesWithTag("drawer-new-local").assertCountEquals(0)
+        compose.onAllNodesWithTag("drawer-local-local-1").assertCountEquals(0)
+        compose.onAllNodesWithTag("drawer-settings").assertCountEquals(0)
     }
 
     private fun setDrawer(
@@ -128,14 +117,11 @@ class AgentFleetDrawerComposeTest {
                         onRemoveRemote = onRemoveRemote,
                         onOpenAgentFleetSession = {},
                         onRefresh = {},
-                        onOpenLocal = {},
-                        onRenameLocal = {},
                         onCloseLocal = onCloseLocal,
                         onCreateLocal = onCreateLocal,
                         onOpenAgentFleet = {},
                         onKeyboard = {},
-                        onAppearance = {},
-                        onSettings = {}
+                        onAppearance = {}
                     )
                 }
             }

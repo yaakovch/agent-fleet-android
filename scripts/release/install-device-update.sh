@@ -4,7 +4,7 @@ set -euo pipefail
 [[ $# -eq 2 ]] || { echo "usage: $0 ADB_SERIAL APK" >&2; exit 2; }
 serial="$1"
 apk="$2"
-package_name="com.termux"
+package_name="com.yaakovch.fleet"
 
 [[ -f "$apk" ]] || { echo "missing APK: $apk" >&2; exit 1; }
 command -v adb >/dev/null || { echo "adb is required" >&2; exit 1; }

@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+
+    <path
+        android:fillColor="@android:color/transparent"
+        android:pathData="M54,32 A22,22 0,1 1,53.99,32"
+        android:strokeColor="@color/agent_fleet_icon_track"
+        android:strokeLineCap="round"
+        android:strokeWidth="7" />
+    <path
+        android:fillColor="@android:color/transparent"
+        android:pathData="M54,32 A22,22 0,0 1,63.3,73.94"
+        android:strokeColor="@color/agent_fleet_icon_teal"
+        android:strokeLineCap="round"
+        android:strokeWidth="7" />
+    <path
+        android:fillColor="@android:color/transparent"
+        android:pathData="M57.06,75.79 A22,22 0,0 1,32.21,50.94"
+        android:strokeColor="@color/agent_fleet_icon_orange"
+        android:strokeLineCap="round"
+        android:strokeWidth="7" />
+    <path
+        android:fillColor="@android:color/transparent"
+        android:pathData="M54,54 L54,43 M54,54 L62.5,59"
+        android:strokeColor="@color/agent_fleet_icon_clock"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round"
+        android:strokeWidth="4.5" />
+    <path
+        android:fillColor="@color/agent_fleet_icon_clock"
+        android:pathData="M57,54 A3,3 0,1 1,51,54 A3,3 0,1 1,57,54" />
+</vector>

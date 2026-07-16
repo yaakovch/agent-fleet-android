@@ -14,6 +14,7 @@ import java.security.MessageDigest
 import java.security.cert.CertificateFactory
 
 data class AgentFleetUpdate(
+    val applicationId: String,
     val versionCode: Long,
     val versionName: String,
     val apkUrl: String,
@@ -40,6 +41,7 @@ object AgentFleetUpdateManifestParser {
         require(text.length <= MAX_MANIFEST_CHARS) { "Update manifest is too large" }
         val root = JSONObject(text)
         require(root.getInt("schemaVersion") == 1) { "Unsupported update manifest" }
+        val applicationId = root.getString("applicationId")
         val versionCode = root.getLong("versionCode")
         val versionName = root.getString("versionName")
         val apkUrl = root.getString("apkUrl")
@@ -47,12 +49,13 @@ object AgentFleetUpdateManifestParser {
         val certificateSha256 = root.getString("certificateSha256").lowercase()
         val size = root.getLong("size")
         require(versionCode > 0) { "Invalid update version" }
+        require(applicationId == "com.yaakovch.fleet") { "Update is for a different Agent Fleet lane" }
         require(VERSION.matches(versionName)) { "Invalid update version name" }
         require(Uri.parse(apkUrl).scheme == "https") { "Update APK must use HTTPS" }
         require(SHA256.matches(apkSha256)) { "Invalid update checksum" }
         require(SHA256.matches(certificateSha256)) { "Invalid signing certificate" }
         require(size in 1..MAX_APK_BYTES) { "Invalid update size" }
-        return AgentFleetUpdate(versionCode, versionName, apkUrl, apkSha256, certificateSha256, size)
+        return AgentFleetUpdate(applicationId, versionCode, versionName, apkUrl, apkSha256, certificateSha256, size)
     }
 
     const val MAX_APK_BYTES = 300L * 1024L * 1024L
@@ -76,6 +79,7 @@ class AgentFleetUpdateManager(private val context: Context) {
         }
         val text = readUrl(manifestUrl, 32_768).toString(Charsets.UTF_8)
         val update = AgentFleetUpdateManifestParser.parse(text)
+        require(update.applicationId == context.packageName) { "Update package identity does not match" }
         if (allowedOrigins.isNotEmpty()) {
             require(ClientPolicyParser.canonicalOrigin(update.apkUrl) in allowedOrigins) { "App update APK origin is not approved" }
         }

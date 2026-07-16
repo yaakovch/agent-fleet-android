@@ -109,9 +109,9 @@ class AgentFleetGoldenTest {
                         drawerOpen = true
                     ),
                     onOpenRemote = { _, _ -> }, onTogglePin = {}, onKillRemote = {}, onCloseRemote = {},
-                    onRemoveRemote = {}, onOpenAgentFleetSession = {}, onRefresh = {}, onOpenLocal = {},
-                    onRenameLocal = {}, onCloseLocal = {}, onCreateLocal = { _, _ -> }, onOpenAgentFleet = {},
-                    onKeyboard = {}, onAppearance = {}, onSettings = {}
+                    onRemoveRemote = {}, onOpenAgentFleetSession = {}, onRefresh = {},
+                    onCloseLocal = {}, onCreateLocal = { _, _ -> }, onOpenAgentFleet = {},
+                    onKeyboard = {}, onAppearance = {}
                 )
             }
         }
