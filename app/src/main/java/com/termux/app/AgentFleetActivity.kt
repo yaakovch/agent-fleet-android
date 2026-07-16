@@ -74,6 +74,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import com.termux.app.fleet.FleetHost
+import com.termux.app.fleet.AgentFleetContract
 import com.termux.app.fleet.FleetAttention
 import com.termux.app.fleet.FleetDirectoryListing
 import com.termux.app.fleet.FleetDownloadCancellation
@@ -93,6 +94,7 @@ import com.termux.app.fleet.FleetSchedule
 import com.termux.app.fleet.FleetSnapshot
 import com.termux.app.fleet.NativeSessionSettings
 import com.termux.app.fleet.RecentSessionStore
+import com.termux.app.fleet.DrawerSessionStore
 import com.termux.app.fleet.RecentLocationStore
 import com.termux.app.fleet.AgentFleetUpdate
 import com.termux.app.fleet.AgentFleetUpdateManager
@@ -127,6 +129,8 @@ class AgentFleetActivity : ComponentActivity() {
     private val recentSessions = mutableStateOf<List<FleetSession>>(emptyList())
     private val pendingPairInvitation = mutableStateOf<String?>(null)
     private val pendingSharedImages = mutableStateOf<List<String>>(emptyList())
+    private val focusedSession = mutableStateOf<String?>(null)
+    private val focusedSessionSerial = mutableStateOf(0L)
     private val updateState = mutableStateOf<UpdateUiState>(UpdateUiState.Idle)
     private val updateManifestUrl = mutableStateOf("")
     private val runtimeUi = mutableStateOf(RuntimeUiState())
@@ -140,6 +144,7 @@ class AgentFleetActivity : ComponentActivity() {
     private val fileDownloads = ConcurrentHashMap.newKeySet<FleetDownloadCancellation>()
     private lateinit var fleetRuntime: FleetRuntime
     private lateinit var recentSessionStore: RecentSessionStore
+    private lateinit var drawerSessionStore: DrawerSessionStore
     private lateinit var updateManager: AgentFleetUpdateManager
     private lateinit var embeddedRuntime: EmbeddedRuntimeManager
     private lateinit var runtimeUpdateManager: RuntimeUpdateManager
@@ -152,6 +157,7 @@ class AgentFleetActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         fleetRuntime = FleetRuntime(applicationContext)
         recentSessionStore = RecentSessionStore(applicationContext)
+        drawerSessionStore = DrawerSessionStore(applicationContext)
         updateManager = AgentFleetUpdateManager(applicationContext)
         embeddedRuntime = EmbeddedRuntimeManager(applicationContext)
         runtimeUpdateManager = RuntimeUpdateManager(applicationContext, embeddedRuntime)
@@ -173,6 +179,7 @@ class AgentFleetActivity : ComponentActivity() {
         )
         acceptPairingIntent(intent)
         acceptSharedImages(intent)
+        acceptFocusedSession(intent)
         setContent {
             AgentFleetTheme {
                 AgentFleetApp(
@@ -227,7 +234,9 @@ class AgentFleetActivity : ComponentActivity() {
                             Toast.makeText(this, error.message, Toast.LENGTH_LONG).show()
                         }
                     },
-                    workspaceTerminalBroker = workspaceTerminalBroker
+                    workspaceTerminalBroker = workspaceTerminalBroker,
+                    initialActionSession = focusedSession.value,
+                    initialActionSerial = focusedSessionSerial.value
                 )
             }
         }
@@ -252,6 +261,7 @@ class AgentFleetActivity : ComponentActivity() {
         setIntent(intent)
         acceptPairingIntent(intent)
         acceptSharedImages(intent)
+        acceptFocusedSession(intent)
     }
 
     override fun onStop() {
@@ -349,6 +359,7 @@ class AgentFleetActivity : ComponentActivity() {
     private fun openFleetSession(session: FleetSession) {
         try {
             recentSessionStore.record(session)
+            drawerSessionStore.recordOpened(session)
             recentSessions.value = recentSessionStore.load()
             workspaceTerminalBroker.openFullscreen(session)
         } catch (error: Exception) {
@@ -360,6 +371,7 @@ class AgentFleetActivity : ComponentActivity() {
     private fun openFleetSessionWithImages(session: FleetSession, images: List<String>) {
         try {
             recentSessionStore.record(session)
+            drawerSessionStore.recordOpened(session)
             recentSessions.value = recentSessionStore.load()
             workspaceTerminalBroker.openFullscreen(session, images)
         } catch (error: Exception) {
@@ -484,7 +496,12 @@ class AgentFleetActivity : ComponentActivity() {
 
     private fun killFleetSession(session: FleetSession) = mutateFleet(
         "Session stopped",
-        afterSuccess = { workspaceTerminalBroker.detach(session.id) }
+        afterSuccess = {
+            workspaceTerminalBroker.detach(session.id)
+            recentSessionStore.remove(session.id)
+            drawerSessionStore.remove(session.id)
+            recentSessions.value = recentSessionStore.load()
+        }
     ) { snapshot -> fleetRuntime.killSession(snapshot, session) }
 
     private fun cancelSchedule(schedule: FleetSchedule) = mutateFleet("Schedule cancelled") { snapshot ->
@@ -656,6 +673,13 @@ class AgentFleetActivity : ComponentActivity() {
         }
     }
 
+    private fun acceptFocusedSession(intent: Intent?) {
+        val value = intent?.getStringExtra(AgentFleetContract.EXTRA_FOCUS_SESSION_ID)
+            ?.takeIf { it.length <= 320 && it.isNotBlank() && it.none(Char::isISOControl) }
+        focusedSession.value = value
+        if (value != null) focusedSessionSerial.value++
+    }
+
     @Suppress("DEPRECATION")
     private fun acceptSharedImages(intent: Intent?) {
         if (intent?.type?.startsWith("image/") != true) return
@@ -785,7 +809,9 @@ fun AgentFleetApp(
     onCopyDiagnosticError: (AgentFleetDiagnosticEvent) -> Unit,
     onDiagnosticErrorHandled: () -> Unit,
     onOpenClassicTerminal: () -> Unit,
-    workspaceTerminalBroker: WorkspaceTerminalBroker? = null
+    workspaceTerminalBroker: WorkspaceTerminalBroker? = null,
+    initialActionSession: String? = null,
+    initialActionSerial: Long = 0
 ) {
     if (runtimeUi.blocking) {
         PreparingTerminalScreen(runtimeUi, onRepairRuntime)
@@ -801,6 +827,15 @@ fun AgentFleetApp(
     var showPairing by rememberSaveable { mutableStateOf(false) }
     var showDiagnostics by rememberSaveable { mutableStateOf(false) }
     val currentSnapshot = (fleetState as? FleetLoadState.Ready)?.snapshot
+    var handledInitialAction by rememberSaveable { mutableStateOf(-1L) }
+    LaunchedEffect(initialActionSerial, currentSnapshot != null) {
+        val requested = initialActionSession
+        if (requested != null && handledInitialAction != initialActionSerial && currentSnapshot?.sessions?.any { it.id == requested } == true) {
+            section = FleetSection.Sessions
+            actionSession = requested
+            handledInitialAction = initialActionSerial
+        }
+    }
     val context = LocalContext.current
     val workspaceStore = remember { AndroidWorkspaceStore(context.applicationContext) }
     val presentationStore = remember { WorkspacePresentationStore(context.applicationContext) }

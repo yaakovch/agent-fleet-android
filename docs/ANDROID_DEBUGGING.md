@@ -47,11 +47,12 @@ The canonical local AVD is `AgentFleet_S23FE_API36`, configured as a Pixel 7 at
 
 ## Coverage
 
-JVM tests cover parsers, lifecycle decisions, Classic drawer refresh safety,
+JVM tests cover parsers, lifecycle decisions, Classic drawer refresh safety and phone-local drawer state,
 diagnostic redaction, bounded journal rotation, and metadata-only archives. Compose instrumentation covers
 Sessions and More, repository retry/download states, Native bottom-anchored
 conversation structures, grouped tools, task boards, active/stale limits, and
-one- and three-question Plan prompts with exactly-once submission.
+one- and three-question Plan prompts with exactly-once submission, and the unified
+drawer's search, remembered view, swipe confirmation, offline, and local-shell flows.
 
 Dark screenshot references are normalized to exactly 393×852 pixels. A pixel
 is different when any RGB channel differs by more than 8, and the test fails

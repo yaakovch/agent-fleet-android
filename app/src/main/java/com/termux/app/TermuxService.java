@@ -17,7 +17,6 @@ import android.os.Handler;
 import android.os.IBinder;
 import android.os.PowerManager;
 import android.provider.Settings;
-import android.widget.ArrayAdapter;
 
 import androidx.annotation.Nullable;
 
@@ -85,9 +84,8 @@ public final class TermuxService extends Service implements TermuxTask.TermuxTas
 
     /**
      * The foreground TermuxSessions which this service manages.
-     * Note that this list is observed by {@link TermuxActivity#mTermuxSessionListViewController},
-     * so any changes must be made on the UI thread and followed by a call to
-     * {@link ArrayAdapter#notifyDataSetChanged()} }.
+     * The unified drawer observes updates through the terminal session client,
+     * so changes must remain on the UI thread and publish a list update.
      */
     final List<TermuxSession> mTermuxSessions = new ArrayList<>();
 
@@ -989,7 +987,7 @@ public final class TermuxService extends Service implements TermuxTask.TermuxTas
     }
 
     @Nullable
-    private String getCurrentAgentFleetSessionId() {
+    public synchronized String getCurrentAgentFleetSessionId() {
         TermuxAppSharedPreferences preferences = TermuxAppSharedPreferences.build(this);
         String handle = preferences == null ? null : preferences.getCurrentSession();
         if (handle == null) return null;

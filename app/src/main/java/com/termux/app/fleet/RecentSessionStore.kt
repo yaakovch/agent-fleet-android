@@ -17,6 +17,11 @@ class RecentSessionStore(context: Context) {
         (0 until minOf(array.length(), MAX_TABS)).map { index -> decode(array.getJSONObject(index)) }
     }.getOrDefault(emptyList())
 
+    fun remove(sessionId: String) {
+        val updated = load().filterNot { it.id == sessionId }
+        preferences.edit().putString(KEY, encode(updated)).apply()
+    }
+
     private fun encode(sessions: List<FleetSession>): String = JSONArray().apply {
         sessions.forEach { session ->
             put(JSONObject()

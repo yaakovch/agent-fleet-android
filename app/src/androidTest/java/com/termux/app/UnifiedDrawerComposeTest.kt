@@ -1,0 +1,160 @@
+package com.termux.app
+
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.test.assertCountEquals
+import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.junit4.createAndroidComposeRule
+import androidx.compose.ui.test.onNodeWithTag
+import androidx.compose.ui.test.onAllNodesWithTag
+import androidx.compose.ui.test.onNodeWithText
+import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performTextInput
+import androidx.compose.ui.test.performTouchInput
+import androidx.compose.ui.test.swipeLeft
+import androidx.compose.ui.test.swipeRight
+import androidx.test.ext.junit.runners.AndroidJUnit4
+import com.termux.app.fleet.DrawerLocalSession
+import com.termux.app.fleet.DrawerRemoteSession
+import com.termux.app.fleet.DrawerSessionSurface
+import com.termux.app.fleet.FleetSession
+import com.termux.app.fleet.UnifiedDrawerState
+import com.termux.app.fleet.UnifiedTerminalDrawer
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
+import org.junit.Rule
+import org.junit.Test
+import org.junit.runner.RunWith
+
+@RunWith(AndroidJUnit4::class)
+class AgentFleetDrawerComposeTest {
+    @get:Rule val compose = createAndroidComposeRule<DrawerComposeTestHostActivity>()
+
+    @Test
+    fun tapUsesRememberedSurfaceAndSearchAppearsOnlyForLongLists() {
+        val opened = mutableListOf<Pair<String, DrawerSessionSurface>>()
+        val rows = (0..8).map { index ->
+            remote("session-$index", pinned = index == 0, surface = if (index == 1) DrawerSessionSurface.Terminal else DrawerSessionSurface.Native)
+        }
+        setDrawer(
+            UnifiedDrawerState(remoteSessions = rows, hostNames = mapOf("gaming" to "Gaming"), drawerOpen = true),
+            onOpenRemote = { row, surface -> opened += row.session.id to surface }
+        )
+
+        compose.onNodeWithTag("drawer-search").assertIsDisplayed().performTextInput("Session 1")
+        compose.onNodeWithTag("drawer-session-gaming:session-1").performClick()
+
+        assertEquals(listOf("gaming:session-1" to DrawerSessionSurface.Terminal), opened)
+    }
+
+    @Test
+    fun shortListHasNoSearchAndOfflineSessionOffersLocalRemoval() {
+        var removed = ""
+        val row = remote("offline", available = false)
+        setDrawer(
+            UnifiedDrawerState(remoteSessions = listOf(row), hostNames = mapOf("gaming" to "Gaming"), drawerOpen = true),
+            onRemoveRemote = { removed = it.session.id }
+        )
+
+        compose.onAllNodesWithTag("drawer-search").assertCountEquals(0)
+        compose.onAllNodesWithTag("drawer-session-offline").assertCountEquals(0)
+        compose.onNodeWithTag("drawer-session-gaming:offline").assertIsDisplayed()
+        compose.onNodeWithTag("drawer-session-more-gaming:offline").performClick()
+        compose.onNodeWithText("Remove from phone").performClick()
+
+        assertEquals("gaming:offline", removed)
+    }
+
+    @Test
+    fun swipesPinAndRevealConfirmedKill() {
+        var pinCount = 0
+        var killed = ""
+        val row = remote("swipe")
+        setDrawer(
+            UnifiedDrawerState(remoteSessions = listOf(row), hostNames = mapOf("gaming" to "Gaming"), drawerOpen = true),
+            onTogglePin = { pinCount++ },
+            onKillRemote = { killed = it.session.id }
+        )
+
+        compose.onNodeWithTag("drawer-session-gaming:swipe").performTouchInput { swipeRight() }
+        assertEquals(1, pinCount)
+        compose.onNodeWithTag("drawer-session-gaming:swipe").performTouchInput { swipeLeft() }
+        compose.onNodeWithTag("drawer-swipe-action-gaming:swipe").performClick()
+        compose.onNodeWithTag("drawer-confirm-kill").performClick()
+
+        assertEquals("gaming:swipe", killed)
+    }
+
+    @Test
+    fun localSectionSupportsChooserAndConfirmedClose() {
+        val created = mutableListOf<Pair<Boolean, String?>>()
+        var closed = ""
+        val local = DrawerLocalSession("local-1", "Shell", "bash", true)
+        setDrawer(
+            UnifiedDrawerState(localSessions = listOf(local), drawerOpen = true),
+            onCreateLocal = { failsafe, name -> created += failsafe to name },
+            onCloseLocal = { closed = it.handle }
+        )
+
+        compose.onNodeWithTag("drawer-new-local").performClick()
+        compose.onNodeWithText("Failsafe shell").performClick()
+        assertEquals(listOf(true to null), created)
+
+        compose.onNodeWithTag("drawer-local-local-1").performTouchInput { swipeLeft() }
+        compose.onNodeWithTag("drawer-swipe-action-local-1").performClick()
+        compose.onNodeWithTag("drawer-confirm-local-close").performClick()
+        assertEquals("local-1", closed)
+    }
+
+    private fun setDrawer(
+        state: UnifiedDrawerState,
+        onOpenRemote: (DrawerRemoteSession, DrawerSessionSurface) -> Unit = { _, _ -> },
+        onTogglePin: (DrawerRemoteSession) -> Unit = {},
+        onKillRemote: (DrawerRemoteSession) -> Unit = {},
+        onRemoveRemote: (DrawerRemoteSession) -> Unit = {},
+        onCreateLocal: (Boolean, String?) -> Unit = { _, _ -> },
+        onCloseLocal: (DrawerLocalSession) -> Unit = {}
+    ) {
+        compose.setContent {
+            AgentFleetTheme {
+                Box(Modifier.fillMaxSize()) {
+                    UnifiedTerminalDrawer(
+                        state = state,
+                        onOpenRemote = onOpenRemote,
+                        onTogglePin = onTogglePin,
+                        onKillRemote = onKillRemote,
+                        onCloseRemote = {},
+                        onRemoveRemote = onRemoveRemote,
+                        onOpenAgentFleetSession = {},
+                        onRefresh = {},
+                        onOpenLocal = {},
+                        onRenameLocal = {},
+                        onCloseLocal = onCloseLocal,
+                        onCreateLocal = onCreateLocal,
+                        onOpenAgentFleet = {},
+                        onKeyboard = {},
+                        onAppearance = {},
+                        onSettings = {}
+                    )
+                }
+            }
+        }
+        compose.waitForIdle()
+    }
+
+    private fun remote(
+        name: String,
+        pinned: Boolean = false,
+        surface: DrawerSessionSurface = DrawerSessionSurface.Native,
+        available: Boolean = true
+    ): DrawerRemoteSession {
+        val session = FleetSession(
+            id = "gaming:$name", hostId = "gaming", internalName = name,
+            name = name.replace('-', ' ').replaceFirstChar(Char::uppercase), title = "Codex", project = "wtmux",
+            tool = "codex", backend = "linux", activity = "active", attached = false,
+            updatedAt = null, pendingScheduleCount = 0
+        )
+        return DrawerRemoteSession(session, pinned, 1, surface, available, cached = !available)
+    }
+}

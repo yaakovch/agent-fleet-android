@@ -10,7 +10,6 @@ import android.graphics.Typeface;
 import android.media.AudioAttributes;
 import android.media.SoundPool;
 import android.text.TextUtils;
-import android.widget.ListView;
 
 import com.termux.R;
 import com.termux.shared.shell.TermuxSession;
@@ -450,14 +449,7 @@ public class TermuxTerminalSessionClient extends TermuxTerminalSessionClientBase
         TermuxService service = mActivity.getTermuxService();
         if (service == null) return;
 
-        final int indexOfSession = mActivity.getClassicTermuxSessionIndex(session);
-        if (indexOfSession < 0) return;
-        final ListView termuxSessionsListView = mActivity.findViewById(R.id.terminal_sessions_list);
-        if (termuxSessionsListView == null) return;
-
-        termuxSessionsListView.setItemChecked(indexOfSession, true);
-        // Delay is necessary otherwise sometimes scroll to newly added session does not happen
-        termuxSessionsListView.postDelayed(() -> termuxSessionsListView.smoothScrollToPosition(indexOfSession), 1000);
+        mActivity.scrollDrawerToSession(session);
     }
 
 

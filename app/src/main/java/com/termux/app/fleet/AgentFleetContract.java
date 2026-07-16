@@ -10,6 +10,10 @@ public final class AgentFleetContract {
     public static final String EXTRA_SHARED_IMAGES = "com.termux.agent_fleet.SHARED_IMAGES";
     public static final String EXTRA_NATIVE_SESSION = "com.termux.agent_fleet.NATIVE_SESSION";
     public static final String EXTRA_LOCAL_SESSION = "com.termux.agent_fleet.LOCAL_SESSION";
+    public static final String EXTRA_INITIAL_SURFACE = "com.termux.agent_fleet.INITIAL_SURFACE";
+    public static final String EXTRA_FOCUS_SESSION_ID = "com.termux.agent_fleet.FOCUS_SESSION_ID";
+    public static final String SURFACE_NATIVE = "native";
+    public static final String SURFACE_TERMINAL = "terminal";
     public static final String WORKSPACE_SESSION_PREFIX = "agent-fleet-workspace:";
 
     private AgentFleetContract() {}

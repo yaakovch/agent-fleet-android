@@ -18,7 +18,12 @@ object FleetSnapshotStore {
     private val main = Handler(Looper.getMainLooper())
     private val executor = Executors.newSingleThreadExecutor()
     private val refreshing = AtomicBoolean(false)
-    private val observers = linkedMapOf<Any, (FleetLoadState) -> Unit>()
+    private data class Observer(
+        val callback: (FleetLoadState) -> Unit,
+        val continuous: Boolean
+    )
+
+    private val observers = linkedMapOf<Any, Observer>()
     private var contextReference: WeakReference<Context>? = null
     private var state: FleetLoadState = FleetLoadState.Loading
 
@@ -30,13 +35,29 @@ object FleetSnapshotStore {
     }
 
     fun observe(context: Context, owner: Any, observer: (FleetLoadState) -> Unit) {
+        observe(context, owner, continuous = true, observer)
+    }
+
+    /** Observe published state without starting the three-second foreground loop. */
+    fun observePassive(context: Context, owner: Any, observer: (FleetLoadState) -> Unit) {
+        observe(context, owner, continuous = false, observer)
+    }
+
+    private fun observe(
+        context: Context,
+        owner: Any,
+        continuous: Boolean,
+        observer: (FleetLoadState) -> Unit
+    ) {
         val current: FleetLoadState
         synchronized(this) {
             contextReference = WeakReference(context.applicationContext)
-            observers[owner] = observer
+            observers[owner] = Observer(observer, continuous)
             current = state
-            main.removeCallbacks(refreshRunnable)
-            main.post(refreshRunnable)
+            if (continuous) {
+                main.removeCallbacks(refreshRunnable)
+                main.post(refreshRunnable)
+            }
         }
         main.post { observer(current) }
     }
@@ -44,7 +65,7 @@ object FleetSnapshotStore {
     fun removeObserver(owner: Any) {
         synchronized(this) {
             observers.remove(owner)
-            if (observers.isEmpty()) main.removeCallbacks(refreshRunnable)
+            if (observers.values.none { it.continuous }) main.removeCallbacks(refreshRunnable)
         }
     }
 
@@ -67,7 +88,7 @@ object FleetSnapshotStore {
             main.post {
                 publishState(result)
                 synchronized(this) {
-                    if (observers.isNotEmpty()) {
+                    if (observers.values.any { it.continuous }) {
                         main.removeCallbacks(refreshRunnable)
                         main.postDelayed(refreshRunnable, REFRESH_INTERVAL_MS)
                     }
@@ -85,7 +106,7 @@ object FleetSnapshotStore {
         val callbacks: List<(FleetLoadState) -> Unit>
         synchronized(this) {
             state = value
-            callbacks = observers.values.toList()
+            callbacks = observers.values.map(Observer::callback)
         }
         callbacks.forEach { it(value) }
     }

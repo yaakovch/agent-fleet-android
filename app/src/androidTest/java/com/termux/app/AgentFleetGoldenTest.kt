@@ -19,9 +19,16 @@ import com.termux.app.fleet.NativeSessionScreen
 import com.termux.app.fleet.NativeSessionUiState
 import com.termux.app.fleet.ToolPresentation
 import com.termux.app.fleet.ToolPresentationBlock
+import com.termux.app.fleet.DrawerLocalSession
+import com.termux.app.fleet.DrawerRemoteSession
+import com.termux.app.fleet.DrawerSessionSurface
+import com.termux.app.fleet.FleetSession
+import com.termux.app.fleet.UnifiedDrawerState
+import com.termux.app.fleet.UnifiedTerminalDrawer
 import java.io.FileNotFoundException
 import kotlin.math.abs
 import org.junit.Assert.fail
+import org.junit.Assume.assumeTrue
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -79,6 +86,51 @@ class AgentFleetGoldenTest {
         ))
         assertGolden("native-structured-work")
     }
+
+    /** Candidate-only visual review for the deliberate Classic drawer redesign. */
+    @Test
+    fun darkUnifiedDrawerReviewCandidate() {
+        assumeTrue(InstrumentationRegistry.getArguments().getString("agentFleetUpdateGoldens") == "true")
+        val sessions = listOf(
+            drawerRemote("wtmux-main", "Main work", pinned = true, used = 4),
+            drawerRemote("android", "Android drawer", used = 3),
+            drawerRemote("work-m", "Work machine", used = 2),
+            drawerRemote("offline", "Last known session", available = false, used = 1)
+        )
+        compose.setContent {
+            AgentFleetTheme(darkTheme = true) {
+                UnifiedTerminalDrawer(
+                    state = UnifiedDrawerState(
+                        remoteSessions = sessions,
+                        hostNames = mapOf("gaming" to "Gaming desktop"),
+                        localSessions = listOf(DrawerLocalSession("local", "Local shell", "bash", true)),
+                        attachedSessionIds = setOf(sessions.first().session.id),
+                        activeRemoteId = sessions.first().session.id,
+                        drawerOpen = true
+                    ),
+                    onOpenRemote = { _, _ -> }, onTogglePin = {}, onKillRemote = {}, onCloseRemote = {},
+                    onRemoveRemote = {}, onOpenAgentFleetSession = {}, onRefresh = {}, onOpenLocal = {},
+                    onRenameLocal = {}, onCloseLocal = {}, onCreateLocal = { _, _ -> }, onOpenAgentFleet = {},
+                    onKeyboard = {}, onAppearance = {}, onSettings = {}
+                )
+            }
+        }
+        compose.waitForIdle()
+        assertGolden("unified-terminal-drawer")
+    }
+
+    private fun drawerRemote(name: String, label: String, pinned: Boolean = false, available: Boolean = true, used: Long) =
+        DrawerRemoteSession(
+            session = FleetSession(
+                "gaming:$name", "gaming", name, label, "Codex", "wtmux", "codex", "linux",
+                "active", false, null, 0
+            ),
+            pinned = pinned,
+            lastUsed = used,
+            surface = DrawerSessionSurface.Native,
+            available = available,
+            cached = !available
+        )
 
     private fun setNative(state: NativeSessionUiState) {
         compose.setContent {

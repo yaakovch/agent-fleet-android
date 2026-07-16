@@ -50,6 +50,7 @@ class NativeSessionController(
     private var enabled = false
     private var aiComposer = false
     private var localSession = false
+    private var workspaceSessionId = ""
     private var composerTarget = ""
     @Volatile private var streamProcess: Process? = null
     @Volatile private var retryBlocked = false
@@ -99,6 +100,7 @@ class NativeSessionController(
         val label = intent?.getStringExtra(AgentFleetContract.EXTRA_SESSION_NAME).orEmpty().ifBlank { session }
         aiComposer = intent?.getBooleanExtra(AgentFleetContract.EXTRA_COMPOSE_INPUT, false) == true
         localSession = intent?.getBooleanExtra(AgentFleetContract.EXTRA_LOCAL_SESSION, false) == true
+        workspaceSessionId = intent?.getStringExtra(AgentFleetContract.EXTRA_WORKSPACE_SESSION_ID).orEmpty()
         val project = intent?.getStringExtra(AgentFleetContract.EXTRA_PROJECT).orEmpty()
         composerTarget = listOf(host, project, if (localSession) "local" else session).joinToString(":")
         enabled = intent?.getBooleanExtra(AgentFleetContract.EXTRA_NATIVE_SESSION, false) == true &&
@@ -113,7 +115,18 @@ class NativeSessionController(
             cwd = if (localSession) home.absolutePath else ""
         )
         updateComposerState()
-        applyViewMode(if (enabled) NativeViewMode.Native else NativeViewMode.ManualTerminal)
+        val requestedSurface = intent?.getStringExtra(AgentFleetContract.EXTRA_INITIAL_SURFACE)
+        val storedSurface = if (workspaceSessionId.isNotBlank()) {
+            DrawerSessionStore(activity.nativeContext.applicationContext).surfaceFor(workspaceSessionId)
+        } else DrawerSessionSurface.Native
+        val initialMode = when {
+            !enabled -> NativeViewMode.ManualTerminal
+            requestedSurface == AgentFleetContract.SURFACE_TERMINAL -> NativeViewMode.ManualTerminal
+            requestedSurface == AgentFleetContract.SURFACE_NATIVE -> NativeViewMode.Native
+            storedSurface == DrawerSessionSurface.Terminal -> NativeViewMode.ManualTerminal
+            else -> NativeViewMode.Native
+        }
+        applyViewMode(initialMode)
         if (enabled && localSession) refreshDirectories()
         if (visible && enabled) {
             observeFleet()
@@ -188,13 +201,13 @@ class NativeSessionController(
 
     private fun toggleTerminal() {
         when (uiState.value.viewMode) {
-            NativeViewMode.Native -> applyViewMode(NativeViewMode.ManualTerminal)
-            NativeViewMode.AutomaticTerminal, NativeViewMode.ManualTerminal -> applyViewMode(NativeViewMode.Native)
+            NativeViewMode.Native -> applyViewMode(NativeViewMode.ManualTerminal, persist = true)
+            NativeViewMode.AutomaticTerminal, NativeViewMode.ManualTerminal -> applyViewMode(NativeViewMode.Native, persist = true)
         }
     }
 
     fun showNative() {
-        if (enabled) applyViewMode(NativeViewMode.Native)
+        if (enabled) applyViewMode(NativeViewMode.Native, persist = true)
     }
 
     fun showPendingQuestion() {
@@ -220,9 +233,15 @@ class NativeSessionController(
         )
     }
 
-    private fun applyViewMode(mode: NativeViewMode) {
+    private fun applyViewMode(mode: NativeViewMode, persist: Boolean = false) {
         val previousMode = uiState.value.viewMode
         uiState.value = uiState.value.copy(viewMode = mode)
+        if (persist && workspaceSessionId.isNotBlank() && mode != NativeViewMode.AutomaticTerminal) {
+            DrawerSessionStore(activity.nativeContext.applicationContext).setSurface(
+                workspaceSessionId,
+                if (mode == NativeViewMode.Native) DrawerSessionSurface.Native else DrawerSessionSurface.Terminal
+            )
+        }
         val native = enabled && mode == NativeViewMode.Native
         val hasPendingAction = activePendingAction(uiState.value.items) != null
         composeView.visibility = if (native) View.VISIBLE else View.GONE

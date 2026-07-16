@@ -116,7 +116,7 @@ instrument_args=(-w -r)
 if [[ "$mode" == "update-goldens" ]]; then
   instrument_args+=(-e class com.termux.app.AgentFleetGoldenTest -e agentFleetUpdateGoldens true)
 elif [[ "$mode" == "fast" ]]; then
-  instrument_args+=(-e class com.termux.app.AgentFleetComposeTest)
+  instrument_args+=(-e class com.termux.app.AgentFleetComposeTest,com.termux.app.AgentFleetDrawerComposeTest)
 fi
 say "running $mode suite on $serial"
 set +e

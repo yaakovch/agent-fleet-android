@@ -11,7 +11,6 @@ import android.content.Intent;
 import android.content.IntentFilter;
 import android.content.ServiceConnection;
 import android.content.pm.PackageManager;
-import android.graphics.Color;
 import android.net.Uri;
 import android.os.Bundle;
 import android.os.IBinder;
@@ -24,8 +23,6 @@ import android.view.View;
 import android.view.ViewGroup;
 import android.view.WindowManager;
 import android.widget.EditText;
-import android.widget.ImageButton;
-import android.widget.ListView;
 import android.widget.RelativeLayout;
 import android.widget.Toast;
 import androidx.compose.ui.platform.ComposeView;
@@ -36,6 +33,9 @@ import com.termux.app.fleet.AgentFleetComposer;
 import com.termux.app.fleet.AgentFleetContract;
 import com.termux.app.fleet.NativeSessionController;
 import com.termux.app.fleet.NativeSessionHost;
+import com.termux.app.fleet.DrawerSessionSurface;
+import com.termux.app.fleet.FleetSession;
+import com.termux.app.fleet.UnifiedTerminalDrawerController;
 import com.termux.shared.activities.ReportActivity;
 import com.termux.shared.packages.PermissionUtils;
 import com.termux.shared.data.DataUtils;
@@ -44,13 +44,11 @@ import com.termux.shared.termux.TermuxConstants.TERMUX_APP.TERMUX_ACTIVITY;
 import com.termux.app.activities.HelpActivity;
 import com.termux.app.activities.SettingsActivity;
 import com.termux.shared.settings.preferences.TermuxAppSharedPreferences;
-import com.termux.app.terminal.TermuxSessionsListViewController;
 import com.termux.app.terminal.io.TerminalToolbarViewPager;
 import com.termux.app.terminal.TermuxTerminalSessionClient;
 import com.termux.app.terminal.TermuxTerminalViewClient;
 import com.termux.shared.terminal.io.extrakeys.ExtraKeysView;
 import com.termux.app.settings.properties.TermuxAppSharedProperties;
-import com.termux.shared.interact.TextInputDialogUtils;
 import com.termux.shared.logger.Logger;
 import com.termux.shared.shell.TermuxSession;
 import com.termux.shared.termux.TermuxUtils;
@@ -64,7 +62,6 @@ import com.termux.view.TerminalViewClient;
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 import androidx.activity.ComponentActivity;
-import androidx.core.content.ContextCompat;
 import androidx.core.content.FileProvider;
 import androidx.drawerlayout.widget.DrawerLayout;
 import androidx.viewpager.widget.ViewPager;
@@ -132,10 +129,7 @@ public final class TermuxActivity extends ComponentActivity implements ServiceCo
      */
     ExtraKeysView mExtraKeysView;
 
-    /**
-     * The termux sessions list controller.
-     */
-    TermuxSessionsListViewController mTermuxSessionListViewController;
+    private UnifiedTerminalDrawerController mUnifiedDrawerController;
 
     /**
      * The {@link TermuxActivity} broadcast receiver for various things like terminal style configuration changes.
@@ -237,9 +231,11 @@ public final class TermuxActivity extends ComponentActivity implements ServiceCo
             getWindow().addFlags(WindowManager.LayoutParams.FLAG_FULLSCREEN);
         }
 
-        setDrawerTheme();
-
         setTermuxTerminalViewAndClients();
+
+        configureUnifiedDrawer();
+        mUnifiedDrawerController = new UnifiedTerminalDrawerController(this,
+            findViewById(R.id.left_drawer));
 
         setTerminalToolbarView(savedInstanceState);
 
@@ -249,14 +245,6 @@ public final class TermuxActivity extends ComponentActivity implements ServiceCo
             if (mAgentFleetNativeSession != null) mAgentFleetNativeSession.showNative();
         });
         updateAgentFleetInputMode(getIntent());
-
-        setSettingsButtonView();
-
-        setAppearanceButtonView();
-
-        setNewSessionButtonView();
-
-        setToggleKeyboardView();
 
         registerForContextMenu(mTerminalView);
 
@@ -297,6 +285,9 @@ public final class TermuxActivity extends ComponentActivity implements ServiceCo
 
         if (mAgentFleetNativeSession != null)
             mAgentFleetNativeSession.onStart();
+
+        if (mUnifiedDrawerController != null)
+            mUnifiedDrawerController.onStart();
     }
 
     @Override
@@ -360,6 +351,36 @@ public final class TermuxActivity extends ComponentActivity implements ServiceCo
             getIntent().getStringExtra(AgentFleetContract.EXTRA_WORKSPACE_SESSION_ID);
         if (sessionId != null) service.finishAgentFleetWorkspaceSession(sessionId);
         else session.finishIfRunning();
+    }
+
+    /** Switch this activity to an existing service-owned workspace attachment. */
+    public void activateAgentFleetSession(FleetSession session, DrawerSessionSurface surface) {
+        if (session == null || surface == null || mTermuxService == null) return;
+        Intent target = new Intent(this, TermuxActivity.class);
+        target.putExtra(AgentFleetContract.EXTRA_COMPOSE_INPUT,
+            session.getTool().equals("codex") || session.getTool().equals("claude") || session.getTool().equals("copilot"));
+        target.putExtra(AgentFleetContract.EXTRA_NATIVE_SESSION, true);
+        target.putExtra(AgentFleetContract.EXTRA_WORKSPACE_SESSION_ID, session.getId());
+        target.putExtra(AgentFleetContract.EXTRA_HOST_ID, session.getHostId());
+        target.putExtra(AgentFleetContract.EXTRA_PROJECT, session.getProject());
+        target.putExtra(AgentFleetContract.EXTRA_INTERNAL_SESSION, session.getInternalName());
+        target.putExtra(AgentFleetContract.EXTRA_SESSION_NAME, session.getName());
+        target.putExtra(AgentFleetContract.EXTRA_INITIAL_SURFACE,
+            surface == DrawerSessionSurface.Terminal ? AgentFleetContract.SURFACE_TERMINAL : AgentFleetContract.SURFACE_NATIVE);
+        setIntent(target);
+        updateAgentFleetInputMode(target);
+        selectAgentFleetTarget(target, 0);
+        getDrawer().closeDrawers();
+    }
+
+    /** Leave Agent Fleet presentation state before selecting a classic local shell. */
+    public void activateClassicSession(TerminalSession session) {
+        if (session == null || mTermuxTerminalSessionClient == null) return;
+        Intent target = new Intent(this, TermuxActivity.class);
+        setIntent(target);
+        updateAgentFleetInputMode(target);
+        mTermuxTerminalSessionClient.setCurrentSession(session);
+        getDrawer().closeDrawers();
     }
 
     private void selectAgentFleetTarget(Intent intent, int attempt) {
@@ -536,6 +557,9 @@ public final class TermuxActivity extends ComponentActivity implements ServiceCo
 
         if (mAgentFleetNativeSession != null)
             mAgentFleetNativeSession.onStop();
+
+        if (mUnifiedDrawerController != null)
+            mUnifiedDrawerController.onStop();
     }
 
     @Override
@@ -549,6 +573,11 @@ public final class TermuxActivity extends ComponentActivity implements ServiceCo
         if (mAgentFleetNativeSession != null) {
             mAgentFleetNativeSession.close();
             mAgentFleetNativeSession = null;
+        }
+
+        if (mUnifiedDrawerController != null) {
+            mUnifiedDrawerController.close();
+            mUnifiedDrawerController = null;
         }
 
         if (mTermuxService != null) {
@@ -588,7 +617,8 @@ public final class TermuxActivity extends ComponentActivity implements ServiceCo
 
         mTermuxService.reconcileAgentFleetWorkspaceSessions();
 
-        setTermuxSessionsListView();
+        if (mUnifiedDrawerController != null)
+            mUnifiedDrawerController.attachService(mTermuxService);
 
         if (mTermuxService.isTermuxSessionsEmpty()) {
             if (mIsVisible) {
@@ -646,12 +676,16 @@ public final class TermuxActivity extends ComponentActivity implements ServiceCo
         }
     }
 
-    private void setDrawerTheme() {
-        if (mProperties.isUsingBlackUI()) {
-            findViewById(R.id.left_drawer).setBackgroundColor(ContextCompat.getColor(this,
-                android.R.color.background_dark));
-            ((ImageButton) findViewById(R.id.settings_button)).setColorFilter(Color.WHITE);
-        }
+    private void configureUnifiedDrawer() {
+        View drawer = findViewById(R.id.left_drawer);
+        if (drawer == null) return;
+        float density = getResources().getDisplayMetrics().density;
+        int screenWidth = getResources().getDisplayMetrics().widthPixels;
+        int desired = Math.round(screenWidth * 0.88f);
+        int maximum = Math.round(380f * density);
+        ViewGroup.LayoutParams params = drawer.getLayoutParams();
+        params.width = Math.min(desired, maximum);
+        drawer.setLayoutParams(params);
     }
 
     private void setMargins() {
@@ -689,16 +723,6 @@ public final class TermuxActivity extends ComponentActivity implements ServiceCo
         if (mTermuxTerminalSessionClient != null)
             mTermuxTerminalSessionClient.onCreate();
     }
-
-    private void setTermuxSessionsListView() {
-        ListView termuxSessionsListView = findViewById(R.id.terminal_sessions_list);
-        mTermuxSessionListViewController = new TermuxSessionsListViewController(this, mTermuxService.getTermuxSessions());
-        termuxSessionsListView.setAdapter(mTermuxSessionListViewController);
-        termuxSessionsListView.setOnItemClickListener(mTermuxSessionListViewController);
-        termuxSessionsListView.setOnItemLongClickListener(mTermuxSessionListViewController);
-    }
-
-
 
     private void setTerminalToolbarView(Bundle savedInstanceState) {
         final ViewPager terminalToolbarViewPager = getTerminalToolbarViewPager();
@@ -750,47 +774,6 @@ public final class TermuxActivity extends ComponentActivity implements ServiceCo
             if (!textInput.isEmpty()) savedInstanceState.putString(ARG_TERMINAL_TOOLBAR_TEXT_INPUT, textInput);
         }
     }
-
-
-
-    private void setSettingsButtonView() {
-        ImageButton settingsButton = findViewById(R.id.settings_button);
-        settingsButton.setOnClickListener(v -> {
-            startActivity(new Intent(this, SettingsActivity.class));
-        });
-    }
-
-    private void setAppearanceButtonView() {
-        findViewById(R.id.appearance_button).setOnClickListener(v -> {
-            startActivity(new Intent(this, TerminalAppearanceActivity.class));
-            getDrawer().closeDrawers();
-        });
-    }
-
-    private void setNewSessionButtonView() {
-        View newSessionButton = findViewById(R.id.new_session_button);
-        newSessionButton.setOnClickListener(v -> mTermuxTerminalSessionClient.addNewSession(false, null));
-        newSessionButton.setOnLongClickListener(v -> {
-            TextInputDialogUtils.textInput(TermuxActivity.this, R.string.title_create_named_session, null,
-                R.string.action_create_named_session_confirm, text -> mTermuxTerminalSessionClient.addNewSession(false, text),
-                R.string.action_new_session_failsafe, text -> mTermuxTerminalSessionClient.addNewSession(true, text),
-                -1, null, null);
-            return true;
-        });
-    }
-
-    private void setToggleKeyboardView() {
-        findViewById(R.id.toggle_keyboard_button).setOnClickListener(v -> {
-            mTermuxTerminalViewClient.onToggleSoftKeyboardRequest();
-            getDrawer().closeDrawers();
-        });
-
-        findViewById(R.id.toggle_keyboard_button).setOnLongClickListener(v -> {
-            toggleTerminalToolbar();
-            return true;
-        });
-    }
-
 
 
 
@@ -1019,11 +1002,17 @@ public final class TermuxActivity extends ComponentActivity implements ServiceCo
 
 
     public void termuxSessionListNotifyUpdated() {
-        mTermuxSessionListViewController.notifyDataSetChanged();
+        if (mUnifiedDrawerController != null)
+            mUnifiedDrawerController.notifySessionsChanged();
     }
 
     public int getClassicTermuxSessionIndex(TerminalSession session) {
-        return mTermuxSessionListViewController == null ? -1 : mTermuxSessionListViewController.indexOf(session);
+        return mTermuxService == null ? -1 : mTermuxService.getClassicTermuxSessionIndex(session);
+    }
+
+    public void scrollDrawerToSession(TerminalSession session) {
+        if (mUnifiedDrawerController != null)
+            mUnifiedDrawerController.scrollToSession();
     }
 
     public boolean isVisible() {
