@@ -13,13 +13,14 @@ if [[ -z "$sdk" ]]; then
 fi
 build_tools="$(find "$sdk/build-tools" -mindepth 1 -maxdepth 1 -type d | sort -V | tail -1)"
 apksigner_jar="$build_tools/lib/apksigner.jar"
+aapt2="$build_tools/aapt2"
 
-python3 - "$directory/manifest.json" "$directory" "$apksigner_jar" <<'PY'
+python3 - "$directory/manifest.json" "$directory" "$apksigner_jar" "$aapt2" <<'PY'
 import base64, hashlib, json, pathlib, re, subprocess, sys, zipfile
-manifest_path, directory, apksigner = sys.argv[1:]
+manifest_path, directory, apksigner, aapt2 = sys.argv[1:]
 manifest = json.loads(pathlib.Path(manifest_path).read_text(encoding="utf-8"))
-required = {"schemaVersion", "versionCode", "versionName", "apkUrl", "apkSha256", "certificateSha256", "size"}
-if not required <= manifest.keys() or manifest["schemaVersion"] != 1:
+required = {"schemaVersion", "applicationId", "versionCode", "versionName", "apkUrl", "apkSha256", "certificateSha256", "size"}
+if not required <= manifest.keys() or manifest["schemaVersion"] != 1 or manifest["applicationId"] != "com.termux":
     raise SystemExit("invalid release manifest")
 artifacts = manifest.get("artifacts") or [{
     "abi": "primary", "apkUrl": manifest["apkUrl"], "apkSha256": manifest["apkSha256"], "size": manifest["size"],
@@ -62,6 +63,10 @@ for item in artifacts:
     match = re.search(r"Signer #1 certificate SHA-256 digest: ([0-9a-fA-F]{64})", result.stdout)
     if not match or match.group(1).lower() != manifest["certificateSha256"]:
         raise SystemExit(f"{item['abi']} APK certificate mismatch")
+    badging = subprocess.run([aapt2, "dump", "badging", str(apk)], check=True, text=True, capture_output=True).stdout
+    package = re.search(r"^package: name='([^']+)' versionCode='([^']+)' versionName='([^']+)'", badging, re.MULTILINE)
+    if not package or package.groups() != (manifest["applicationId"], str(manifest["versionCode"]), manifest["versionName"]):
+        raise SystemExit(f"{item['abi']} APK identity or version mismatch")
     value = archive_runtime(apk)
     if embedded is not None and embedded != value:
         raise SystemExit("APK artifacts contain different embedded runtimes")

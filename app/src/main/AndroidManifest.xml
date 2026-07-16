@@ -14,9 +14,15 @@
         android:required="false" />
 
     <permission
+        android:name="com.termux.permission.AGENT_FLEET_MIGRATION"
+        android:label="Agent Fleet migration"
+        android:protectionLevel="signature" />
+    <uses-permission android:name="com.yaakovch.fleet.permission.MIGRATION" />
+
+    <permission
         android:name="${TERMUX_PACKAGE_NAME}.permission.RUN_COMMAND"
         android:description="@string/permission_run_command_description"
-        android:icon="@mipmap/ic_launcher"
+        android:icon="@drawable/ic_agent_fleet_legacy_lane"
         android:label="@string/permission_run_command_label"
         android:protectionLevel="dangerous" />
 
@@ -43,7 +49,7 @@
         android:extractNativeLibs="true"
         android:icon="@mipmap/ic_launcher"
         android:label="@string/application_name"
-        android:roundIcon="@mipmap/ic_launcher_round"
+        android:roundIcon="@drawable/ic_agent_fleet_legacy_lane"
         android:supportsRtl="false"
         android:theme="@style/Theme.Termux">
 
@@ -95,6 +101,13 @@
             android:theme="@style/Theme.AgentFleet" />
 
         <activity
+            android:name=".app.migration.AgentFleetMigrationActivity"
+            android:excludeFromRecents="true"
+            android:exported="true"
+            android:permission="com.termux.permission.AGENT_FLEET_MIGRATION"
+            android:theme="@android:style/Theme.Material.Dialog.Alert" />
+
+        <activity
             android:name=".app.TermuxActivity"
             android:configChanges="orientation|screenSize|smallestScreenSize|density|screenLayout|uiMode|keyboard|keyboardHidden|navigation"
             android:exported="true"
@@ -138,6 +151,7 @@
         <activity
             android:name=".filepicker.TermuxFileReceiverActivity"
             android:excludeFromRecents="true"
+            android:exported="true"
             android:label="@string/application_name"
             android:noHistory="true"
             android:resizeableActivity="true"

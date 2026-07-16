@@ -11,6 +11,7 @@ import android.widget.Toast
 import androidx.core.content.FileProvider
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
@@ -106,6 +107,8 @@ import com.termux.app.fleet.RuntimeUpdateResult
 import com.termux.app.fleet.supportsEmbeddedRuntime
 import com.termux.app.fleet.shouldInstallEmbeddedBaseline
 import com.termux.app.fleet.UpdateUiState
+import com.termux.app.migration.AgentFleetMigrationArchive
+import com.termux.app.migration.AgentFleetMigrationPeer
 import com.termux.app.fleet.AgentFleetDiagnosticJournal
 import com.termux.app.fleet.AgentFleetDiagnosticReport
 import com.termux.app.fleet.AgentFleetDiagnosticEvent
@@ -154,6 +157,26 @@ class AgentFleetActivity : ComponentActivity() {
     private lateinit var diagnosticJournal: AgentFleetDiagnosticJournal
     private lateinit var diagnosticsRunner: AgentFleetDiagnosticsRunner
     private lateinit var workspaceTerminalBroker: WorkspaceTerminalBroker
+    private val migrationLauncher = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
+        val uri = result.data?.data
+        if (result.resultCode != RESULT_OK || uri == null) return@registerForActivityResult
+        fileExecutor.submit {
+            runCatching { AgentFleetMigrationArchive.import(applicationContext, uri) }
+                .onSuccess { imported ->
+                    runOnUiThread {
+                        Toast.makeText(
+                            this,
+                            "Imported ${imported.preferenceStores} settings groups and ${imported.files} Fleet files. Restarting Agent Fleet Legacy…",
+                            Toast.LENGTH_LONG
+                        ).show()
+                        recreate()
+                    }
+                }
+                .onFailure { error ->
+                    runOnUiThread { Toast.makeText(this, error.message ?: "Migration import failed", Toast.LENGTH_LONG).show() }
+                }
+        }
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -224,6 +247,7 @@ class AgentFleetActivity : ComponentActivity() {
                     onOpenAppearance = {
                         startActivity(Intent(this, TerminalAppearanceActivity::class.java))
                     },
+                    onMigrateFleetState = ::migrateFleetState,
                     onRunDiagnostics = ::runDiagnostics,
                     onCopyDiagnostics = ::copyDiagnostics,
                     onExportDiagnostics = ::exportDiagnostics,
@@ -256,6 +280,12 @@ class AgentFleetActivity : ComponentActivity() {
             ::runtimeUpdateManager.isInitialized && !runtimeUi.value.busy && runtimeUi.value.status?.usable == true &&
             runtimeUpdateManager.shouldCheck()
         ) checkRuntimeUpdate(manual = false)
+    }
+
+    private fun migrateFleetState() {
+        runCatching { AgentFleetMigrationPeer.exportIntent(this) }
+            .onSuccess(migrationLauncher::launch)
+            .onFailure { Toast.makeText(this, it.message ?: "The new Agent Fleet app is unavailable", Toast.LENGTH_LONG).show() }
     }
 
     override fun onNewIntent(intent: Intent) {
@@ -805,6 +835,7 @@ fun AgentFleetApp(
     onRollbackRuntime: () -> Unit,
     onRestoreBaseline: () -> Unit,
     onOpenAppearance: () -> Unit,
+    onMigrateFleetState: () -> Unit,
     onRunDiagnostics: () -> Unit,
     onCopyDiagnostics: (AgentFleetDiagnosticReport) -> Unit,
     onExportDiagnostics: (AgentFleetDiagnosticReport) -> Unit,
@@ -905,7 +936,7 @@ fun AgentFleetApp(
                             PaddingValues(0.dp), fleetState, updateState, updateManifestUrl, runtimeUi,
                             { showPairing = true }, onCancelSchedule, onCheckUpdate, onInstallUpdate,
                             onRepairRuntime, onCheckRuntime, onRollbackRuntime, onRestoreBaseline,
-                            onOpenAppearance, { showDiagnostics = true }, presentationMode
+                            onOpenAppearance, onMigrateFleetState, { showDiagnostics = true }, presentationMode
                         ) { mode -> presentationMode = mode; presentationStore.save(mode) }
                     }
                 }
@@ -957,6 +988,7 @@ fun AgentFleetApp(
                 onRollbackRuntime,
                 onRestoreBaseline,
                 onOpenAppearance,
+                onMigrateFleetState,
                 { showDiagnostics = true },
                 presentationMode
             ) { mode -> presentationMode = mode; presentationStore.save(mode) }
@@ -1913,6 +1945,7 @@ private fun MoreScreen(
     onRollbackRuntime: () -> Unit,
     onRestoreBaseline: () -> Unit,
     onOpenAppearance: () -> Unit,
+    onMigrateFleetState: () -> Unit,
     onOpenDiagnostics: () -> Unit,
     presentationMode: WorkspacePresentationMode,
     onPresentationMode: (WorkspacePresentationMode) -> Unit
@@ -1942,6 +1975,24 @@ private fun MoreScreen(
                             else OutlinedButton(onClick = { onPresentationMode(mode) }) { Text(mode.name) }
                         }
                     }
+                }
+            }
+        }
+        item {
+            val peerPackage = AgentFleetMigrationPeer.counterpart(context.packageName)
+            val peerReady = remember(peerPackage) { AgentFleetMigrationPeer.sameSigner(context, peerPackage) }
+            Card(shape = RoundedCornerShape(18.dp), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)) {
+                Row(Modifier.fillMaxWidth().padding(18.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Column(Modifier.weight(1f)) {
+                        Text("Move Fleet state", fontSize = 18.sp, fontWeight = FontWeight.Bold)
+                        Text(
+                            if (peerReady) "Copy Fleet settings, pairing, registry, and SSH files from the new app"
+                            else "Install the same-signed permanent-ID Agent Fleet app to transfer state",
+                            fontSize = 16.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                    Button(onClick = onMigrateFleetState, enabled = peerReady, shape = RoundedCornerShape(14.dp)) { Text("Import") }
                 }
             }
         }
@@ -2327,6 +2378,7 @@ private fun AgentFleetPreview() {
             onRollbackRuntime = {},
             onRestoreBaseline = {},
             onOpenAppearance = {},
+            onMigrateFleetState = {},
             onRunDiagnostics = {},
             onCopyDiagnostics = {},
             onExportDiagnostics = {},

@@ -99,6 +99,7 @@ import datetime, json, pathlib, sys
 path, version_name, version_code, apk_url, apk_sha, cert_sha, size, commit, universal_url, universal_sha, universal_size = sys.argv[1:]
 manifest = {
     "schemaVersion": 1,
+    "applicationId": "com.termux",
     "versionCode": int(version_code),
     "versionName": version_name,
     "apkUrl": apk_url,
