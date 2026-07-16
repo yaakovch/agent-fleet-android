@@ -31,6 +31,7 @@ import com.termux.terminal.TextStyle;
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.InputStream;
+import java.util.List;
 import java.util.Properties;
 
 public class TermuxTerminalSessionClient extends TermuxTerminalSessionClientBase {
@@ -172,8 +173,9 @@ public class TermuxTerminalSessionClient extends TermuxTerminalSessionClientBase
         if (mActivity.isVisible() && finishedSession != mActivity.getCurrentSession()) {
             // Show toast for non-current sessions that exit.
             // Verify that session was not removed before we got told about it finishing:
-            if (index >= 0)
-                mActivity.showToast(toToastTitle(finishedSession) + " - exited", true);
+            String toastTitle = toToastTitle(finishedSession);
+            if (index >= 0 && toastTitle != null)
+                mActivity.showToast(toastTitle + " - exited", true);
         }
 
         if (mActivity.getPackageManager().hasSystemFeature(PackageManager.FEATURE_LEANBACK)) {
@@ -315,17 +317,14 @@ public class TermuxTerminalSessionClient extends TermuxTerminalSessionClientBase
         if (service == null) return;
 
         TerminalSession currentTerminalSession = mActivity.getCurrentSession();
-        int index = service.getIndexOfSession(currentTerminalSession);
-        int size = service.getTermuxSessionsSize();
-        if (forward) {
-            if (++index >= size) index = 0;
-        } else {
-            if (--index < 0) index = size - 1;
-        }
-
-        TermuxSession termuxSession = service.getTermuxSession(index);
-        if (termuxSession != null)
-            setCurrentSession(termuxSession.getTerminalSession());
+        List<TermuxSession> sessions = service.getClassicTermuxSessions();
+        int size = sessions.size();
+        if (size == 0) return;
+        int index = service.getClassicTermuxSessionIndex(currentTerminalSession);
+        if (index < 0) index = forward ? 0 : size - 1;
+        else if (forward) index = (index + 1) % size;
+        else index = (index - 1 + size) % size;
+        setCurrentSession(sessions.get(index).getTerminalSession());
     }
 
     public static boolean shouldShowRoutineSessionToast(boolean disabledByPreference, boolean agentFleetManaged) {
@@ -336,7 +335,8 @@ public class TermuxTerminalSessionClient extends TermuxTerminalSessionClientBase
         TermuxService service = mActivity.getTermuxService();
         if (service == null) return;
 
-        TermuxSession termuxSession = service.getTermuxSession(index);
+        List<TermuxSession> sessions = service.getClassicTermuxSessions();
+        TermuxSession termuxSession = index >= 0 && index < sessions.size() ? sessions.get(index) : null;
         if (termuxSession != null)
             setCurrentSession(termuxSession.getTerminalSession());
     }
@@ -450,7 +450,7 @@ public class TermuxTerminalSessionClient extends TermuxTerminalSessionClientBase
         TermuxService service = mActivity.getTermuxService();
         if (service == null) return;
 
-        final int indexOfSession = service.getIndexOfSession(session);
+        final int indexOfSession = mActivity.getClassicTermuxSessionIndex(session);
         if (indexOfSession < 0) return;
         final ListView termuxSessionsListView = mActivity.findViewById(R.id.terminal_sessions_list);
         if (termuxSessionsListView == null) return;
@@ -465,7 +465,7 @@ public class TermuxTerminalSessionClient extends TermuxTerminalSessionClientBase
         TermuxService service = mActivity.getTermuxService();
         if (service == null) return null;
 
-        final int indexOfSession = service.getIndexOfSession(session);
+        final int indexOfSession = service.getClassicTermuxSessionIndex(session);
         if (indexOfSession < 0) return null;
         StringBuilder toastTitle = new StringBuilder("[" + (indexOfSession + 1) + "]");
         if (!TextUtils.isEmpty(session.mSessionName)) {

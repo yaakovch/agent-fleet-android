@@ -24,6 +24,8 @@ import androidx.annotation.Nullable;
 import com.termux.R;
 import com.termux.app.settings.properties.TermuxAppSharedProperties;
 import com.termux.app.terminal.TermuxTerminalSessionClient;
+import com.termux.app.fleet.AgentFleetAttachmentCandidate;
+import com.termux.app.fleet.AgentFleetAttachmentPolicy;
 import com.termux.app.fleet.AgentFleetContract;
 import com.termux.app.utils.PluginUtils;
 import com.termux.shared.data.IntentUtils;
@@ -48,7 +50,12 @@ import com.termux.terminal.TerminalSession;
 import com.termux.terminal.TerminalSessionClient;
 
 import java.util.ArrayList;
+import java.util.Collection;
+import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Map;
+import java.util.Set;
 
 /**
  * A service holding a list of {@link TermuxSession} in {@link #mTermuxSessions} and background {@link TermuxTask}
@@ -68,7 +75,7 @@ public final class TermuxService extends Service implements TermuxTask.TermuxTas
     private static int EXECUTION_ID = 1000;
 
     /** This service is only bound from inside the same process and never uses IPC. */
-    class LocalBinder extends Binder {
+    public class LocalBinder extends Binder {
         public final TermuxService service = TermuxService.this;
     }
 
@@ -93,6 +100,10 @@ public final class TermuxService extends Service implements TermuxTask.TermuxTas
      * The pending plugin ExecutionCommands that have yet to be processed by this service.
      */
     final List<ExecutionCommand> mPendingPluginExecutionCommands = new ArrayList<>();
+
+    private final Map<String, Long> mAgentFleetLastUsed = new LinkedHashMap<>();
+    private final Set<String> mAgentFleetActiveSessionIds = new LinkedHashSet<>();
+    private long mAgentFleetUseCounter = 0;
 
     /** The full implementation of the {@link TerminalSessionClient} interface to be used by {@link TerminalSession}
      * that holds activity references for activity related functions.
@@ -395,6 +406,24 @@ public final class TermuxService extends Service implements TermuxTask.TermuxTas
             String requestedSessionName = IntentUtils.getStringExtraIfSet(intent, AgentFleetContract.EXTRA_SESSION_NAME, null);
             if (requestedSessionName != null && !requestedSessionName.matches("[A-Za-z0-9][A-Za-z0-9._ -]{0,63}"))
                 requestedSessionName = null;
+            String managedSessionId = AgentFleetAttachmentPolicy.sessionId(executionCommand.commandDescription);
+            if (managedSessionId != null) {
+                TermuxSession existing = reconcileAgentFleetWorkspaceSession(managedSessionId);
+                if (existing != null) {
+                    mPendingPluginExecutionCommands.remove(executionCommand);
+                    if (requestedSessionName != null)
+                        existing.getTerminalSession().mSessionName = requestedSessionName;
+                    handleSessionAction(DataUtils.getIntFromString(executionCommand.sessionAction,
+                        TERMUX_SERVICE.VALUE_EXTRA_SESSION_ACTION_SWITCH_TO_NEW_SESSION_AND_OPEN_ACTIVITY),
+                        existing.getTerminalSession());
+                    markAgentFleetSessionUsed(managedSessionId);
+                    trimAgentFleetWorkspaceSessions();
+                    if (mTermuxTerminalSessionClient != null)
+                        mTermuxTerminalSessionClient.termuxSessionListNotifyUpdated();
+                    updateNotification();
+                    return;
+                }
+            }
             executeTermuxSessionCommand(executionCommand, requestedSessionName);
         }
     }
@@ -499,6 +528,12 @@ public final class TermuxService extends Service implements TermuxTask.TermuxTas
         handleSessionAction(DataUtils.getIntFromString(executionCommand.sessionAction,
             TERMUX_SERVICE.VALUE_EXTRA_SESSION_ACTION_SWITCH_TO_NEW_SESSION_AND_OPEN_ACTIVITY),
             newTermuxSession.getTerminalSession());
+
+        String managedSessionId = AgentFleetAttachmentPolicy.sessionId(executionCommand.commandDescription);
+        if (managedSessionId != null) {
+            markAgentFleetSessionUsed(managedSessionId);
+            trimAgentFleetWorkspaceSessions();
+        }
     }
 
     /**
@@ -573,6 +608,8 @@ public final class TermuxService extends Service implements TermuxTask.TermuxTas
     public void onTermuxSessionExited(final TermuxSession termuxSession) {
         if (termuxSession != null) {
             ExecutionCommand executionCommand = termuxSession.getExecutionCommand();
+            String managedSessionId = executionCommand == null ? null :
+                AgentFleetAttachmentPolicy.sessionId(executionCommand.commandDescription);
 
             Logger.logVerbose(LOG_TAG, "The onTermuxSessionExited() callback called for \"" + executionCommand.getCommandIdAndLabelLogString() + "\" TermuxSession command");
 
@@ -581,6 +618,8 @@ public final class TermuxService extends Service implements TermuxTask.TermuxTas
                 PluginUtils.processPluginExecutionCommandResult(this, LOG_TAG, executionCommand);
 
             mTermuxSessions.remove(termuxSession);
+            if (managedSessionId != null && findAgentFleetWorkspaceSessions(managedSessionId).isEmpty())
+                mAgentFleetLastUsed.remove(managedSessionId);
 
             // Notify {@link TermuxSessionsListViewController} that sessions list has been updated if
             // activity in is foreground
@@ -716,9 +755,12 @@ public final class TermuxService extends Service implements TermuxTask.TermuxTas
 
 
         // Set notification text
-        int sessionCount = getTermuxSessionsSize();
+        int sessionCount = getClassicTermuxSessionsSize();
+        int managedSessionCount = getAgentFleetWorkspaceSessionIds().size();
         int taskCount = mTermuxTasks.size();
-        String notificationText = sessionCount + " session" + (sessionCount == 1 ? "" : "s");
+        String notificationText = sessionCount > 0
+            ? sessionCount + " local session" + (sessionCount == 1 ? "" : "s")
+            : managedSessionCount > 0 ? "Agent Fleet active" : "0 local sessions";
         if (taskCount > 0) {
             notificationText += ", " + taskCount + " task" + (taskCount == 1 ? "" : "s");
         }
@@ -736,7 +778,7 @@ public final class TermuxService extends Service implements TermuxTask.TermuxTas
         // Build the notification
         Notification.Builder builder =  NotificationUtils.geNotificationBuilder(this,
             TermuxConstants.TERMUX_APP_NOTIFICATION_CHANNEL_ID, priority,
-            TermuxConstants.TERMUX_APP_NAME, notificationText, null,
+            getString(R.string.application_name), notificationText, null,
             contentIntent, null, NotificationUtils.NOTIFICATION_MODE_SILENT);
         if (builder == null)  return null;
 
@@ -810,6 +852,26 @@ public final class TermuxService extends Service implements TermuxTask.TermuxTas
         return mTermuxSessions;
     }
 
+    public synchronized List<TermuxSession> getClassicTermuxSessions() {
+        List<TermuxSession> sessions = new ArrayList<>();
+        for (TermuxSession session : mTermuxSessions) {
+            if (getAgentFleetSessionId(session) == null) sessions.add(session);
+        }
+        return sessions;
+    }
+
+    public synchronized int getClassicTermuxSessionsSize() {
+        return getClassicTermuxSessions().size();
+    }
+
+    public synchronized int getClassicTermuxSessionIndex(TerminalSession terminalSession) {
+        List<TermuxSession> sessions = getClassicTermuxSessions();
+        for (int i = 0; i < sessions.size(); i++) {
+            if (sessions.get(i).getTerminalSession().equals(terminalSession)) return i;
+        }
+        return -1;
+    }
+
     @Nullable
     public synchronized TermuxSession getTermuxSession(int index) {
         if (index >= 0 && index < mTermuxSessions.size())
@@ -820,6 +882,134 @@ public final class TermuxService extends Service implements TermuxTask.TermuxTas
 
     public synchronized TermuxSession getLastTermuxSession() {
         return mTermuxSessions.isEmpty() ? null : mTermuxSessions.get(mTermuxSessions.size() - 1);
+    }
+
+    @Nullable
+    public synchronized TermuxSession getAgentFleetWorkspaceSession(String sessionId) {
+        if (sessionId == null || !sessionId.matches("[A-Za-z0-9._: -]{1,180}")) return null;
+        return reconcileAgentFleetWorkspaceSession(sessionId);
+    }
+
+    public synchronized boolean selectAgentFleetWorkspaceSession(String sessionId) {
+        TermuxSession session = getAgentFleetWorkspaceSession(sessionId);
+        if (session == null) return false;
+        setCurrentStoredTerminalSession(session.getTerminalSession());
+        if (mTermuxTerminalSessionClient != null)
+            mTermuxTerminalSessionClient.setCurrentSession(session.getTerminalSession());
+        mAgentFleetActiveSessionIds.clear();
+        mAgentFleetActiveSessionIds.add(sessionId);
+        markAgentFleetSessionUsed(sessionId);
+        trimAgentFleetWorkspaceSessions();
+        return true;
+    }
+
+    public synchronized Set<String> getAgentFleetWorkspaceSessionIds() {
+        Set<String> ids = new LinkedHashSet<>();
+        for (TermuxSession session : mTermuxSessions) {
+            String id = getAgentFleetSessionId(session);
+            if (id != null && session.getTerminalSession().isRunning()) ids.add(id);
+        }
+        return ids;
+    }
+
+    public synchronized void setAgentFleetActiveSessionIds(Collection<String> sessionIds) {
+        mAgentFleetActiveSessionIds.clear();
+        if (sessionIds != null) {
+            for (String id : sessionIds) {
+                if (id != null && id.matches("[A-Za-z0-9._: -]{1,180}") &&
+                    mAgentFleetActiveSessionIds.size() < AgentFleetAttachmentPolicy.MAX_RETAINED_ATTACHMENTS)
+                    mAgentFleetActiveSessionIds.add(id);
+            }
+        }
+        for (String id : mAgentFleetActiveSessionIds) markAgentFleetSessionUsed(id);
+        trimAgentFleetWorkspaceSessions();
+    }
+
+    public synchronized int finishAgentFleetWorkspaceSession(String sessionId) {
+        if (sessionId == null || !sessionId.matches("[A-Za-z0-9._: -]{1,180}")) return 0;
+        List<TermuxSession> sessions = findAgentFleetWorkspaceSessions(sessionId);
+        for (TermuxSession session : sessions) finishAgentFleetTermuxSession(session);
+        mAgentFleetActiveSessionIds.remove(sessionId);
+        mAgentFleetLastUsed.remove(sessionId);
+        return sessions.size();
+    }
+
+    public synchronized int reconcileAgentFleetWorkspaceSessions() {
+        Set<String> ids = new LinkedHashSet<>();
+        for (TermuxSession session : new ArrayList<>(mTermuxSessions)) {
+            String id = getAgentFleetSessionId(session);
+            if (id != null) ids.add(id);
+        }
+        int before = mTermuxSessions.size();
+        for (String id : ids) reconcileAgentFleetWorkspaceSession(id);
+        trimAgentFleetWorkspaceSessions();
+        return Math.max(0, before - mTermuxSessions.size());
+    }
+
+    @Nullable
+    private String getAgentFleetSessionId(TermuxSession session) {
+        ExecutionCommand command = session == null ? null : session.getExecutionCommand();
+        return command == null ? null : AgentFleetAttachmentPolicy.sessionId(command.commandDescription);
+    }
+
+    private List<TermuxSession> findAgentFleetWorkspaceSessions(String sessionId) {
+        List<TermuxSession> matches = new ArrayList<>();
+        for (TermuxSession session : mTermuxSessions) {
+            if (sessionId.equals(getAgentFleetSessionId(session))) matches.add(session);
+        }
+        return matches;
+    }
+
+    @Nullable
+    private TermuxSession reconcileAgentFleetWorkspaceSession(String sessionId) {
+        List<TermuxSession> matches = findAgentFleetWorkspaceSessions(sessionId);
+        if (matches.isEmpty()) return null;
+        TermuxAppSharedPreferences preferences = TermuxAppSharedPreferences.build(this);
+        String currentHandle = preferences == null ? null : preferences.getCurrentSession();
+        List<AgentFleetAttachmentCandidate> candidates = new ArrayList<>();
+        for (int i = 0; i < matches.size(); i++) {
+            TerminalSession terminal = matches.get(i).getTerminalSession();
+            candidates.add(new AgentFleetAttachmentCandidate(terminal.mHandle, terminal.isRunning(), i));
+        }
+        int canonicalIndex = AgentFleetAttachmentPolicy.canonicalIndex(candidates, currentHandle);
+        TermuxSession canonical = canonicalIndex < 0 ? null : matches.get(canonicalIndex);
+        for (int i = 0; i < matches.size(); i++) {
+            if (i != canonicalIndex) finishAgentFleetTermuxSession(matches.get(i));
+        }
+        return canonical;
+    }
+
+    private void finishAgentFleetTermuxSession(TermuxSession session) {
+        if (session.getTerminalSession().isRunning()) session.killIfExecuting(this, true);
+        else session.finish();
+    }
+
+    private void markAgentFleetSessionUsed(String sessionId) {
+        if (sessionId != null) mAgentFleetLastUsed.put(sessionId, ++mAgentFleetUseCounter);
+    }
+
+    @Nullable
+    private String getCurrentAgentFleetSessionId() {
+        TermuxAppSharedPreferences preferences = TermuxAppSharedPreferences.build(this);
+        String handle = preferences == null ? null : preferences.getCurrentSession();
+        if (handle == null) return null;
+        for (TermuxSession session : mTermuxSessions) {
+            if (handle.equals(session.getTerminalSession().mHandle)) return getAgentFleetSessionId(session);
+        }
+        return null;
+    }
+
+    private void trimAgentFleetWorkspaceSessions() {
+        Set<String> ids = getAgentFleetWorkspaceSessionIds();
+        mAgentFleetLastUsed.keySet().retainAll(ids);
+        String currentId = getCurrentAgentFleetSessionId();
+        if (!mAgentFleetActiveSessionIds.isEmpty() && !mAgentFleetActiveSessionIds.contains(currentId))
+            currentId = null;
+        List<String> evictions = AgentFleetAttachmentPolicy.evictionOrder(
+            ids, mAgentFleetLastUsed, mAgentFleetActiveSessionIds, currentId,
+            AgentFleetAttachmentPolicy.MAX_RETAINED_ATTACHMENTS
+        );
+        for (String id : evictions) finishAgentFleetWorkspaceSession(id);
     }
 
     public synchronized int getIndexOfSession(TerminalSession terminalSession) {

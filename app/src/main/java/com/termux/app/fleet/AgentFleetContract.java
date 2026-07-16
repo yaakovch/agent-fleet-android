@@ -6,9 +6,11 @@ public final class AgentFleetContract {
     public static final String EXTRA_HOST_ID = "com.termux.agent_fleet.HOST_ID";
     public static final String EXTRA_PROJECT = "com.termux.agent_fleet.PROJECT";
     public static final String EXTRA_INTERNAL_SESSION = "com.termux.agent_fleet.INTERNAL_SESSION";
+    public static final String EXTRA_WORKSPACE_SESSION_ID = "com.termux.agent_fleet.WORKSPACE_SESSION_ID";
     public static final String EXTRA_SHARED_IMAGES = "com.termux.agent_fleet.SHARED_IMAGES";
     public static final String EXTRA_NATIVE_SESSION = "com.termux.agent_fleet.NATIVE_SESSION";
     public static final String EXTRA_LOCAL_SESSION = "com.termux.agent_fleet.LOCAL_SESSION";
+    public static final String WORKSPACE_SESSION_PREFIX = "agent-fleet-workspace:";
 
     private AgentFleetContract() {}
 }

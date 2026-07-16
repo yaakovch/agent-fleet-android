@@ -16,6 +16,7 @@ import java.io.InputStream;
 import java.lang.reflect.Field;
 import java.nio.charset.StandardCharsets;
 import java.util.UUID;
+import java.util.concurrent.CopyOnWriteArrayList;
 
 /**
  * A terminal session, consisting of a process coupled to a terminal interface.
@@ -52,6 +53,7 @@ public final class TerminalSession extends TerminalOutput {
 
     /** Callback which gets notified when a session finishes or changes title. */
     TerminalSessionClient mClient;
+    private final CopyOnWriteArrayList<TerminalSessionClient> mObservers = new CopyOnWriteArrayList<>();
 
     /** The pid of the shell process. 0 if not started and -1 if finished running. */
     int mShellPid;
@@ -97,6 +99,16 @@ public final class TerminalSession extends TerminalOutput {
 
         if (mEmulator != null)
             mEmulator.updateTerminalSessionClient(client);
+    }
+
+    /** Add a secondary view observer without replacing the service/activity client. */
+    public void addTerminalSessionObserver(TerminalSessionClient observer) {
+        if (observer != null && observer != mClient) mObservers.addIfAbsent(observer);
+    }
+
+    /** Remove a secondary view observer. */
+    public void removeTerminalSessionObserver(TerminalSessionClient observer) {
+        mObservers.remove(observer);
     }
 
     /** Inform the attached pty of the new size and reflow or initialize the emulator. */
@@ -222,6 +234,7 @@ public final class TerminalSession extends TerminalOutput {
     /** Notify the {@link #mClient} that the screen has changed. */
     protected void notifyScreenUpdate() {
         mClient.onTextChanged(this);
+        for (TerminalSessionClient observer : mObservers) observer.onTextChanged(this);
     }
 
     /** Reset state for terminal emulator state. */
@@ -232,7 +245,9 @@ public final class TerminalSession extends TerminalOutput {
 
     /** Finish this terminal session by sending SIGKILL to the shell. */
     public void finishIfRunning() {
-        if (isRunning()) {
+        // pid 0 means the session object exists but its PTY has not been initialized yet.
+        // Signalling pid 0 would kill the app's entire process group.
+        if (mShellPid > 0) {
             try {
                 Os.kill(mShellPid, OsConstants.SIGKILL);
             } catch (ErrnoException e) {
@@ -257,6 +272,7 @@ public final class TerminalSession extends TerminalOutput {
     @Override
     public void titleChanged(String oldTitle, String newTitle) {
         mClient.onTitleChanged(this);
+        for (TerminalSessionClient observer : mObservers) observer.onTitleChanged(this);
     }
 
     public synchronized boolean isRunning() {
@@ -271,31 +287,37 @@ public final class TerminalSession extends TerminalOutput {
     @Override
     public void onCopyTextToClipboard(String text) {
         mClient.onCopyTextToClipboard(this, text);
+        for (TerminalSessionClient observer : mObservers) observer.onCopyTextToClipboard(this, text);
     }
 
     @Override
     public void onPasteTextFromClipboard() {
         mClient.onPasteTextFromClipboard(this);
+        for (TerminalSessionClient observer : mObservers) observer.onPasteTextFromClipboard(this);
     }
 
     @Override
     public void onBell() {
         mClient.onBell(this);
+        for (TerminalSessionClient observer : mObservers) observer.onBell(this);
     }
 
     @Override
     public void onColorsChanged() {
         mClient.onColorsChanged(this);
+        for (TerminalSessionClient observer : mObservers) observer.onColorsChanged(this);
     }
 
     @Override
     public void onWorkingDirectoryChanged(String path) {
         mClient.onWorkingDirectoryChanged(this, path);
+        for (TerminalSessionClient observer : mObservers) observer.onWorkingDirectoryChanged(this, path);
     }
 
     @Override
     public void onShellIntegrationEvent(String marker, String data) {
         mClient.onShellIntegrationEvent(this, marker, data);
+        for (TerminalSessionClient observer : mObservers) observer.onShellIntegrationEvent(this, marker, data);
     }
 
     public int getPid() {
@@ -374,6 +396,7 @@ public final class TerminalSession extends TerminalOutput {
                 notifyScreenUpdate();
 
                 mClient.onSessionFinished(TerminalSession.this);
+                for (TerminalSessionClient observer : mObservers) observer.onSessionFinished(TerminalSession.this);
             }
         }
 

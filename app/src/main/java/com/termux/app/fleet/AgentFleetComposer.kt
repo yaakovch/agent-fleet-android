@@ -2,6 +2,9 @@ package com.termux.app.fleet
 
 import android.content.Intent
 import android.net.Uri
+import android.content.Context
+import android.os.Handler
+import android.os.Looper
 import android.view.View
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -199,6 +202,28 @@ object AgentFleetComposer {
         handleImageUris(activity, listOf(uri))
     }
 
+    fun uploadWorkspaceImages(
+        context: Context,
+        sourceUris: List<Uri>,
+        session: FleetSession,
+        onComplete: (Result<List<String>>) -> Unit
+    ) {
+        val main = Handler(Looper.getMainLooper())
+        Thread({
+            val result = runCatching {
+                sourceUris.distinct().take(MAX_ATTACHMENTS).map { uri ->
+                    val local = copyImage(context, uri)
+                    try {
+                        sendImage(context, local, session.hostId, session.project, session.internalName)
+                    } finally {
+                        local.delete()
+                    }
+                }
+            }
+            main.post { onComplete(result) }
+        }, "agent-fleet-workspace-image-upload").start()
+    }
+
     private fun handleImageUris(activity: TermuxActivity, sourceUris: List<Uri>) {
         val uris = sourceUris.distinct().take((MAX_ATTACHMENTS - attachments.size).coerceAtLeast(0))
         if (uris.isEmpty()) return
@@ -237,7 +262,7 @@ object AgentFleetComposer {
         }, "agent-fleet-image-upload").start()
     }
 
-    private fun copyImage(activity: TermuxActivity, uri: Uri): File {
+    private fun copyImage(activity: Context, uri: Uri): File {
         val mime = activity.contentResolver.getType(uri).orEmpty()
         require(mime.startsWith("image/"))
         val extension = when (mime) {
@@ -272,7 +297,7 @@ object AgentFleetComposer {
         return output
     }
 
-    private fun sendImage(activity: TermuxActivity, local: File, host: String, project: String, session: String): String {
+    private fun sendImage(activity: Context, local: File, host: String, project: String, session: String): String {
         val appRoot = activity.filesDir.parentFile ?: error("App data directory is unavailable")
         val home = File(appRoot, "files/home")
         val prefix = File(appRoot, "files/usr")

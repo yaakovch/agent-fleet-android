@@ -39,6 +39,10 @@ import com.termux.app.fleet.NativeSessionUiState
 import com.termux.app.fleet.ToolPresentation
 import com.termux.app.fleet.ToolPresentationBlock
 import com.termux.app.fleet.UpdateUiState
+import com.termux.app.fleet.AndroidWorkspaceState
+import com.termux.app.fleet.WorkspaceTerminalBroker
+import com.termux.app.fleet.emptyWorkspaceLayout
+import androidx.test.core.app.ApplicationProvider
 import java.util.concurrent.atomic.AtomicInteger
 import androidx.compose.runtime.mutableStateOf
 import org.junit.Assert.assertEquals
@@ -73,6 +77,32 @@ class AgentFleetComposeTest {
         compose.onNodeWithTag("repository-download-state").assertIsDisplayed()
         compose.onNodeWithText("Downloading · 33%").assertIsDisplayed()
         assertEquals(2, attempts.get())
+    }
+
+    @Test
+    fun wideWorkspaceAssignsFromTheVerticalSessionRail() {
+        val state = mutableStateOf(AndroidWorkspaceState(emptyWorkspaceLayout()))
+        val broker = WorkspaceTerminalBroker(ApplicationProvider.getApplicationContext())
+        compose.setContent {
+            AgentFleetTheme(darkTheme = true) {
+                DesktopWorkspaceScreen(
+                    snapshot = snapshot,
+                    sessions = snapshot.sessions,
+                    state = state.value,
+                    broker = broker,
+                    onStateChange = { state.value = it },
+                    onMoreSession = {},
+                    onRefresh = {}
+                )
+            }
+        }
+        compose.onNodeWithTag("desktop-session-search").assertIsDisplayed()
+        compose.onNodeWithText("Open").performClick()
+        compose.runOnIdle {
+            assertEquals(session.id, com.termux.app.fleet.workspacePanes(state.value.layout.root).single().sessionId)
+        }
+        compose.onNodeWithTag("workspace-pane-${state.value.layout.focusedPaneId}").assertIsDisplayed()
+        broker.close()
     }
 
     @Test

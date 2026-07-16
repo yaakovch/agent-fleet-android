@@ -301,3 +301,90 @@ the connected S23FE.
 - Cover transient/permanent repository UI, floor reconciliation, hotfix
   preservation, and release ordering in JVM and isolated API 36 emulator suites.
   Publish for manual in-app phone update only; do not operate the S23FE over ADB.
+
+## Milestone 20: Shared Desktop Layout Contract Reservation
+
+- Add the canonical workspace-layout-v1 golden fixture to JVM contract tests
+  and validate its bounded split tree, unique pane/session identities, focus,
+  ratios, and Native/Terminal modes.
+- Reserve Auto, Phone, and Desktop settings plus separate phone/desktop layout
+  stores in the specification only. Keep current Android runtime and Compose UI
+  unchanged during the Windows beta10 release.
+- Implement wide-window/DeX presentation in a later Android milestone using the
+  shared behavior and the isolated API 36 emulator before any manual S23FE smoke.
+
+## Milestone 21: Wide Workspace And Stale-Session Recovery
+
+- Add persisted Auto/Phone/Desktop presentation state and a validated Android
+  split-tree reducer/store. Auto switches at 840 dp, preserves Desktop state
+  independently, and safely falls back to one empty pane on invalid data.
+- Replace activity-owned terminal callbacks with a stable Termux-service broker
+  and per-session observers. Reuse one managed local attachment across classic
+  phone and embedded Desktop views, refactor Native controllers to pane hosts,
+  and pause invisible renderers/streams while retaining assigned PTYs.
+- Make managed attachment creation atomic in `TermuxService`, reconcile old
+  duplicates by preserving the selected running copy (otherwise the oldest
+  running copy), and keep a four-entry active/MRU cache. Route compact and
+  shared-image opens through the broker, explicitly select the target PTY after
+  activity startup, and release local attachments after Close or successful
+  Kill without ending remote tmux.
+- Filter managed PTYs from the Classic Termux drawer, cycling shortcuts, and
+  local notification count; use the Agent Fleet label and local attachment
+  state for Enter/Return. Cover marker validation, canonical selection,
+  retention, repeated/concurrent opens, legacy cleanup, drawer isolation,
+  image reuse, Back, Close, and Kill in JVM and API 36 emulator tests.
+- Build the wide Compose workspace with navigation and session rails, search,
+  placement actions, all split presets, touch dividers, focus, Native/Terminal,
+  responsive DeX handoff, existing session actions, draft/attachment guards,
+  local detach, and explicit Kill.
+- Mark sessions from non-healthy hosts unavailable, disable remote mutations,
+  persist bounded local Hide records until a healthy snapshot, and make
+  host-offline/stale-revision outcomes deterministic and human-readable. Apply
+  and validate the equivalent behavior in Windows beta.11.
+- Run JVM and compact/wide API 36 Compose coverage, screenshots, full emulator,
+  release, runtime, and privacy verification. Publish signed
+  `0.118.4-agentfleet.34` (`1036`) for manual in-app S23FE update and DeX smoke;
+  never operate the physical phone through automated ADB and fix forward as
+  `.35` if required.
+
+Acceptance record (2026-07-15): `.34` passed the complete emulator-first suite
+at `build/reports/agent-fleet/emulator/20260715T204313Z-full`, including JVM,
+Compose instrumentation, compact/wide UI, screenshot, release, runtime, and
+privacy checks. Both signed APKs and their manifest passed release verification
+with embedded wtmux `git-b4515bf`; version 1036 was published to the private
+update channel. The S23FE was not accessed over ADB and remains a manual in-app
+update plus Phone/DeX smoke gate.
+
+## Milestone 22: Stop-Session Startup Revision Hotfix
+
+- Reproduce the phone failure with an immediate revisioned Kill against a fresh
+  bridge whose host snapshot is deliberately delayed. Require the operation to
+  wait for bounded bridge startup instead of comparing against a transient
+  connecting-only fleet revision.
+- Keep the existing request shape, exact session identity, host-side revision
+  check, and same-key one-retry behavior. Embed wtmux `git-be5d82d`, run shared
+  and Android emulator suites, and publish signed `.35`/1037 without automated
+  S23FE access.
+
+Acceptance record (2026-07-16): the delayed-startup Kill regression failed on
+the `.34` runtime and passed after `git-be5d82d`. The shared suite passed 147
+Python tests, 73 Bats cases, and smoke; Windows passed 103 tests; Android fast
+and full API 36 suites passed at `20260715T212120Z-fast` and
+`20260715T212306Z-full`. Signed `.35`/1037 passed APK, certificate, checksum,
+and embedded-runtime verification and was published for manual S23FE update.
+
+## Milestone 23: Managed Attachment Coalescing Hotfix
+
+- Move Agent Fleet attachment identity into `TermuxService` so compact,
+  Native, image-share, and Desktop entry points atomically reuse one marked
+  local PTY for each remote session.
+- Reconcile legacy duplicate attachments without ending remote tmux, keep a
+  four-entry active/MRU cache, and release local attachments after Close,
+  replacement, retention eviction, or successful Kill.
+- Hide managed attachments from the Classic Termux drawer, numbering,
+  shortcuts, and local-shell notification count. Treat an uninitialized shell
+  pid of zero as no child process and never signal the app process group.
+- Cover canonical selection, repeated/concurrent acquisition, legacy cleanup,
+  drawer isolation, image reuse, and pre-render cleanup in JVM and isolated API
+  36 tests. Publish signed `.36`/1038 for manual in-app S23FE update without
+  automated physical-device access.

@@ -35,6 +35,7 @@ import com.termux.app.terminal.TermuxActivityRootView;
 import com.termux.app.fleet.AgentFleetComposer;
 import com.termux.app.fleet.AgentFleetContract;
 import com.termux.app.fleet.NativeSessionController;
+import com.termux.app.fleet.NativeSessionHost;
 import com.termux.shared.activities.ReportActivity;
 import com.termux.shared.packages.PermissionUtils;
 import com.termux.shared.data.DataUtils;
@@ -51,6 +52,7 @@ import com.termux.shared.terminal.io.extrakeys.ExtraKeysView;
 import com.termux.app.settings.properties.TermuxAppSharedProperties;
 import com.termux.shared.interact.TextInputDialogUtils;
 import com.termux.shared.logger.Logger;
+import com.termux.shared.shell.TermuxSession;
 import com.termux.shared.termux.TermuxUtils;
 import com.termux.shared.view.ViewUtils;
 import com.termux.terminal.TerminalSession;
@@ -79,7 +81,7 @@ import java.util.UUID;
  * </ul>
  * about memory leaks.
  */
-public final class TermuxActivity extends ComponentActivity implements ServiceConnection {
+public final class TermuxActivity extends ComponentActivity implements ServiceConnection, NativeSessionHost {
 
     /**
      * The connection to the {@link TermuxService}. Requested in {@link #onCreate(Bundle)} with a call to
@@ -302,6 +304,7 @@ public final class TermuxActivity extends ComponentActivity implements ServiceCo
         super.onNewIntent(intent);
         setIntent(intent);
         updateAgentFleetInputMode(intent);
+        selectAgentFleetTarget(intent, 0);
     }
 
     private void updateAgentFleetInputMode(Intent intent) {
@@ -314,6 +317,17 @@ public final class TermuxActivity extends ComponentActivity implements ServiceCo
 
     public boolean sendAgentFleetComposerText(String text) {
         return sendAgentFleetComposerText(text, true);
+    }
+
+    @NonNull
+    @Override
+    public Context getNativeContext() {
+        return this;
+    }
+
+    @Override
+    public boolean getNativeInlineComposer() {
+        return false;
     }
 
     public boolean sendAgentFleetComposerText(String text, boolean appendEnter) {
@@ -342,7 +356,29 @@ public final class TermuxActivity extends ComponentActivity implements ServiceCo
         TerminalSession session = getCurrentSession();
         TermuxService service = getTermuxService();
         if (session == null || service == null) return;
-        service.removeTermuxSession(session);
+        String sessionId = getIntent() == null ? null :
+            getIntent().getStringExtra(AgentFleetContract.EXTRA_WORKSPACE_SESSION_ID);
+        if (sessionId != null) service.finishAgentFleetWorkspaceSession(sessionId);
+        else session.finishIfRunning();
+    }
+
+    private void selectAgentFleetTarget(Intent intent, int attempt) {
+        if (intent == null || mTermuxActivityRootView == null) return;
+        String sessionId = intent.getStringExtra(AgentFleetContract.EXTRA_WORKSPACE_SESSION_ID);
+        if (sessionId == null || !sessionId.matches("[A-Za-z0-9._: -]{1,180}")) return;
+        if (mTermuxService != null) {
+            TermuxSession target = mTermuxService.getAgentFleetWorkspaceSession(sessionId);
+            if (target != null && mTermuxService.selectAgentFleetWorkspaceSession(sessionId)) {
+                mTermuxTerminalSessionClient.setCurrentSession(target.getTerminalSession());
+                return;
+            }
+        }
+        if (attempt >= 50) return;
+        mTermuxActivityRootView.postDelayed(() -> {
+            Intent current = getIntent();
+            if (current != null && sessionId.equals(current.getStringExtra(AgentFleetContract.EXTRA_WORKSPACE_SESSION_ID)))
+                selectAgentFleetTarget(current, attempt + 1);
+        }, attempt == 0 ? 40 : 80);
     }
 
     public void showAgentFleetPendingQuestion() {
@@ -550,6 +586,8 @@ public final class TermuxActivity extends ComponentActivity implements ServiceCo
 
         mTermuxService = ((TermuxService.LocalBinder) service).service;
 
+        mTermuxService.reconcileAgentFleetWorkspaceSessions();
+
         setTermuxSessionsListView();
 
         if (mTermuxService.isTermuxSessionsEmpty()) {
@@ -584,6 +622,7 @@ public final class TermuxActivity extends ComponentActivity implements ServiceCo
 
         // Update the {@link TerminalSession} and {@link TerminalEmulator} clients.
         mTermuxService.setTermuxTerminalSessionClient(mTermuxTerminalSessionClient);
+        selectAgentFleetTarget(getIntent(), 0);
     }
 
     @Override
@@ -981,6 +1020,10 @@ public final class TermuxActivity extends ComponentActivity implements ServiceCo
 
     public void termuxSessionListNotifyUpdated() {
         mTermuxSessionListViewController.notifyDataSetChanged();
+    }
+
+    public int getClassicTermuxSessionIndex(TerminalSession session) {
+        return mTermuxSessionListViewController == null ? -1 : mTermuxSessionListViewController.indexOf(session);
     }
 
     public boolean isVisible() {

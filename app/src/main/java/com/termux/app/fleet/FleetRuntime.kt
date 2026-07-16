@@ -66,6 +66,28 @@ internal fun conciseFleetError(value: String, fallback: String = "Fleet refresh 
     return preferred.take(180)
 }
 
+internal fun killSessionWithStaleRetry(
+    snapshot: FleetSnapshot,
+    session: FleetSession,
+    execute: (FleetSnapshot, FleetSession) -> FleetSnapshot,
+    refresh: () -> FleetSnapshot
+): FleetSnapshot {
+    if (!isFleetSessionAvailable(snapshot, session)) {
+        throw FleetUnavailableException("${session.name}'s host is offline; no changes were made.", "host_offline")
+    }
+    return try {
+        execute(snapshot, session)
+    } catch (error: FleetUnavailableException) {
+        if (error.code != "stale_revision") throw error
+        val fresh = refresh()
+        val current = fresh.sessions.firstOrNull { it.id == session.id } ?: return fresh
+        if (!isFleetSessionAvailable(fresh, current)) {
+            throw FleetUnavailableException("${current.name}'s host is offline; no changes were made.", "host_offline")
+        }
+        execute(fresh, current)
+    }
+}
+
 class FleetRuntime(private val context: Context) {
     private data class RepositoryBridge(
         val process: Process,
@@ -196,6 +218,10 @@ class FleetRuntime(private val context: Context) {
             putExtra(TERMUX_SERVICE.EXTRA_BACKGROUND, false)
             putExtra(TERMUX_SERVICE.EXTRA_SESSION_ACTION, TERMUX_SERVICE.VALUE_EXTRA_SESSION_ACTION_SWITCH_TO_NEW_SESSION_AND_DONT_OPEN_ACTIVITY.toString())
             putExtra(TERMUX_SERVICE.EXTRA_COMMAND_LABEL, label)
+            if (session != null) putExtra(
+                TERMUX_SERVICE.EXTRA_COMMAND_DESCRIPTION,
+                AgentFleetContract.WORKSPACE_SESSION_PREFIX + session.id
+            )
             putExtra(AgentFleetContract.EXTRA_SESSION_NAME, sessionName)
         }
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) context.startForegroundService(intent) else context.startService(intent)
@@ -204,6 +230,7 @@ class FleetRuntime(private val context: Context) {
             putExtra(AgentFleetContract.EXTRA_NATIVE_SESSION, session != null || localNative)
             putExtra(AgentFleetContract.EXTRA_LOCAL_SESSION, localNative)
             if (session != null) {
+                putExtra(AgentFleetContract.EXTRA_WORKSPACE_SESSION_ID, session.id)
                 putExtra(AgentFleetContract.EXTRA_HOST_ID, session.hostId)
                 putExtra(AgentFleetContract.EXTRA_PROJECT, session.project)
                 putExtra(AgentFleetContract.EXTRA_INTERNAL_SESSION, session.internalName)
@@ -211,6 +238,30 @@ class FleetRuntime(private val context: Context) {
             if (sharedImages.isNotEmpty()) putStringArrayListExtra(AgentFleetContract.EXTRA_SHARED_IMAGES, ArrayList(sharedImages.take(8)))
             addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
         })
+    }
+
+    fun startWorkspaceSession(session: FleetSession) {
+        val wtmux = executable("wtmux")
+            ?: throw FleetUnavailableException("wtmux is not installed in this Agent Fleet terminal.")
+        val bash = executable("bash")
+            ?: throw FleetUnavailableException("Bash is missing from the restored Termux environment.")
+        val uri = Uri.Builder().scheme(TERMUX_SERVICE.URI_SCHEME_SERVICE_EXECUTE).path(bash.absolutePath).build()
+        val intent = Intent(TERMUX_SERVICE.ACTION_SERVICE_EXECUTE, uri, context, TermuxService::class.java).apply {
+            putExtra(TERMUX_SERVICE.EXTRA_ARGUMENTS, arrayOf(
+                wtmux.absolutePath, "--noninteractive", "--host", session.hostId,
+                "--project", session.project, "--session", session.internalName
+            ))
+            putExtra(TERMUX_SERVICE.EXTRA_WORKDIR, userHome.absolutePath)
+            putExtra(TERMUX_SERVICE.EXTRA_BACKGROUND, false)
+            putExtra(
+                TERMUX_SERVICE.EXTRA_SESSION_ACTION,
+                TERMUX_SERVICE.VALUE_EXTRA_SESSION_ACTION_KEEP_CURRENT_SESSION_AND_DONT_OPEN_ACTIVITY.toString()
+            )
+            putExtra(TERMUX_SERVICE.EXTRA_COMMAND_LABEL, "Agent Fleet · ${session.name}")
+            putExtra(TERMUX_SERVICE.EXTRA_COMMAND_DESCRIPTION, AgentFleetContract.WORKSPACE_SESSION_PREFIX + session.id)
+            putExtra(AgentFleetContract.EXTRA_SESSION_NAME, session.name)
+        }
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) context.startForegroundService(intent) else context.startService(intent)
     }
 
     fun renameSession(snapshot: FleetSnapshot, session: FleetSession, name: String): FleetSnapshot {
@@ -418,14 +469,18 @@ class FleetRuntime(private val context: Context) {
         )
     }
 
-    fun killSession(snapshot: FleetSnapshot, session: FleetSession): FleetSnapshot = mutate(
-        "session.kill",
-        JSONObject()
-            .put("hostId", session.hostId)
-            .put("sessionId", session.id)
-            .put("expectedRevision", snapshot.revision)
-            .put("idempotencyKey", UUID.randomUUID().toString())
-    )
+    fun killSession(snapshot: FleetSnapshot, session: FleetSession): FleetSnapshot {
+        val idempotencyKey = UUID.randomUUID().toString()
+        fun execute(current: FleetSnapshot, target: FleetSession): FleetSnapshot = mutate(
+            "session.kill",
+            JSONObject()
+                .put("hostId", target.hostId)
+                .put("sessionId", target.id)
+                .put("expectedRevision", current.revision)
+                .put("idempotencyKey", idempotencyKey)
+        )
+        return killSessionWithStaleRetry(snapshot, session, ::execute, ::loadSnapshot)
+    }
 
     fun doctorHost(snapshot: FleetSnapshot, hostId: String): FleetDoctorResult {
         require(snapshot.hosts.any { it.id == hostId }) { "Host is not part of this fleet snapshot." }
@@ -697,6 +752,7 @@ class FleetRuntime(private val context: Context) {
         return if (backend == "linux") value.startsWith("/")
         else !value.startsWith("\\\\") && !value.startsWith("//") && value.matches(Regex("[A-Za-z]:[\\\\/].*"))
     }
+
 
     private fun validRepositoryPath(value: String, empty: Boolean): Boolean {
         if (value.length > 2_048 || (!empty && value.isBlank()) || value.startsWith('/') || value.contains('\\') || value.any(Char::isISOControl)) return false

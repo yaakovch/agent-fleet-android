@@ -1,6 +1,7 @@
 package com.termux.app.fleet
 
 import android.content.Intent
+import android.content.Context
 import android.os.Handler
 import android.os.Looper
 import android.util.Base64
@@ -9,7 +10,6 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.platform.ComposeView
 import androidx.compose.ui.platform.ViewCompositionStrategy
 import com.termux.app.AgentFleetTheme
-import com.termux.app.TermuxActivity
 import org.json.JSONObject
 import org.json.JSONArray
 import java.io.ByteArrayOutputStream
@@ -18,8 +18,19 @@ import java.util.UUID
 import java.util.concurrent.TimeUnit
 import kotlin.concurrent.thread
 
+interface NativeSessionHost {
+    val nativeContext: Context
+    val nativeInlineComposer: Boolean
+    fun sendAgentFleetComposerText(text: String, appendEnter: Boolean): Boolean
+    fun sendAgentFleetControlC(): Boolean
+    fun sendAgentFleetKey(key: String): Boolean
+    fun pickAgentFleetImages()
+    fun setAgentFleetNativeView(nativeAvailable: Boolean, nativeView: Boolean, automaticTerminal: Boolean, aiComposer: Boolean)
+    fun closeAgentFleetSessionTab()
+}
+
 class NativeSessionController(
-    private val activity: TermuxActivity,
+    private val activity: NativeSessionHost,
     private val composeView: ComposeView
 ) {
     private companion object {
@@ -28,10 +39,10 @@ class NativeSessionController(
     }
 
     private val main = Handler(Looper.getMainLooper())
-    private val appRoot = activity.filesDir.parentFile ?: File("/data/data/com.termux")
+    private val appRoot = activity.nativeContext.filesDir.parentFile ?: File("/data/data/com.termux")
     private val prefix = File(appRoot, "files/usr")
     private val home = File(appRoot, "files/home")
-    private val fleetRuntime = FleetRuntime(activity.applicationContext)
+    private val fleetRuntime = FleetRuntime(activity.nativeContext.applicationContext)
     private val uiState = mutableStateOf(NativeSessionUiState("Session", "", ""))
     @Volatile private var fleetSnapshot: FleetSnapshot? = null
     @Volatile private var visible = false
@@ -67,7 +78,10 @@ class NativeSessionController(
                     onCloseSession = ::closeSession,
                     onKillSession = ::killSession,
                     onScheduleContinue = ::scheduleLimitContinue,
-                    onDismissAttention = ::dismissAttention
+                    onDismissAttention = ::dismissAttention,
+                    onComposerText = activity::sendAgentFleetComposerText,
+                    onAttach = activity::pickAgentFleetImages,
+                    inlineComposer = activity.nativeInlineComposer
                 )
             }
         }
@@ -88,7 +102,7 @@ class NativeSessionController(
         val project = intent?.getStringExtra(AgentFleetContract.EXTRA_PROJECT).orEmpty()
         composerTarget = listOf(host, project, if (localSession) "local" else session).joinToString(":")
         enabled = intent?.getBooleanExtra(AgentFleetContract.EXTRA_NATIVE_SESSION, false) == true &&
-            NativeSessionSettings.isEnabled(activity) && (localSession || (host.isNotBlank() && session.isNotBlank()))
+            NativeSessionSettings.isEnabled(activity.nativeContext) && (localSession || (host.isNotBlank() && session.isNotBlank()))
         uiState.value = NativeSessionUiState(
             label.ifBlank { if (localSession) "Local shell" else "Session" },
             host,
@@ -241,7 +255,7 @@ class NativeSessionController(
     )
 
     private fun observeFleet() {
-        FleetSnapshotStore.observe(activity.applicationContext, this) { state ->
+        FleetSnapshotStore.observe(activity.nativeContext.applicationContext, this) { state ->
             if (!visible || !enabled) return@observe
             when (state) {
                 is FleetLoadState.Ready -> applyFleetSnapshot(state.snapshot)

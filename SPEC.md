@@ -350,3 +350,43 @@ trusted fleet.
   `events.ndjson` under schema `agent-fleet-diagnostics-v1`. Redaction and tests
   exclude prompts, responses, transcripts, terminal output, credentials,
   tokens, invitations, attachments, and repository paths.
+
+## Wide-Window Session Workspace
+
+- Android implements Auto, Phone, and Desktop presentation modes from current
+  window width rather than a Samsung-only API. Auto keeps the existing compact
+  single-session flow below 840 dp and selects Desktop at or above 840 dp, so
+  DeX, tablets, and AR-glasses windows share the same behavior. Manual Phone and
+  Desktop overrides remain available.
+- Desktop mode uses the shared `workspace-layout-v1` split tree with a
+  collapsible vertical session rail, one to four unique assignments, split
+  actions and presets, draggable dividers, focus/MRU, and an independent Native
+  or Terminal view per pane. New AI assignments start Native.
+- Desktop state persists separately from the compact phone flow. Width changes
+  never compress or overwrite the desktop tree. Entering Desktop hands the
+  active phone session's existing local attachment to the focused pane; leaving
+  Desktop continues the focused session full-screen without a duplicate PTY.
+- Assigned local PTYs remain alive while Desktop is hidden, but invisible
+  terminal renderers and Native conversation streams stop. Closing or replacing
+  a pane detaches locally; only explicit guarded Kill ends tmux. Classic local
+  Termux shells remain outside the split workspace.
+- `TermuxService` owns Agent Fleet attachment identity. Every compact, Native,
+  image-share, and Desktop open reuses one marked PTY per remote session and
+  reconciles legacy duplicates without touching tmux. Active attachments plus
+  the most recently used inactive attachments are capped at four. Android Back
+  caches the attachment; local Close, pane replacement, retention eviction, or
+  successful remote Kill releases it.
+- Managed attachments are hidden from the Classic Termux drawer, numbering,
+  shortcuts, and local-session notification count. When no classic shell is
+  open, the foreground notification says `Agent Fleet active`. Agent Fleet's
+  Enter/Return state reflects this device's reusable attachment rather than a
+  remote client's attached flag.
+- Sessions owned by connecting or offline hosts are last-known and unavailable:
+  remote actions are disabled, Hide removes only the local cached record, and a
+  healthy authoritative snapshot may restore it. Assigned panes reconnect or
+  become ended when the host returns. Host-offline races use a plain inline
+  message and keep diagnostic IDs under Details; Kill retries one stale revision
+  with the same idempotency key and accepts an already-absent session. A newly
+  opened bridge must finish its bounded startup snapshot before checking the
+  fleet revision for any mutation, so startup itself cannot manufacture a stale
+  result.

@@ -15,6 +15,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -108,6 +109,12 @@ import com.termux.app.fleet.AgentFleetDiagnosticReport
 import com.termux.app.fleet.AgentFleetDiagnosticEvent
 import com.termux.app.fleet.AgentFleetDiagnosticsRunner
 import com.termux.app.fleet.DiagnosticsUiState
+import com.termux.app.fleet.AndroidWorkspaceStore
+import com.termux.app.fleet.isFleetSessionAvailable
+import com.termux.app.fleet.WorkspacePresentationMode
+import com.termux.app.fleet.WorkspacePresentationStore
+import com.termux.app.fleet.WorkspaceTerminalBroker
+import com.termux.app.fleet.isDesktopPresentation
 import java.io.File
 import java.util.concurrent.Executors
 import java.util.concurrent.ConcurrentHashMap
@@ -139,6 +146,7 @@ class AgentFleetActivity : ComponentActivity() {
     private lateinit var clientPolicyStore: ClientPolicyStore
     private lateinit var diagnosticJournal: AgentFleetDiagnosticJournal
     private lateinit var diagnosticsRunner: AgentFleetDiagnosticsRunner
+    private lateinit var workspaceTerminalBroker: WorkspaceTerminalBroker
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -152,6 +160,7 @@ class AgentFleetActivity : ComponentActivity() {
         diagnosticsRunner = AgentFleetDiagnosticsRunner(
             applicationContext, embeddedRuntime, clientPolicyStore, fleetRuntime, diagnosticJournal
         )
+        workspaceTerminalBroker = WorkspaceTerminalBroker(applicationContext).also { it.start() }
         refreshUpdatePolicy()
         recentSessions.value = recentSessionStore.load()
         val cleanTerminal = !File(filesDir, "usr/bin/bash").canExecute()
@@ -217,7 +226,8 @@ class AgentFleetActivity : ComponentActivity() {
                         } catch (error: Exception) {
                             Toast.makeText(this, error.message, Toast.LENGTH_LONG).show()
                         }
-                    }
+                    },
+                    workspaceTerminalBroker = workspaceTerminalBroker
                 )
             }
         }
@@ -228,6 +238,7 @@ class AgentFleetActivity : ComponentActivity() {
 
     override fun onStart() {
         super.onStart()
+        if (::workspaceTerminalBroker.isInitialized) workspaceTerminalBroker.refreshAttachments()
         refreshUpdatePolicy()
         FleetSnapshotStore.observe(applicationContext, this) { fleetState.value = it }
         if (
@@ -257,6 +268,7 @@ class AgentFleetActivity : ComponentActivity() {
         runtimeExecutor.shutdownNow()
         fileExecutor.shutdownNow()
         diagnosticsExecutor.shutdownNow()
+        if (::workspaceTerminalBroker.isInitialized) workspaceTerminalBroker.close()
         if (::fleetRuntime.isInitialized) fleetRuntime.shutdown()
         super.onDestroy()
     }
@@ -338,7 +350,7 @@ class AgentFleetActivity : ComponentActivity() {
         try {
             recentSessionStore.record(session)
             recentSessions.value = recentSessionStore.load()
-            fleetRuntime.openSession(session)
+            workspaceTerminalBroker.openFullscreen(session)
         } catch (error: Exception) {
             reportDiagnosticError("session.open", error, session.hostId, session.id)
             Toast.makeText(this, error.message, Toast.LENGTH_LONG).show()
@@ -349,7 +361,7 @@ class AgentFleetActivity : ComponentActivity() {
         try {
             recentSessionStore.record(session)
             recentSessions.value = recentSessionStore.load()
-            fleetRuntime.openSession(session, images)
+            workspaceTerminalBroker.openFullscreen(session, images)
         } catch (error: Exception) {
             reportDiagnosticError("session.open_with_images", error, session.hostId, session.id)
             Toast.makeText(this, error.message, Toast.LENGTH_LONG).show()
@@ -470,9 +482,10 @@ class AgentFleetActivity : ComponentActivity() {
         fleetRuntime.dismissAttention(snapshot, attention)
     }
 
-    private fun killFleetSession(session: FleetSession) = mutateFleet("Session stopped") { snapshot ->
-        fleetRuntime.killSession(snapshot, session)
-    }
+    private fun killFleetSession(session: FleetSession) = mutateFleet(
+        "Session stopped",
+        afterSuccess = { workspaceTerminalBroker.detach(session.id) }
+    ) { snapshot -> fleetRuntime.killSession(snapshot, session) }
 
     private fun cancelSchedule(schedule: FleetSchedule) = mutateFleet("Schedule cancelled") { snapshot ->
         fleetRuntime.cancelSchedule(snapshot, schedule)
@@ -661,16 +674,22 @@ class AgentFleetActivity : ComponentActivity() {
         }
     }
 
-    private fun mutateFleet(successMessage: String, action: (FleetSnapshot) -> FleetSnapshot) {
+    private fun mutateFleet(
+        successMessage: String,
+        afterSuccess: (FleetSnapshot) -> Unit = {},
+        action: (FleetSnapshot) -> FleetSnapshot
+    ) {
         val snapshot = (fleetState.value as? FleetLoadState.Ready)?.snapshot ?: return refreshFleet()
         fleetExecutor.execute {
             val result = runCatching { action(snapshot) }
             runOnUiThread {
                 result.onSuccess {
                     FleetSnapshotStore.publish(it)
+                    afterSuccess(it)
                     Toast.makeText(this, successMessage, Toast.LENGTH_SHORT).show()
                 }.onFailure {
-                    reportDiagnosticError("fleet.mutate", it)
+                    val code = (it as? com.termux.app.fleet.FleetUnavailableException)?.code.orEmpty()
+                    reportDiagnosticError("fleet.mutate", it, show = code !in setOf("host_offline", "stale_revision"))
                     Toast.makeText(this, it.message ?: "Fleet action failed", Toast.LENGTH_LONG).show()
                     refreshFleet()
                 }
@@ -765,7 +784,8 @@ fun AgentFleetApp(
     onExportDiagnostics: (AgentFleetDiagnosticReport) -> Unit,
     onCopyDiagnosticError: (AgentFleetDiagnosticEvent) -> Unit,
     onDiagnosticErrorHandled: () -> Unit,
-    onOpenClassicTerminal: () -> Unit
+    onOpenClassicTerminal: () -> Unit,
+    workspaceTerminalBroker: WorkspaceTerminalBroker? = null
 ) {
     if (runtimeUi.blocking) {
         PreparingTerminalScreen(runtimeUi, onRepairRuntime)
@@ -781,12 +801,76 @@ fun AgentFleetApp(
     var showPairing by rememberSaveable { mutableStateOf(false) }
     var showDiagnostics by rememberSaveable { mutableStateOf(false) }
     val currentSnapshot = (fleetState as? FleetLoadState.Ready)?.snapshot
-    val sessionsById = currentSnapshot?.sessions?.associateBy { it.id }.orEmpty()
+    val context = LocalContext.current
+    val workspaceStore = remember { AndroidWorkspaceStore(context.applicationContext) }
+    val presentationStore = remember { WorkspacePresentationStore(context.applicationContext) }
+    var workspaceState by remember { mutableStateOf(workspaceStore.load()) }
+    var presentationMode by remember { mutableStateOf(presentationStore.load()) }
+    LaunchedEffect(currentSnapshot?.revision) {
+        currentSnapshot?.let { snapshot ->
+            val reconciled = workspaceStore.reconcile(snapshot, workspaceState)
+            if (reconciled != workspaceState) {
+                workspaceState = reconciled
+                workspaceStore.save(reconciled)
+            }
+        }
+    }
+    val visibleSessions = currentSnapshot?.sessions.orEmpty().filterNot { it.id in workspaceState.hiddenUnavailableSessionIds }
+    val localAttachments = workspaceTerminalBroker?.attachedSessionIds?.value.orEmpty()
+    val sessionsById = visibleSessions.associateBy { it.id }
+    fun hideUnavailable(session: FleetSession) {
+        if (currentSnapshot == null || isFleetSessionAvailable(currentSnapshot, session)) return
+        workspaceState = workspaceState.copy(
+            hiddenUnavailableSessionIds = (workspaceState.hiddenUnavailableSessionIds + session.id).take(64).toSet()
+        )
+        workspaceStore.save(workspaceState)
+        actionSession = null
+    }
     LaunchedEffect(pendingPairInvitation) {
         if (pendingPairInvitation != null) showPairing = true
     }
 
-    Scaffold(
+    BoxWithConstraints(Modifier.fillMaxSize()) {
+        val desktop = isDesktopPresentation(presentationMode, maxWidth.value.toInt()) && workspaceTerminalBroker != null
+        var wasDesktop by remember { mutableStateOf(desktop) }
+        LaunchedEffect(desktop) {
+            if (wasDesktop && !desktop && currentSnapshot != null) {
+                val focused = com.termux.app.fleet.workspacePanes(workspaceState.layout.root)
+                    .firstOrNull { it.id == workspaceState.layout.focusedPaneId }
+                    ?.sessionId
+                    ?.let { id -> currentSnapshot.sessions.firstOrNull { it.id == id } }
+                if (focused != null && isFleetSessionAvailable(currentSnapshot, focused)) {
+                    workspaceTerminalBroker?.openFullscreen(focused)
+                }
+            }
+            wasDesktop = desktop
+        }
+        if (desktop) {
+            Row(Modifier.fillMaxSize()) {
+                DesktopNavigationRail(section) { section = it }
+                Box(Modifier.weight(1f).fillMaxSize()) {
+                    when (section) {
+                        FleetSection.Sessions, FleetSection.Terminal -> DesktopWorkspaceScreen(
+                            snapshot = currentSnapshot,
+                            sessions = visibleSessions,
+                            phoneSessionId = recentSessions.firstOrNull()?.id,
+                            state = workspaceState,
+                            broker = workspaceTerminalBroker!!,
+                            onStateChange = { updated -> workspaceState = updated; workspaceStore.save(updated) },
+                            onMoreSession = { actionSession = it.id },
+                            onRefresh = onRefresh
+                        )
+                        FleetSection.Limits -> LimitsScreen(PaddingValues(0.dp), fleetState, onScheduleAttention, onDismissAttention)
+                        FleetSection.More -> MoreScreen(
+                            PaddingValues(0.dp), fleetState, updateState, updateManifestUrl, runtimeUi,
+                            { showPairing = true }, onCancelSchedule, onCheckUpdate, onInstallUpdate,
+                            onRepairRuntime, onCheckRuntime, onRollbackRuntime, onRestoreBaseline,
+                            onOpenAppearance, { showDiagnostics = true }, presentationMode
+                        ) { mode -> presentationMode = mode; presentationStore.save(mode) }
+                    }
+                }
+            }
+        } else Scaffold(
         modifier = Modifier.testTag("agent-fleet-shell"),
         containerColor = MaterialTheme.colorScheme.background,
         topBar = {
@@ -815,7 +899,7 @@ fun AgentFleetApp(
         }
     ) { padding ->
         when (section) {
-            FleetSection.Sessions -> SessionsScreen(padding, fleetState, onRefresh, onOpenSession, { actionSession = it.id }, { showCreateSession = true }, { showPairing = true }, onOpenClassicTerminal)
+            FleetSection.Sessions -> SessionsScreen(padding, fleetState, visibleSessions, localAttachments, onRefresh, onOpenSession, { actionSession = it.id }, { showCreateSession = true }, { showPairing = true }, onOpenClassicTerminal)
             FleetSection.Terminal -> TerminalScreen(padding, recentSessions, onOpenSession, onOpenClassicTerminal, onOpenAppearance)
             FleetSection.Limits -> LimitsScreen(padding, fleetState, onScheduleAttention, onDismissAttention)
             FleetSection.More -> MoreScreen(
@@ -833,21 +917,26 @@ fun AgentFleetApp(
                 onRollbackRuntime,
                 onRestoreBaseline,
                 onOpenAppearance,
-                { showDiagnostics = true }
-            )
+                { showDiagnostics = true },
+                presentationMode
+            ) { mode -> presentationMode = mode; presentationStore.save(mode) }
         }
+    }
     }
 
     sessionsById[actionSession]?.let { session ->
+        val available = currentSnapshot?.let { isFleetSessionAvailable(it, session) } == true
         SessionActionsDialog(
             session = session,
+            available = available,
             onDismiss = { actionSession = null },
             onOpen = { actionSession = null; onOpenSession(session) },
             onRename = { actionSession = null; renameSession = session.id },
             onSchedule = { actionSession = null; scheduleSession = session.id },
             onDownload = { actionSession = null; repositorySession = session.id },
             onCopy = { actionSession = null; onCopyAttachCommand(session) },
-            onKill = { actionSession = null; killSession = session.id }
+            onKill = { actionSession = null; killSession = session.id },
+            onHide = { hideUnavailable(session) }
         )
     }
     sessionsById[repositorySession]?.let { session ->
@@ -956,6 +1045,8 @@ fun AgentFleetApp(
 private fun SessionsScreen(
     padding: PaddingValues,
     fleetState: FleetLoadState,
+    sessions: List<FleetSession>,
+    localAttachments: Set<String>,
     onRefresh: () -> Unit,
     onOpenSession: (FleetSession) -> Unit,
     onMoreSession: (FleetSession) -> Unit,
@@ -966,7 +1057,7 @@ private fun SessionsScreen(
     var query by rememberSaveable { mutableStateOf("") }
     val snapshot = (fleetState as? FleetLoadState.Ready)?.snapshot
     val hosts = snapshot?.hosts?.associateBy { it.id }.orEmpty()
-    val filtered = filterSessions(snapshot?.sessions.orEmpty(), hosts, query)
+    val filtered = filterSessions(sessions, hosts, query)
 
     LazyColumn(
         modifier = Modifier.fillMaxSize().padding(padding).testTag("sessions-screen"),
@@ -1006,7 +1097,15 @@ private fun SessionsScreen(
                     item { EmptyState(if (query.isBlank()) "No managed sessions are open." else "No sessions match “$query”.") }
                 } else {
                     items(filtered, key = { it.id }) { session ->
-                        SessionCard(session, hosts[session.hostId]?.name ?: session.hostId, { onOpenSession(session) }, { onMoreSession(session) })
+                        val available = snapshot?.let { isFleetSessionAvailable(it, session) } == true
+                        SessionCard(
+                            session,
+                            hosts[session.hostId]?.name ?: session.hostId,
+                            available,
+                            session.id in localAttachments,
+                            { onOpenSession(session) },
+                            { onMoreSession(session) }
+                        )
                     }
                 }
             }
@@ -1015,7 +1114,14 @@ private fun SessionsScreen(
 }
 
 @Composable
-private fun SessionCard(session: FleetSession, hostName: String, onOpen: () -> Unit, onMore: () -> Unit) {
+private fun SessionCard(
+    session: FleetSession,
+    hostName: String,
+    available: Boolean,
+    locallyAttached: Boolean,
+    onOpen: () -> Unit,
+    onMore: () -> Unit
+) {
     Card(
         modifier = Modifier.fillMaxWidth().testTag("session-${session.id}"),
         shape = RoundedCornerShape(20.dp),
@@ -1023,13 +1129,17 @@ private fun SessionCard(session: FleetSession, hostName: String, onOpen: () -> U
     ) {
         Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                StatusDot(if (session.activity == "active") ReadyGreen else QuietGray)
+                StatusDot(if (available && session.activity == "active") ReadyGreen else QuietGray)
                 Spacer(Modifier.size(10.dp))
                 Column(Modifier.weight(1f)) {
                     Text(session.name, fontSize = 20.sp, fontWeight = FontWeight.Bold)
                     if (session.title.isNotBlank()) Text(session.title, fontSize = 16.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
-                Text(if (session.activity == "active") "Active" else "Idle", color = if (session.activity == "active") ReadyGreen else QuietGray, fontWeight = FontWeight.SemiBold)
+                Text(
+                    if (!available) "Unavailable" else if (session.activity == "active") "Active" else "Idle",
+                    color = if (available && session.activity == "active") ReadyGreen else QuietGray,
+                    fontWeight = FontWeight.SemiBold
+                )
             }
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically) {
                 Text(
@@ -1049,8 +1159,8 @@ private fun SessionCard(session: FleetSession, hostName: String, onOpen: () -> U
                 )
             }
             Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                Button(onClick = onOpen, modifier = Modifier.weight(1f).testTag("session-open-${session.id}"), shape = RoundedCornerShape(14.dp)) {
-                    Text(if (session.attached) "Return" else "Enter", fontSize = 17.sp)
+                Button(onClick = onOpen, enabled = available, modifier = Modifier.weight(1f).testTag("session-open-${session.id}"), shape = RoundedCornerShape(14.dp)) {
+                    Text(if (locallyAttached) "Return" else "Enter", fontSize = 17.sp)
                 }
                 OutlinedButton(onClick = onMore, modifier = Modifier.testTag("session-more-${session.id}"), shape = RoundedCornerShape(14.dp)) { Text("More", fontSize = 16.sp) }
             }
@@ -1061,13 +1171,15 @@ private fun SessionCard(session: FleetSession, hostName: String, onOpen: () -> U
 @Composable
 private fun SessionActionsDialog(
     session: FleetSession,
+    available: Boolean,
     onDismiss: () -> Unit,
     onOpen: () -> Unit,
     onRename: () -> Unit,
     onSchedule: () -> Unit,
     onDownload: () -> Unit,
     onCopy: () -> Unit,
-    onKill: () -> Unit
+    onKill: () -> Unit,
+    onHide: () -> Unit
 ) {
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -1077,12 +1189,14 @@ private fun SessionActionsDialog(
                 Text("Session details", fontWeight = FontWeight.SemiBold)
                 Text("${session.hostId} · ${session.backend} · ${session.tool}", color = MaterialTheme.colorScheme.onSurfaceVariant)
                 Text(session.projectPath.ifBlank { "Path unavailable for this older session" }, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                DialogAction("Open terminal", onOpen)
-                DialogAction("Rename", onRename)
-                DialogAction("Schedule Continue", onSchedule)
-                DialogAction("Download a file", onDownload)
+                if (!available) Text("This is a cached session. Its host is offline.", color = WarningAmber)
+                DialogAction("Open terminal", onOpen, enabled = available)
+                DialogAction("Rename", onRename, enabled = available)
+                DialogAction("Schedule Continue", onSchedule, enabled = available)
+                DialogAction("Download a file", onDownload, enabled = available)
                 DialogAction("Copy attach command", onCopy)
-                DialogAction("Stop session…", onKill, WarningAmber)
+                if (available) DialogAction("Stop session…", onKill, WarningAmber)
+                else DialogAction("Remove from this device", onHide, WarningAmber)
             }
         },
         confirmButton = { TextButton(onClick = onDismiss) { Text("Done") } }
@@ -1090,9 +1204,9 @@ private fun SessionActionsDialog(
 }
 
 @Composable
-private fun DialogAction(label: String, onClick: () -> Unit, color: Color = MaterialTheme.colorScheme.primary) {
-    TextButton(onClick = onClick, modifier = Modifier.fillMaxWidth()) {
-        Text(label, modifier = Modifier.fillMaxWidth(), color = color, fontSize = 17.sp)
+private fun DialogAction(label: String, onClick: () -> Unit, color: Color = MaterialTheme.colorScheme.primary, enabled: Boolean = true) {
+    TextButton(onClick = onClick, enabled = enabled, modifier = Modifier.fillMaxWidth()) {
+        Text(label, modifier = Modifier.fillMaxWidth(), color = if (enabled) color else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f), fontSize = 17.sp)
     }
 }
 
@@ -1746,7 +1860,9 @@ private fun MoreScreen(
     onRollbackRuntime: () -> Unit,
     onRestoreBaseline: () -> Unit,
     onOpenAppearance: () -> Unit,
-    onOpenDiagnostics: () -> Unit
+    onOpenDiagnostics: () -> Unit,
+    presentationMode: WorkspacePresentationMode,
+    onPresentationMode: (WorkspacePresentationMode) -> Unit
 ) {
     val context = androidx.compose.ui.platform.LocalContext.current
     var nativeSessionEnabled by rememberSaveable {
@@ -1762,6 +1878,20 @@ private fun MoreScreen(
         verticalArrangement = Arrangement.spacedBy(14.dp)
     ) {
         item { Text("More", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold) }
+        item {
+            Card(shape = RoundedCornerShape(18.dp), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)) {
+                Column(Modifier.fillMaxWidth().padding(18.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Text("Window layout", fontSize = 18.sp, fontWeight = FontWeight.Bold)
+                    Text("Auto uses the desktop workspace at 840 dp and wider.", fontSize = 15.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        WorkspacePresentationMode.values().forEach { mode ->
+                            if (mode == presentationMode) Button(onClick = { onPresentationMode(mode) }) { Text(mode.name) }
+                            else OutlinedButton(onClick = { onPresentationMode(mode) }) { Text(mode.name) }
+                        }
+                    }
+                }
+            }
+        }
         item {
             Card(shape = RoundedCornerShape(18.dp), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)) {
                 Row(Modifier.fillMaxWidth().padding(18.dp), verticalAlignment = Alignment.CenterVertically) {

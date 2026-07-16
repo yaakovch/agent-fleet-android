@@ -105,7 +105,10 @@ fun NativeSessionScreen(
     onCloseSession: () -> Unit,
     onKillSession: () -> Unit,
     onScheduleContinue: (Long) -> Unit,
-    onDismissAttention: () -> Unit
+    onDismissAttention: () -> Unit,
+    onComposerText: (String, Boolean) -> Boolean = { _, _ -> false },
+    onAttach: () -> Unit = {},
+    inlineComposer: Boolean = false
 ) {
     var actionMenu by rememberSaveable { mutableStateOf(false) }
     var confirmKill by rememberSaveable { mutableStateOf(false) }
@@ -181,6 +184,8 @@ fun NativeSessionScreen(
                 }
             } else if (state.sourceMode == "shell" && !aiComposer) {
                 ShellCommandBar(onShellCommand, onShellKey, onControlC)
+            } else if (aiComposer && inlineComposer) {
+                NativeAiComposer(state.interactionMode, onComposerText, onShellKey, onControlC, onAttach)
             }
         }
     ) { padding ->
@@ -241,6 +246,42 @@ fun NativeSessionScreen(
             },
             dismissButton = { TextButton(onClick = { confirmKill = false }) { Text("Cancel") } }
         )
+    }
+}
+
+@Composable
+private fun NativeAiComposer(
+    interactionMode: String,
+    onComposerText: (String, Boolean) -> Boolean,
+    onKey: (String) -> Unit,
+    onControlC: () -> Unit,
+    onAttach: () -> Unit
+) {
+    var value by rememberSaveable { mutableStateOf("") }
+    Surface(color = MaterialTheme.colorScheme.surface, tonalElevation = 5.dp) {
+        Column(Modifier.fillMaxWidth().padding(horizontal = 10.dp, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(7.dp), verticalAlignment = Alignment.CenterVertically) {
+                OutlinedTextField(
+                    value = value,
+                    onValueChange = { if (it.length <= 32_768 && '\u0000' !in it) value = it },
+                    modifier = Modifier.weight(1f).testTag("native-message-input"),
+                    placeholder = { Text(if (interactionMode == "plan") "Plan message…" else "Message…") },
+                    minLines = 1,
+                    maxLines = 4
+                )
+                OutlinedButton(enabled = value.isNotEmpty(), onClick = {
+                    if (onComposerText(value, false)) value = ""
+                }) { Text("Insert") }
+                Button(onClick = {
+                    if (onComposerText(value, true)) value = ""
+                }) { Text(if (value.isEmpty()) "Enter" else "Send") }
+            }
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(7.dp)) {
+                OutlinedButton(onClick = onControlC, modifier = Modifier.weight(1f)) { Text("Ctrl+C") }
+                OutlinedButton(onClick = { onKey("SHIFT_TAB") }, modifier = Modifier.weight(1f)) { Text("⇧ Tab") }
+                OutlinedButton(onClick = onAttach, modifier = Modifier.weight(1f)) { Text("Attach") }
+            }
+        }
     }
 }
 

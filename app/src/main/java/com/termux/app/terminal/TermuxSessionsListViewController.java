@@ -20,21 +20,51 @@ import androidx.core.content.ContextCompat;
 
 import com.termux.R;
 import com.termux.app.TermuxActivity;
+import com.termux.app.fleet.AgentFleetAttachmentPolicy;
 import com.termux.shared.shell.TermuxSession;
 import com.termux.terminal.TerminalSession;
 
+import java.util.ArrayList;
 import java.util.List;
 
 public class TermuxSessionsListViewController extends ArrayAdapter<TermuxSession> implements AdapterView.OnItemClickListener, AdapterView.OnItemLongClickListener {
 
     final TermuxActivity mActivity;
+    final List<TermuxSession> mAllSessions;
 
     final StyleSpan boldSpan = new StyleSpan(Typeface.BOLD);
     final StyleSpan italicSpan = new StyleSpan(Typeface.ITALIC);
 
     public TermuxSessionsListViewController(TermuxActivity activity, List<TermuxSession> sessionList) {
-        super(activity.getApplicationContext(), R.layout.item_terminal_sessions_list, sessionList);
+        super(activity.getApplicationContext(), R.layout.item_terminal_sessions_list, new ArrayList<>());
         this.mActivity = activity;
+        this.mAllSessions = sessionList;
+        setNotifyOnChange(false);
+        rebuildVisibleSessions();
+    }
+
+    @Override
+    public void notifyDataSetChanged() {
+        rebuildVisibleSessions();
+        super.notifyDataSetChanged();
+    }
+
+    private void rebuildVisibleSessions() {
+        clear();
+        for (TermuxSession session : mAllSessions) {
+            if (session.getExecutionCommand() == null ||
+                AgentFleetAttachmentPolicy.sessionId(session.getExecutionCommand().commandDescription) == null)
+                add(session);
+        }
+    }
+
+    public int indexOf(TerminalSession terminalSession) {
+        if (terminalSession == null) return -1;
+        for (int i = 0; i < getCount(); i++) {
+            TermuxSession session = getItem(i);
+            if (session != null && terminalSession.equals(session.getTerminalSession())) return i;
+        }
+        return -1;
     }
 
     @SuppressLint("SetTextI18n")
@@ -49,7 +79,8 @@ public class TermuxSessionsListViewController extends ArrayAdapter<TermuxSession
 
         TextView sessionTitleView = sessionRowView.findViewById(R.id.session_title);
 
-        TerminalSession sessionAtRow = getItem(position).getTerminalSession();
+        TermuxSession termuxSessionAtRow = getItem(position);
+        TerminalSession sessionAtRow = termuxSessionAtRow == null ? null : termuxSessionAtRow.getTerminalSession();
         if (sessionAtRow == null) {
             sessionTitleView.setText("null session");
             return sessionRowView;
