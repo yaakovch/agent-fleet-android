@@ -14,11 +14,12 @@ import org.robolectric.RobolectricTestRunner
 class EmbeddedRuntimeMetadataParserTest {
 
     @Test
-    fun enablesTermuxExecOnlyWhenItsLibraryIsInstalled() {
+    fun identifiesAppOwnedChildrenAsTermuxAndEnablesExecWhenInstalled() {
         val prefix = Files.createTempDirectory("termux-prefix").toFile()
         try {
             val environment = mutableMapOf<String, String>()
             enableTermuxExec(environment, prefix)
+            assertEquals("agent-fleet", environment["TERMUX_VERSION"])
             assertFalse(environment.containsKey("LD_PRELOAD"))
 
             val library = File(prefix, "lib/libtermux-exec.so")
@@ -26,6 +27,10 @@ class EmbeddedRuntimeMetadataParserTest {
             library.createNewFile()
             enableTermuxExec(environment, prefix)
             assertEquals(library.absolutePath, environment["LD_PRELOAD"])
+
+            val inherited = mutableMapOf("TERMUX_VERSION" to "existing-version")
+            enableTermuxExec(inherited, prefix)
+            assertEquals("existing-version", inherited["TERMUX_VERSION"])
         } finally {
             prefix.deleteRecursively()
         }

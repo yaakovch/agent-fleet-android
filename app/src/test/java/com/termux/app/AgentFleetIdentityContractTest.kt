@@ -2,7 +2,12 @@ package com.termux.app
 
 import android.content.Context
 import android.content.pm.PackageManager
+import android.view.LayoutInflater
+import android.view.View
+import android.view.ViewGroup
+import androidx.compose.ui.platform.ComposeView
 import com.termux.R
+import com.termux.view.TerminalView
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
@@ -26,8 +31,8 @@ class AgentFleetIdentityContractTest {
             PackageManager.GET_ACTIVITIES or PackageManager.GET_PROVIDERS or PackageManager.GET_SERVICES or
                 PackageManager.GET_PERMISSIONS or PackageManager.GET_META_DATA
         )
-        assertEquals(1046, info.longVersionCode)
-        assertEquals("0.118.4-agentfleet.44", info.versionName)
+        assertEquals(1056, info.longVersionCode)
+        assertEquals("0.118.4-agentfleet.54", info.versionName)
         assertNull(info.sharedUserId)
         val exportedActivities = info.activities.orEmpty().filter { it.exported && it.name.startsWith("com.termux.") }.associateBy { it.name }
         assertEquals(
@@ -53,5 +58,24 @@ class AgentFleetIdentityContractTest {
         assertEquals(0xff16191f.toInt(), context.getColor(R.color.agent_fleet_icon_tile))
         assertEquals(0xff2dd4bf.toInt(), context.getColor(R.color.agent_fleet_icon_teal))
         assertEquals(0xfffb923c.toInt(), context.getColor(R.color.agent_fleet_icon_orange))
+    }
+
+    @Test
+    fun terminalScrollbackUsesTheLiveRendererWithoutOverlayControls() {
+        val context: Context = RuntimeEnvironment.getApplication()
+        val root = LayoutInflater.from(context).inflate(R.layout.activity_termux, null)
+        val content = root.findViewById<ViewGroup>(R.id.agent_fleet_session_content)
+        val composeOverlays = (0 until content.childCount)
+            .map(content::getChildAt)
+            .filterIsInstance<ComposeView>()
+            .map { it.id }
+
+        assertEquals(listOf(R.id.agent_fleet_native_session), composeOverlays)
+        val terminal = content.findViewById<TerminalView>(R.id.terminal_view)
+        assertNotNull(terminal)
+        assertEquals(View.VISIBLE, terminal.visibility)
+        assertEquals(1f, terminal.alpha)
+        assertTrue(TerminalView::class.java.methods.any { it.name == "setLocalScrollback" })
+        assertTrue(TerminalView::class.java.methods.any { it.name == "isLocalScrollbackActive" })
     }
 }

@@ -80,6 +80,37 @@ internal fun ensureEmbeddedRuntimeHome(directory: File): File {
     return directory
 }
 
+internal val AGENT_FLEET_IMAGE_TOOL_PACKAGES = linkedMapOf(
+    "bash" to "bash",
+    "awk" to "gawk",
+    "grep" to "grep",
+    "sed" to "sed",
+    "ssh" to "openssh",
+    "python3" to "python",
+    "cat" to "coreutils",
+    "date" to "coreutils",
+    "dirname" to "coreutils",
+    "head" to "coreutils",
+    "ln" to "coreutils",
+    "mkdir" to "coreutils",
+    "mktemp" to "coreutils",
+    "mv" to "coreutils",
+    "readlink" to "coreutils",
+    "rm" to "coreutils",
+    "sha256sum" to "coreutils",
+    "sort" to "coreutils",
+    "stat" to "coreutils",
+    "tail" to "coreutils",
+    "tr" to "coreutils",
+    "uname" to "coreutils"
+)
+
+internal fun missingAgentFleetImageTools(binDirectory: File): List<String> =
+    AGENT_FLEET_IMAGE_TOOL_PACKAGES.keys.filterNot { File(binDirectory, it).canExecute() }
+
+internal fun agentFleetImageToolPackageNames(missingTools: Collection<String>): Set<String> =
+    missingTools.mapNotNull(AGENT_FLEET_IMAGE_TOOL_PACKAGES::get).toSet()
+
 object EmbeddedRuntimeMetadataParser {
     private const val APPLICATION_ID = "com.yaakovch.fleet"
     private const val PREFIX = "/data/data/com.yaakovch.fleet/files/usr"
@@ -243,7 +274,7 @@ class EmbeddedRuntimeManager(private val context: Context) {
         val descriptor = descriptor()
         val locked = packages(descriptor)
         val supported = supportsEmbeddedRuntime(Build.SUPPORTED_ABIS.firstOrNull(), descriptor.supportedAbis)
-        val outdated = if (supported && File(binDir, "dpkg-query").canExecute()) outdatedPackages(locked) else locked
+        val outdated = if (supported && File(binDir, "dpkg-query").canExecute()) packagesNeedingRepair(locked) else locked
         val links = runtimeLinks()
         val usable = File(binDir, "bash").canExecute() && File(binDir, "python3").canExecute() &&
             (File(binDir, "wtmux").canExecute() || File(runtimeRoot, "current/scripts/wtmux").canExecute())
@@ -271,7 +302,7 @@ class EmbeddedRuntimeManager(private val context: Context) {
             "This APK has no offline fleet payload for ${Build.SUPPORTED_ABIS.firstOrNull() ?: "this device"}"
         }
         val locked = packages(descriptor)
-        val outdated = outdatedPackages(locked)
+        val outdated = packagesNeedingRepair(locked)
         staging.mkdirs()
         if (outdated.isNotEmpty()) {
             progress("Installing ${outdated.size} terminal packages…")
@@ -369,6 +400,23 @@ class EmbeddedRuntimeManager(private val context: Context) {
         return inspect()
     }
 
+    /** Reinstalls only the verified offline packages owning a missing image-upload command. */
+    internal fun repairImageUploadTools(): List<String> = synchronized(IMAGE_TOOL_REPAIR_LOCK) {
+        val missing = missingAgentFleetImageTools(binDir)
+        if (missing.isEmpty()) return@synchronized emptyList()
+        val packageNames = agentFleetImageToolPackageNames(missing)
+        val locked = packages().filter { it.name in packageNames }
+        require(locked.map(LockedTermuxPackage::name).toSet() == packageNames) {
+            "The offline image-tool packages are incomplete"
+        }
+        val packageDirectory = File(staging, "image-tool-repair").apply { mkdirs() }
+        val files = locked.map { item ->
+            copyVerifiedAsset("agent-fleet/packages/${item.file}", File(packageDirectory, item.file), item.sha256, item.size)
+        }
+        installPackages(files)
+        missingAgentFleetImageTools(binDir)
+    }
+
     internal fun outdatedPackages(locked: List<LockedTermuxPackage>): List<LockedTermuxPackage> {
         val query = File(binDir, "dpkg-query")
         val dpkg = File(binDir, "dpkg")
@@ -384,6 +432,11 @@ class EmbeddedRuntimeManager(private val context: Context) {
                 listOf(dpkg.absolutePath, "--compare-versions", version, "ge", item.version), timeoutSeconds = 5, maxOutput = 1024
             ).exitCode != 0
         }
+    }
+
+    private fun packagesNeedingRepair(locked: List<LockedTermuxPackage>): List<LockedTermuxPackage> {
+        val missingOwners = agentFleetImageToolPackageNames(missingAgentFleetImageTools(binDir))
+        return (outdatedPackages(locked) + locked.filter { it.name in missingOwners }).distinctBy(LockedTermuxPackage::name)
     }
 
     private fun installPackages(files: List<File>) {
@@ -512,6 +565,8 @@ class EmbeddedRuntimeManager(private val context: Context) {
         enableTermuxExec(environment, prefix)
     }
 }
+
+private val IMAGE_TOOL_REPAIR_LOCK = Any()
 
 private data class ProcessResult(val exitCode: Int, val output: String, val truncated: Boolean) {
     fun safeError(fallback: String): String {

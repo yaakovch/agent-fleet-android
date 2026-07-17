@@ -47,6 +47,30 @@ class StaleSessionRecoveryTest {
         assertTrue(result.sessions.isEmpty())
     }
 
+    @Test
+    fun hostDoctorRefreshesAndRetriesOnceWhenTheUiSnapshotChanged() {
+        val initial = snapshot("healthy", "old")
+        val fresh = snapshot("healthy", "new")
+        val revisions = mutableListOf<String>()
+
+        val result = doctorHostWithStaleRetry(
+            initial,
+            "gaming",
+            execute = { current, hostId ->
+                revisions += current.revision
+                if (current.revision == "old") throw FleetUnavailableException("changed", "stale_revision")
+                FleetDoctorResult(
+                    hostId, "2026-07-17T00:00:00Z", "healthy",
+                    listOf(FleetDoctorCheck("runtime", "healthy", "Runtime ready", ""))
+                )
+            },
+            refresh = { fresh }
+        )
+
+        assertEquals(listOf("old", "new"), revisions)
+        assertEquals("healthy", result.status)
+    }
+
     private fun snapshot(status: String, revision: String = "one"): FleetSnapshot = FleetSnapshot(
         revision = revision,
         generatedAt = "",

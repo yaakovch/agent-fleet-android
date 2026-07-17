@@ -5,6 +5,7 @@ import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
 import android.graphics.Color as AndroidColor
+import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
@@ -72,6 +73,7 @@ import com.termux.app.fleet.FleetSession
 import com.termux.app.fleet.FleetSnapshot
 import com.termux.app.fleet.NativeSessionController
 import com.termux.app.fleet.NativeSessionHost
+import com.termux.app.fleet.TerminalScrollbackController
 import com.termux.app.fleet.WorkspaceDirection
 import com.termux.app.fleet.WorkspaceNode
 import com.termux.app.fleet.WorkspacePane
@@ -596,10 +598,26 @@ private fun EmbeddedTerminal(session: FleetSession, broker: WorkspaceTerminalBro
     val binding by broker.state(session.id)
     LaunchedEffect(session.id) { broker.attach(session) }
     val context = LocalContext.current
+    val scrollback = remember(session.id) { TerminalScrollbackController(context.applicationContext) }
+    LaunchedEffect(session.id, session.hostId, session.internalName, session.tool) {
+        scrollback.bind(
+            session.hostId,
+            session.internalName,
+            session.tool in setOf("codex", "claude", "copilot")
+        )
+    }
+    DisposableEffect(scrollback) {
+        scrollback.onStart()
+        onDispose { scrollback.close() }
+    }
     var view by remember(session.id) { mutableStateOf<TerminalView?>(null) }
     val observer = remember(session.id, binding.terminal) {
         object : TermuxTerminalSessionClientBase() {
-            override fun onTextChanged(changedSession: TerminalSession) { view?.post { view?.onScreenUpdated() } }
+            override fun onTextChanged(changedSession: TerminalSession) {
+                scrollback.onTerminalActivity()
+                scrollback.onTerminalScreenChanged(changedSession.emulator?.isAlternateBufferActive == true)
+                view?.post { view?.onScreenUpdated() }
+            }
             override fun onColorsChanged(changedSession: TerminalSession) { view?.post { view?.onScreenUpdated() } }
             override fun onSessionFinished(finishedSession: TerminalSession) { view?.post { view?.onScreenUpdated() } }
             override fun onCopyTextToClipboard(terminal: TerminalSession, text: String) {
@@ -618,25 +636,33 @@ private fun EmbeddedTerminal(session: FleetSession, broker: WorkspaceTerminalBro
         onDispose { binding.terminal?.removeTerminalSessionObserver(observer) }
     }
     val terminal = binding.terminal
+    LaunchedEffect(terminal) {
+        if (terminal == null) scrollback.setTerminalView(null)
+    }
     if (terminal == null) Box(modifier, contentAlignment = Alignment.Center) {
         Text(binding.message, color = MaterialTheme.colorScheme.onSurfaceVariant)
-    } else AndroidView(
-        modifier = modifier.background(Color.Black),
-        factory = { androidContext ->
-            TerminalView(androidContext, null).apply {
-                setTerminalViewClient(WorkspaceTerminalViewClient())
-                setTextSize(26)
-                setBackgroundColor(AndroidColor.BLACK)
-                isFocusableInTouchMode = true
-                view = this
+    } else Box(modifier.background(Color.Black)) {
+        AndroidView(
+            modifier = Modifier.fillMaxSize(),
+            factory = { androidContext ->
+                TerminalView(androidContext, null).apply {
+                    setTerminalViewClient(WorkspaceTerminalViewClient())
+                    setTextSize(26)
+                    setBackgroundColor(AndroidColor.BLACK)
+                    isFocusableInTouchMode = true
+                    view = this
+                    scrollback.setTerminalView(this)
+                }
+            },
+            update = { terminalView ->
+                view = terminalView
+                terminalView.attachSession(terminal)
+                terminalView.updateSize()
+                terminalView.onScreenUpdated()
+                scrollback.onTerminalScreenChanged(terminal.emulator?.isAlternateBufferActive == true)
             }
-        },
-        update = { terminalView ->
-            view = terminalView
-            terminalView.attachSession(terminal)
-            terminalView.onScreenUpdated()
-        }
-    )
+        )
+    }
 }
 
 @Composable
@@ -650,10 +676,20 @@ private fun EmbeddedNative(
     val context = LocalContext.current
     LaunchedEffect(session.id) { broker.attach(session) }
     var attachments by remember(session.id) { mutableStateOf<List<String>>(emptyList()) }
+    var attachmentUploading by remember(session.id) { mutableStateOf(false) }
     val imagePicker = rememberLauncherForActivityResult(ActivityResultContracts.GetMultipleContents()) { uris ->
         if (uris.isNotEmpty()) {
+            attachmentUploading = true
             AgentFleetComposer.uploadWorkspaceImages(context.applicationContext, uris, session) { result ->
                 result.onSuccess { paths -> attachments = (attachments + paths).distinct().take(8) }
+                result.onFailure { error ->
+                    Toast.makeText(
+                        context,
+                        error.message ?: "Image upload failed. Refresh the session and retry.",
+                        Toast.LENGTH_LONG
+                    ).show()
+                }
+                attachmentUploading = false
             }
         }
     }
@@ -676,7 +712,13 @@ private fun EmbeddedNative(
                     }
                     override fun sendAgentFleetControlC(): Boolean = broker.key(session.id, "CTRL_C")
                     override fun sendAgentFleetKey(key: String): Boolean = broker.key(session.id, key)
-                    override fun pickAgentFleetImages() { imagePicker.launch("image/*") }
+                    override fun pickAgentFleetImages() {
+                        if (attachmentUploading) {
+                            Toast.makeText(context, "An image upload is already in progress.", Toast.LENGTH_SHORT).show()
+                        } else {
+                            imagePicker.launch("image/*")
+                        }
+                    }
                     override fun setAgentFleetNativeView(nativeAvailable: Boolean, nativeView: Boolean, automaticTerminal: Boolean, aiComposer: Boolean) {
                         if (nativeAvailable && !nativeView) onTerminal()
                     }

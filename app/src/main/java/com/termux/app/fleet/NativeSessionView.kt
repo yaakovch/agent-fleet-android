@@ -45,6 +45,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
@@ -107,8 +108,15 @@ fun NativeSessionScreen(
     onComposerText: (String, Boolean) -> Boolean = { _, _ -> false },
     onAttach: () -> Unit = {},
     inlineComposer: Boolean = false,
-    showChrome: Boolean = true
+    showChrome: Boolean = true,
+    localSuggestionsAvailableOverride: Boolean? = null
 ) {
+    val context = LocalContext.current
+    val localSuggestions = remember(state.hostId, state.internalSession, localSuggestionsAvailableOverride) {
+        NativeLocalSuggestionState(context, localSuggestionsAvailableOverride)
+    }
+    DisposableEffect(localSuggestions) { onDispose { localSuggestions.close() } }
+    LaunchedEffect(state.revision, state.liveEventSerial) { localSuggestions.clear() }
     var actionMenu by rememberSaveable { mutableStateOf(false) }
     var confirmKill by rememberSaveable { mutableStateOf(false) }
     var actionSheetId by rememberSaveable { mutableStateOf("") }
@@ -182,7 +190,7 @@ fun NativeSessionScreen(
             } else if (state.sourceMode == "shell" && !aiComposer) {
                 ShellCommandBar(onShellCommand, onShellKey, onControlC)
             } else if (aiComposer && inlineComposer) {
-                NativeAiComposer(state.interactionMode, onComposerText, onShellKey, onControlC, onAttach)
+                NativeAiComposer(state.interactionMode, state.items, localSuggestions, onComposerText, onShellKey, onControlC, onAttach)
             }
         }
     ) { padding ->
@@ -201,7 +209,8 @@ fun NativeSessionScreen(
                 onScheduleContinue = onScheduleContinue,
                 onDismissAttention = onDismissAttention,
                 onNearBottomChanged = { feedNearBottom = it },
-                onViewerOpenChanged = { viewerOpen = it }
+                onViewerOpenChanged = { viewerOpen = it },
+                localSuggestions = localSuggestions
             )
         }
     }
@@ -226,7 +235,8 @@ fun NativeSessionScreen(
                     Box(Modifier.weight(1f).padding(horizontal = 10.dp, vertical = 6.dp)) {
                         ConversationItemCard(
                             pendingAction, onApproval, onQuestion, onToggleTerminal, onRetry,
-                            onOpenTool = { _, _ -> }, onOpenPlan = {}
+                            onOpenTool = { _, _ -> }, onOpenPlan = {},
+                            localSuggestions = localSuggestions, conversationItems = state.items
                         )
                     }
                 }
@@ -249,6 +259,8 @@ fun NativeSessionScreen(
 @Composable
 private fun NativeAiComposer(
     interactionMode: String,
+    conversationItems: List<ConversationItem>,
+    localSuggestions: NativeLocalSuggestionState,
     onComposerText: (String, Boolean) -> Boolean,
     onKey: (String) -> Unit,
     onControlC: () -> Unit,
@@ -260,7 +272,12 @@ private fun NativeAiComposer(
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(7.dp), verticalAlignment = Alignment.CenterVertically) {
                 OutlinedTextField(
                     value = value,
-                    onValueChange = { if (it.length <= 32_768 && '\u0000' !in it) value = it },
+                    onValueChange = {
+                        if (it.length <= 32_768 && '\u0000' !in it) {
+                            value = it
+                            if (it.isNotBlank()) localSuggestions.clear()
+                        }
+                    },
                     modifier = Modifier.weight(1f).testTag("native-message-input"),
                     placeholder = { Text(if (interactionMode == "plan") "Plan message…" else "Message…") },
                     minLines = 1,
@@ -273,10 +290,89 @@ private fun NativeAiComposer(
                     if (onComposerText(value, true)) value = ""
                 }) { Text(if (value.isEmpty()) "Enter" else "Send") }
             }
+            if (localSuggestions.targetKey == "composer") {
+                LocalSuggestionChoices(localSuggestions, onUse = { value = it; localSuggestions.clear() })
+            }
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(7.dp)) {
                 OutlinedButton(onClick = onControlC, modifier = Modifier.weight(1f)) { Text("Ctrl+C") }
                 OutlinedButton(onClick = { onKey("SHIFT_TAB") }, modifier = Modifier.weight(1f)) { Text("⇧ Tab") }
                 OutlinedButton(onClick = onAttach, modifier = Modifier.weight(1f)) { Text("Attach") }
+                if (localSuggestions.available && canSuggestForComposer(conversationItems, value)) {
+                    OutlinedButton(
+                        onClick = { localSuggestions.request(conversationItems, LocalSuggestionTarget("composer")) },
+                        modifier = Modifier.weight(1f).testTag("local-suggest-composer")
+                    ) { Text("Suggest") }
+                }
+            }
+        }
+    }
+}
+
+private class NativeLocalSuggestionState(
+    context: android.content.Context,
+    private val availableOverride: Boolean? = null
+) : AutoCloseable {
+    private val app = context.applicationContext
+    private val client = LocalSuggestionClient(app)
+    private var serial = 0L
+    var targetKey by mutableStateOf("")
+        private set
+    var loading by mutableStateOf(false)
+        private set
+    var values by mutableStateOf<List<String>>(emptyList())
+        private set
+    var error by mutableStateOf("")
+        private set
+    val available: Boolean get() = availableOverride ?: LocalSuggestionPreferences.enabled(app)
+
+    fun request(items: List<ConversationItem>, target: LocalSuggestionTarget) {
+        clear()
+        val requestSerial = ++serial
+        targetKey = target.key
+        loading = true
+        client.generate(buildLocalSuggestionPrompt(items, target)) { result ->
+            if (requestSerial != serial) return@generate
+            loading = false
+            result.onSuccess { values = it }
+                .onFailure { error = it.message ?: "Local suggestion failed." }
+        }
+    }
+
+    fun clear() {
+        serial++
+        client.cancel()
+        targetKey = ""
+        loading = false
+        values = emptyList()
+        error = ""
+    }
+
+    override fun close() { clear(); client.close() }
+}
+
+@Composable
+private fun LocalSuggestionChoices(state: NativeLocalSuggestionState, onUse: (String) -> Unit) {
+    Card(
+        modifier = Modifier.fillMaxWidth().testTag("local-suggestion-results"),
+        shape = RoundedCornerShape(12.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
+    ) {
+        Column(Modifier.fillMaxWidth().padding(10.dp), verticalArrangement = Arrangement.spacedBy(7.dp)) {
+            when {
+                state.loading -> Text("Thinking locally…", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 14.sp)
+                state.error.isNotBlank() -> Text(state.error, color = MaterialTheme.colorScheme.error, fontSize = 14.sp)
+                else -> {
+                    Text("Local suggestions · tap to edit", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 13.sp)
+                    state.values.forEachIndexed { index, value ->
+                        OutlinedButton(
+                            onClick = { onUse(value) },
+                            modifier = Modifier.fillMaxWidth().testTag("local-suggestion-$index")
+                        ) { Text(value, modifier = Modifier.fillMaxWidth()) }
+                    }
+                }
+            }
+            TextButton(onClick = state::clear, modifier = Modifier.align(Alignment.End)) {
+                Text(if (state.loading) "Cancel" else "Dismiss")
             }
         }
     }
@@ -297,7 +393,8 @@ private fun ConversationFeed(
     onScheduleContinue: (Long) -> Unit,
     onDismissAttention: () -> Unit,
     onNearBottomChanged: (Boolean) -> Unit,
-    onViewerOpenChanged: (Boolean) -> Unit
+    onViewerOpenChanged: (Boolean) -> Unit,
+    localSuggestions: NativeLocalSuggestionState
 ) {
     val listState = rememberLazyListState()
     val scope = rememberCoroutineScope()
@@ -371,7 +468,8 @@ private fun ConversationFeed(
                     is ConversationRow.Item -> ConversationItemCard(
                         row.value, onApproval, onQuestion, onOpenTerminal, onRetry,
                         onOpenTool = { item, index -> viewerItemId = item.id; viewerActionIndex = index ?: -1 },
-                        onOpenPlan = { item -> viewerItemId = item.id; viewerActionIndex = -1 }
+                        onOpenPlan = { item -> viewerItemId = item.id; viewerActionIndex = -1 },
+                        localSuggestions = localSuggestions, conversationItems = state.items
                     )
                     is ConversationRow.ToolGroup -> ToolGroupCard(
                         row,
@@ -574,12 +672,14 @@ private fun ConversationItemCard(
     onOpenTerminal: () -> Unit,
     onCheckAgain: () -> Unit,
     onOpenTool: (ConversationItem, Int?) -> Unit,
-    onOpenPlan: (ConversationItem) -> Unit
+    onOpenPlan: (ConversationItem) -> Unit,
+    localSuggestions: NativeLocalSuggestionState,
+    conversationItems: List<ConversationItem>
 ) {
     when (value.kind) {
         "message" -> MessageCard(value)
         "approval" -> ApprovalCard(value, onApproval)
-        "question" -> QuestionCard(value, onQuestion, onOpenTerminal, onCheckAgain)
+        "question" -> QuestionCard(value, onQuestion, onOpenTerminal, onCheckAgain, localSuggestions, conversationItems)
         "tool" -> ToolCallCard(value, onOpenTool)
         "task_list" -> TaskListCard(value)
         "plan" -> PlanCard(value, onOpenPlan)
@@ -1007,7 +1107,9 @@ private fun QuestionCard(
     value: ConversationItem,
     onQuestion: (ConversationItem, List<ConversationAnswer>) -> Unit,
     onOpenTerminal: () -> Unit,
-    onCheckAgain: () -> Unit
+    onCheckAgain: () -> Unit,
+    localSuggestions: NativeLocalSuggestionState,
+    conversationItems: List<ConversationItem>
 ) {
     var expandedAnswer by rememberSaveable(value.id) { mutableStateOf(false) }
     if (value.state == "complete") {
@@ -1038,7 +1140,7 @@ private fun QuestionCard(
                 }
                 value.state == "error" -> {
                     Text(value.text.ifBlank { "The answer was not confirmed. Review it, then retry." }, color = Color(0xFF7A3000), fontSize = 15.sp)
-                    if (value.revision != null && value.questions.isNotEmpty()) QuestionForm(value, onQuestion, onOpenTerminal, Modifier.weight(1f), retry = true)
+                    if (value.revision != null && value.questions.isNotEmpty()) QuestionForm(value, onQuestion, onOpenTerminal, localSuggestions, conversationItems, Modifier.weight(1f), retry = true)
                     else Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         Button(onClick = onCheckAgain) { Text("Check again") }
                         OutlinedButton(onClick = onOpenTerminal) { Text("Open Terminal") }
@@ -1048,7 +1150,7 @@ private fun QuestionCard(
                     Text("This prompt can be reviewed here, but it cannot be answered safely in Native view.", color = Color(0xFF514500), fontSize = 15.sp)
                     OutlinedButton(onClick = onOpenTerminal) { Text("Open Terminal") }
                 }
-                else -> QuestionForm(value, onQuestion, onOpenTerminal, Modifier.weight(1f))
+                else -> QuestionForm(value, onQuestion, onOpenTerminal, localSuggestions, conversationItems, Modifier.weight(1f))
             }
         }
     }
@@ -1059,6 +1161,8 @@ private fun QuestionForm(
     value: ConversationItem,
     onQuestion: (ConversationItem, List<ConversationAnswer>) -> Unit,
     onOpenTerminal: () -> Unit,
+    localSuggestions: NativeLocalSuggestionState,
+    conversationItems: List<ConversationItem>,
     modifier: Modifier = Modifier,
     retry: Boolean = false
 ) {
@@ -1139,7 +1243,10 @@ private fun QuestionForm(
                 OutlinedTextField(
                     value = current.text,
                     onValueChange = {
-                        if (it.length <= 8 * 1024 && '\u0000' !in it) draft = updateQuestionDraft(draft, current.copy(text = it))
+                        if (it.length <= 8 * 1024 && '\u0000' !in it) {
+                            draft = updateQuestionDraft(draft, current.copy(text = it))
+                            if (it.isNotBlank()) localSuggestions.clear()
+                        }
                     },
                     modifier = Modifier.fillMaxWidth().testTag("question-text-${question.id}"),
                     placeholder = { Text("Type your answer…") },
@@ -1157,6 +1264,18 @@ private fun QuestionForm(
                         unfocusedPlaceholderColor = Color(0xFF6C5B00)
                     )
                 )
+                val target = LocalSuggestionTarget("question", value.id, question.id, question.prompt)
+                if (localSuggestions.targetKey == target.key) {
+                    LocalSuggestionChoices(localSuggestions, onUse = { suggestion ->
+                        draft = updateQuestionDraft(draft, current.copy(text = suggestion))
+                        localSuggestions.clear()
+                    })
+                } else if (localSuggestions.available && canSuggestForQuestion(question, current.text)) {
+                    OutlinedButton(
+                        onClick = { localSuggestions.request(conversationItems, target) },
+                        modifier = Modifier.testTag("local-suggest-question-${question.id}")
+                    ) { Text("Suggest") }
+                }
             }
         }
         val latest = questionDraft(draft, question.id)

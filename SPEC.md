@@ -459,3 +459,163 @@ trusted fleet.
   the bridge is installed; the bridge must then be removed before installing
   official Termux because both own `com.termux`. Automated tools never operate
   the physical phone.
+
+## Instant Local Terminal History
+
+- In compact and Desktop Terminal views, alternate-screen Codex, Claude, and
+  Copilot sessions expose a small History/Remote control. History presents the
+  existing structured conversation as a terminal-styled, read-only overlay;
+  Remote gives wheel gestures back to the remote full-screen application.
+- Prefetch starts after two quiet seconds only while an eligible Terminal view
+  is visible. One process-wide request queue loads 100-item no-follow pages and
+  automatically paginates near the top to a 2,000-item ceiling. Metered links
+  are allowed; failures wait for an explicit Retry.
+- The cache exists only in process memory and is discarded when its controller
+  closes. It is never migrated, persisted, diagnosed, logged, or copied into
+  terminal scrollback. No protocol or embedded runtime change is required.
+- The service-owned PTY and renderer remain attached behind the overlay.
+  Keyboard input continues to control Live, terminal output marks cached
+  History Updated, and refresh occurs only after the user returns Live. Closing
+  or copying restores terminal focus.
+- Phone and Desktop use the same controller, bounds, failure states, and scroll
+  capture policy. Unsupported adapters, normal-buffer programs, Native views,
+  and classic shells preserve their existing behavior.
+
+## Terminal History Rollback Hotfix
+
+- Permanent-ID `.46` removes the `.45` History/Remote overlay and alternate-
+  screen scroll interception from both Phone and Desktop terminal surfaces.
+- The live service-owned PTY, `TerminalView`, terminal composer, image picker,
+  and Native/Terminal switch return to the `.44` rendering and lifecycle path.
+- Structured terminal history remains deferred until its blank-Live, failed-
+  History, reconnect, and unstable-link behavior can be reproduced and fixed
+  on the isolated API 36 emulator. No protocol or embedded-runtime change is
+  part of this rollback.
+
+## Isolated Terminal History Restoration
+
+- Permanent-ID `.51` restores structured Terminal history without restoring
+  `.45`'s always-mounted full-screen overlay. The compact reader view is
+  physically `GONE` while Live is selected; Desktop embeds only a bounded
+  control until History opens. The service-owned PTY and `TerminalView` remain
+  the same instances throughout open, close, Native switching, and refresh.
+- History requests use the permanent-ID Termux process environment introduced
+  in `.49`, so Tailscale-transport hosts use packaged OpenSSH and never require
+  a Tailscale CLI. Errors redact private runtime paths, stop automatic retries,
+  and leave Live usable.
+- The shared controller prefetches after two quiet seconds, reads 100-item
+  no-follow pages, keeps at most 2,000 memory-only items, and loads older pages
+  only after the initial reader position reaches the newest item. Remote mode
+  returns wheel gestures to the alternate-screen program.
+- Terminal, composer, toolbar, and Native visibility changes explicitly refit
+  and redraw the live renderer so Codex prompts receive the current rows and
+  columns after keyboard, window, and Desktop resizing.
+
+## Permanent-ID Image Attachment Hotfix
+
+- Permanent-ID `.47` imports picker content by its actual PNG, JPEG, or WebP
+  signature instead of trusting a provider MIME string. HEIC, HEIF, GIF, and
+  other images the Android decoder supports are bounded and normalized to PNG
+  or JPEG before transfer; empty, unreadable, or over-20-MB input fails safely.
+- Image transfer uses the ordinary `wtmux image send` path response and does
+  not require companion JSON generation. Standard output and error are drained
+  concurrently so a child process cannot block on a full pipe, and the 30-second
+  timeout remains enforced.
+- Compact Terminal and workspace Native attachment paths share the importer and
+  uploader. Failures expose a bounded action for configuration, pairing,
+  reachability, project, format, or timeout problems without exposing the
+  permanent app's private path or repository paths.
+- The `.46` History rollback, app identity, migration state, embedded runtime,
+  wtmux protocol, terminal renderer, and retained rollback artifacts do not
+  change.
+- Follow-up `.48` treats exit 127 as a runtime-integrity failure. Before each
+  upload it verifies the exact local command set used by `wtmux image send` and
+  automatically reinstalls only the owning checksum-verified offline packages
+  when a migrated runtime is incomplete. Manual Runtime repair uses the same
+  package-integrity rule.
+- The Android 16 acceptance test must install the packaged Termux bootstrap and
+  packaged wtmux runtime, load a machine config, run real hash/temp/SSH command
+  sequencing through a deterministic fake host, stream a PNG, and validate the
+  returned attachment path. Closing a completed Android process pipe is normal
+  end-of-stream behavior and must not crash the reader thread.
+- If exit 127 remains after local integrity passes, show whether the missing
+  command is local or the remote `wtmux-host` helper without exposing a private
+  app path, home path, repository path, or command arguments.
+- Follow-up `.49` marks every app-owned runtime child as Termux even though the
+  permanent application ID is `com.yaakovch.fleet`. A Tailscale-transport host
+  must therefore use the bundled OpenSSH client, matching interactive terminal
+  sessions, rather than attempt to invoke the intentionally absent Tailscale
+  CLI. The packaged-runtime attachment acceptance test uses a Tailscale host so
+  this transport distinction cannot be mocked away again.
+- Follow-up `.50` makes Diagnostics reflect supported Android 16 behavior.
+  Host doctor requests refresh and retry once when their UI snapshot revision
+  has changed, rather than treating ordinary background fleet activity as a
+  host failure. Downloads diagnostics and repository downloads use the Android
+  Downloads provider on Android 10 and newer, staging shell output privately
+  before publishing it, so shared storage does not depend on legacy direct-file
+  permission. Diagnostic probes must publish, reopen, verify, and delete a
+  bounded temporary item through the same provider path.
+
+## Seamless Prefetched Tmux Scrollback Correction
+
+- Permanent-ID `.52` removes `.51`'s structured History reader, History/Remote
+  controls, cards, headers, and full-screen Compose surface. That interaction
+  did not meet the requirement: scrolling Terminal must continue to look and
+  behave like the terminal itself.
+- While a visible eligible alternate-screen terminal is quiet, the client asks
+  `wtmux pane scrollback` for at most 2,000 rows and 4 MiB of ANSI from the real
+  tmux pane. The frame is memory-only, session-bound, SHA-256 checked, and
+  discarded on detach, normal-buffer transition, resize mismatch, stop, or
+  controller close.
+- An upward wheel, drag, or Page Up renders the cached pane through the existing
+  `TerminalRenderer`; the live `TerminalSession`, PTY, keyboard, colors, font,
+  and dimensions remain attached. Reaching the cached bottom or typing returns
+  directly to Live with no mode change or visible seam. Live output never snaps
+  a user out of cached scrollback.
+- The client-side pane command runs a bounded Python capture over the existing
+  host transport and therefore works with an older host runtime. Content an
+  alternate-screen program never placed in tmux history cannot be reconstructed
+  retroactively; the client must not substitute structured conversation cards.
+- Image upload repairs the verified local tool set before sending, retries
+  exactly once for exit 127, SSH exit 255, timeout, Broken pipe, reset, refused,
+  or unreachable failures, then reports whether the command is unavailable or
+  the image connection was lost. The retry uses the same bounded source and
+  never loops in the background.
+
+## Silent Client-Only Terminal Attachment
+
+- Permanent-ID Agent Fleet is a wtmux client and is not required to register
+  itself as a host machine. A noninteractive Terminal attachment with an
+  explicit host, project, and session must therefore produce no local-machine
+  registration warning before the remote tmux screen takes over.
+- Interactive wtmux use continues to offer local-machine registration. The
+  correction changes no registry, transport, pairing, session, or pane
+  protocol and does not suppress genuine host, SSH, or tmux errors.
+- Permanent-ID `.53` embeds exact wtmux `git-bdc19c0`. Its API 36 acceptance
+  test installs the packaged Termux and wtmux runtimes, uses a deliberately
+  non-local machine registry, performs a real noninteractive attachment
+  through deterministic OpenSSH, and asserts that the startup stream reaches
+  the remote session without the obsolete warning.
+
+## Local Reply Suggestions
+
+- Native conversations expose an opt-in Suggest action after completed
+  assistant messages and in structured free-text answer fields. It is hidden
+  while a draft exists and is unavailable for approvals and choice questions.
+  Suggestions are generated only on tap; choosing one fills but never submits.
+- Inference receives only the newest 12 visible user/assistant text messages,
+  newest-first bounded to 12 KiB UTF-8, excluding tools, terminal output,
+  attachments, hidden details, approvals, and choices. It produces one to three
+  concise, conservative, distinct first-person reply drafts.
+- The first supported model is a release-pinned, checksum-verified Gemma 4 E2B
+  Instruct LiteRT-LM artifact. Setup supports direct download and local import,
+  warns before metered transfer, and exposes progress, cancellation, verification,
+  retry, and removal. The feature and model are off by default.
+- Inference runs in a non-exported `:local_llm` process with GPU then CPU
+  fallback. Backgrounding or disabling the feature terminates that process;
+  60 seconds without a request also exits it. The app does not retain prompts or
+  results and excludes model state/content from diagnostics and exports.
+- API 36 tests use a fake engine and small fixtures; the large model is not
+  downloaded in routine automation. Manual S23FE acceptance targets at most
+  15 seconds cold and 5 seconds median warm plus one usable draft on at least
+  80% of a 30-prompt benchmark.

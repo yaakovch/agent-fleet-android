@@ -3,6 +3,17 @@
 Public CI produces unsigned review artifacts. Daily-driver APKs are signed only
 on a controller with the private Agent Fleet key.
 
+## Default rollout policy
+
+After a permanent-ID Android release passes its documented JVM, API 36,
+lint, signing, certificate, embedded-runtime, identity, and checksum gates,
+publish that verified artifact to the `fleet/latest` in-app update lane as part
+of the same release task. A separate publication approval is not required.
+Retain the previous release for rollback and verify the HTTPS-served manifest
+and APK bytes after switching `latest`. Stop before publication only when the
+user explicitly requests a hold, a required gate is incomplete, or publication
+would target a different application ID or release lane.
+
 1. Create the key once with two distinct offline backup destinations:
    `scripts/release/init-signing-key.sh /media/backup-a /media/backup-b`.
    Keep its password separately from all three keystore copies.
@@ -23,9 +34,9 @@ on a controller with the private Agent Fleet key.
    custom bootstrap must keep remote APT sources disabled.
 4. Build with a monotonically increasing version code and the HTTPS directory
    that will host the APK:
-   `scripts/release/build-signed-release.sh 0.118.4-agentfleet.44 1046 https://host.example/agent-fleet/fleet/latest`.
+   `scripts/release/build-signed-release.sh 0.118.4-agentfleet.54 1056 https://host.example/agent-fleet/fleet/latest`.
    The release contains an arm64 daily-driver APK plus a universal recovery APK.
-5. Verify with `scripts/release/verify-release.sh dist/0.118.4-agentfleet.44`.
+5. Verify with `scripts/release/verify-release.sh dist/0.118.4-agentfleet.54`.
 6. On the primary controller, set
    `AGENT_FLEET_PUBLISH_PRIMARY=local:/absolute/private/serve/path`. For a
    remote primary use `user@gaming-desktop:/srv/agent-fleet`; optionally set

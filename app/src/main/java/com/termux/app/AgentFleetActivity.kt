@@ -94,6 +94,11 @@ import com.termux.app.fleet.FleetSession
 import com.termux.app.fleet.FleetSchedule
 import com.termux.app.fleet.FleetSnapshot
 import com.termux.app.fleet.NativeSessionSettings
+import com.termux.app.fleet.LocalModelUiState
+import com.termux.app.fleet.LocalSuggestionModel
+import com.termux.app.fleet.LocalSuggestionModelManager
+import com.termux.app.fleet.LocalSuggestionRuntime
+import com.termux.app.fleet.formatModelBytes
 import com.termux.app.fleet.RecentSessionStore
 import com.termux.app.fleet.DrawerSessionStore
 import com.termux.app.fleet.RecentLocationStore
@@ -141,6 +146,7 @@ class AgentFleetActivity : ComponentActivity() {
     private val runtimeUi = mutableStateOf(RuntimeUiState())
     private val diagnosticsUi = mutableStateOf(DiagnosticsUiState())
     private val diagnosticError = mutableStateOf<AgentFleetDiagnosticEvent?>(null)
+    private val localModelUi = mutableStateOf(LocalModelUiState())
     private val fleetExecutor = Executors.newSingleThreadExecutor()
     private val updateExecutor = Executors.newSingleThreadExecutor()
     private val runtimeExecutor = Executors.newSingleThreadExecutor()
@@ -157,6 +163,10 @@ class AgentFleetActivity : ComponentActivity() {
     private lateinit var diagnosticJournal: AgentFleetDiagnosticJournal
     private lateinit var diagnosticsRunner: AgentFleetDiagnosticsRunner
     private lateinit var workspaceTerminalBroker: WorkspaceTerminalBroker
+    private lateinit var localSuggestionModelManager: LocalSuggestionModelManager
+    private val localModelImportLauncher = registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        if (uri != null && ::localSuggestionModelManager.isInitialized) localSuggestionModelManager.import(uri)
+    }
     private val migrationLauncher = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
         val uri = result.data?.data
         if (result.resultCode != RESULT_OK || uri == null) return@registerForActivityResult
@@ -188,6 +198,7 @@ class AgentFleetActivity : ComponentActivity() {
         runtimeUpdateManager = RuntimeUpdateManager(applicationContext, embeddedRuntime)
         clientPolicyStore = ClientPolicyStore(applicationContext)
         diagnosticJournal = AgentFleetDiagnosticJournal(applicationContext)
+        localSuggestionModelManager = LocalSuggestionModelManager(applicationContext) { localModelUi.value = it }
         runCatching { AgentFleetMigrationArchive.repairMigratedPrivateRoots(applicationContext) }
             .onSuccess { repaired ->
                 if (repaired > 0) diagnosticJournal.record(
@@ -230,6 +241,7 @@ class AgentFleetActivity : ComponentActivity() {
                     runtimeUi = runtimeUi.value,
                     diagnosticsUi = diagnosticsUi.value,
                     diagnosticError = diagnosticError.value,
+                    localModelUi = localModelUi.value,
                     onSharedImagesHandled = { pendingSharedImages.value = emptyList() },
                     onRefresh = ::refreshFleet,
                     onOpenSession = ::openFleetSession,
@@ -260,6 +272,11 @@ class AgentFleetActivity : ComponentActivity() {
                         startActivity(Intent(this, TerminalAppearanceActivity::class.java))
                     },
                     onMigrateFleetState = ::migrateFleetState,
+                    onSetLocalSuggestions = localSuggestionModelManager::setEnabled,
+                    onDownloadLocalModel = localSuggestionModelManager::download,
+                    onImportLocalModel = { localModelImportLauncher.launch(arrayOf("application/octet-stream", "application/zip", "*/*")) },
+                    onCancelLocalModel = localSuggestionModelManager::cancel,
+                    onRemoveLocalModel = localSuggestionModelManager::remove,
                     onRunDiagnostics = ::runDiagnostics,
                     onCopyDiagnostics = ::copyDiagnostics,
                     onExportDiagnostics = ::exportDiagnostics,
@@ -302,6 +319,7 @@ class AgentFleetActivity : ComponentActivity() {
     }
 
     override fun onStop() {
+        LocalSuggestionRuntime.shutdown(applicationContext)
         if (::fleetRuntime.isInitialized) fleetRuntime.closeRepositoryBrowser()
         FleetSnapshotStore.removeObserver(this)
         super.onStop()
@@ -316,6 +334,7 @@ class AgentFleetActivity : ComponentActivity() {
         fileExecutor.shutdownNow()
         diagnosticsExecutor.shutdownNow()
         if (::workspaceTerminalBroker.isInitialized) workspaceTerminalBroker.close()
+        if (::localSuggestionModelManager.isInitialized) localSuggestionModelManager.close()
         if (::fleetRuntime.isInitialized) fleetRuntime.shutdown()
         super.onDestroy()
     }
@@ -507,9 +526,10 @@ class AgentFleetActivity : ComponentActivity() {
     private fun openFleetDownload(state: FleetDownloadState) {
         val path = state.path ?: return
         try {
-            val file = File(path)
-            val uri = FileProvider.getUriForFile(this, packageName + ".agentfleet.images", file)
-            val extension = file.extension.lowercase(Locale.US)
+            val parsed = Uri.parse(path)
+            val file = if (parsed.scheme.isNullOrBlank()) File(path) else null
+            val uri = file?.let { FileProvider.getUriForFile(this, packageName + ".agentfleet.images", it) } ?: parsed
+            val extension = state.name.substringAfterLast('.', "").lowercase(Locale.US)
             val mime = MimeTypeMap.getSingleton().getMimeTypeFromExtension(extension) ?: "application/octet-stream"
             startActivity(Intent(Intent.ACTION_VIEW).setDataAndType(uri, mime).addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION))
         } catch (error: Exception) {
@@ -813,6 +833,7 @@ fun AgentFleetApp(
     runtimeUi: RuntimeUiState,
     diagnosticsUi: DiagnosticsUiState,
     diagnosticError: AgentFleetDiagnosticEvent?,
+    localModelUi: LocalModelUiState,
     onSharedImagesHandled: () -> Unit,
     onRefresh: () -> Unit,
     onOpenSession: (FleetSession) -> Unit,
@@ -841,6 +862,11 @@ fun AgentFleetApp(
     onRestoreBaseline: () -> Unit,
     onOpenAppearance: () -> Unit,
     onMigrateFleetState: () -> Unit,
+    onSetLocalSuggestions: (Boolean) -> Unit,
+    onDownloadLocalModel: () -> Unit,
+    onImportLocalModel: () -> Unit,
+    onCancelLocalModel: () -> Unit,
+    onRemoveLocalModel: () -> Unit,
     onRunDiagnostics: () -> Unit,
     onCopyDiagnostics: (AgentFleetDiagnosticReport) -> Unit,
     onExportDiagnostics: (AgentFleetDiagnosticReport) -> Unit,
@@ -937,10 +963,12 @@ fun AgentFleetApp(
                         )
                         FleetSection.Limits -> LimitsScreen(PaddingValues(0.dp), fleetState, onScheduleAttention, onDismissAttention)
                         FleetSection.More -> MoreScreen(
-                            PaddingValues(0.dp), fleetState, updateState, updateManifestUrl, runtimeUi,
+                            PaddingValues(0.dp), fleetState, updateState, updateManifestUrl, runtimeUi, localModelUi,
                             { showPairing = true }, onCancelSchedule, onCheckUpdate, onInstallUpdate,
                             onRepairRuntime, onCheckRuntime, onRollbackRuntime, onRestoreBaseline,
-                            onOpenAppearance, onMigrateFleetState, { showDiagnostics = true }, presentationMode
+                            onOpenAppearance, onMigrateFleetState, onSetLocalSuggestions, onDownloadLocalModel,
+                            onImportLocalModel, onCancelLocalModel, onRemoveLocalModel,
+                            { showDiagnostics = true }, presentationMode
                         ) { mode -> presentationMode = mode; presentationStore.save(mode) }
                     }
                 }
@@ -983,6 +1011,7 @@ fun AgentFleetApp(
                 updateState,
                 updateManifestUrl,
                 runtimeUi,
+                localModelUi,
                 { showPairing = true },
                 onCancelSchedule,
                 onCheckUpdate,
@@ -993,6 +1022,11 @@ fun AgentFleetApp(
                 onRestoreBaseline,
                 onOpenAppearance,
                 onMigrateFleetState,
+                onSetLocalSuggestions,
+                onDownloadLocalModel,
+                onImportLocalModel,
+                onCancelLocalModel,
+                onRemoveLocalModel,
                 { showDiagnostics = true },
                 presentationMode
             ) { mode -> presentationMode = mode; presentationStore.save(mode) }
@@ -1932,6 +1966,7 @@ private fun MoreScreen(
     updateState: UpdateUiState,
     updateManifestUrl: String,
     runtimeUi: RuntimeUiState,
+    localModelUi: LocalModelUiState,
     onPair: () -> Unit,
     onCancelSchedule: (FleetSchedule) -> Unit,
     onCheckUpdate: () -> Unit,
@@ -1942,6 +1977,11 @@ private fun MoreScreen(
     onRestoreBaseline: () -> Unit,
     onOpenAppearance: () -> Unit,
     onMigrateFleetState: () -> Unit,
+    onSetLocalSuggestions: (Boolean) -> Unit,
+    onDownloadLocalModel: () -> Unit,
+    onImportLocalModel: () -> Unit,
+    onCancelLocalModel: () -> Unit,
+    onRemoveLocalModel: () -> Unit,
     onOpenDiagnostics: () -> Unit,
     presentationMode: WorkspacePresentationMode,
     onPresentationMode: (WorkspacePresentationMode) -> Unit
@@ -1950,6 +1990,7 @@ private fun MoreScreen(
     var nativeSessionEnabled by rememberSaveable {
         mutableStateOf(NativeSessionSettings.isEnabled(context))
     }
+    var confirmMeteredModelDownload by rememberSaveable { mutableStateOf(false) }
     val snapshot = (fleetState as? FleetLoadState.Ready)?.snapshot
     val pendingSchedules = snapshot?.schedules?.count { it.status == "pending" } ?: 0
     val healthyHosts = snapshot?.hosts?.count { it.status == "healthy" } ?: 0
@@ -2006,6 +2047,64 @@ private fun MoreScreen(
                             NativeSessionSettings.setEnabled(context, it)
                         }
                     )
+                }
+            }
+        }
+        item {
+            Card(
+                modifier = Modifier.testTag("local-suggestions-settings"),
+                shape = RoundedCornerShape(18.dp),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
+            ) {
+                Column(Modifier.fillMaxWidth().padding(18.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                        Column(Modifier.weight(1f)) {
+                            Text("Local reply suggestions", fontSize = 18.sp, fontWeight = FontWeight.Bold)
+                            Text(
+                                "${LocalSuggestionModel.DISPLAY_NAME} · on-device · Native view only",
+                                fontSize = 15.sp,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                        Switch(
+                            checked = localModelUi.enabled,
+                            enabled = localModelUi.ready && !localModelUi.busy,
+                            onCheckedChange = onSetLocalSuggestions,
+                            modifier = Modifier.testTag("local-suggestions-toggle")
+                        )
+                    }
+                    Text(
+                        localModelUi.error.ifBlank { localModelUi.detail },
+                        fontSize = 14.sp,
+                        color = if (localModelUi.error.isBlank()) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.error
+                    )
+                    if (localModelUi.busy || localModelUi.progressBytes in 1 until LocalSuggestionModel.SIZE) {
+                        LinearProgressIndicator(progress = localModelUi.progress, modifier = Modifier.fillMaxWidth())
+                    }
+                    Text(
+                        "Pinned verified model · ${formatModelBytes(LocalSuggestionModel.SIZE)} storage. Off/background releases all model RAM.",
+                        fontSize = 13.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        if (localModelUi.busy) {
+                            OutlinedButton(onClick = onCancelLocalModel, modifier = Modifier.testTag("local-model-cancel")) { Text("Cancel") }
+                        } else if (!localModelUi.ready) {
+                            Button(
+                                onClick = {
+                                    val manager = context.getSystemService(Context.CONNECTIVITY_SERVICE) as? android.net.ConnectivityManager
+                                    if (manager?.isActiveNetworkMetered == true) confirmMeteredModelDownload = true else onDownloadLocalModel()
+                                },
+                                modifier = Modifier.testTag("local-model-download")
+                            ) { Text(if (localModelUi.progressBytes > 0L) "Resume" else "Download") }
+                            OutlinedButton(onClick = onImportLocalModel, modifier = Modifier.testTag("local-model-import")) { Text("Import") }
+                            if (localModelUi.progressBytes > 0L) {
+                                TextButton(onClick = onRemoveLocalModel, modifier = Modifier.testTag("local-model-remove")) { Text("Remove") }
+                            }
+                        } else {
+                            TextButton(onClick = onRemoveLocalModel, modifier = Modifier.testTag("local-model-remove")) { Text("Remove") }
+                        }
+                    }
                 }
             }
         }
@@ -2133,6 +2232,17 @@ private fun MoreScreen(
                 }
             }
         }
+    }
+    if (confirmMeteredModelDownload) {
+        AlertDialog(
+            onDismissRequest = { confirmMeteredModelDownload = false },
+            title = { Text("Download over a metered connection?") },
+            text = { Text("The verified Gemma model is ${formatModelBytes(LocalSuggestionModel.SIZE)}. Carrier or hotspot charges may apply.") },
+            confirmButton = {
+                Button(onClick = { confirmMeteredModelDownload = false; onDownloadLocalModel() }) { Text("Download") }
+            },
+            dismissButton = { TextButton(onClick = { confirmMeteredModelDownload = false }) { Text("Cancel") } }
+        )
     }
 }
 
@@ -2347,6 +2457,7 @@ private fun AgentFleetPreview() {
             ),
             diagnosticsUi = DiagnosticsUiState(),
             diagnosticError = null,
+            localModelUi = LocalModelUiState(),
             onSharedImagesHandled = {},
             onRefresh = {},
             onOpenSession = {},
@@ -2375,6 +2486,11 @@ private fun AgentFleetPreview() {
             onRestoreBaseline = {},
             onOpenAppearance = {},
             onMigrateFleetState = {},
+            onSetLocalSuggestions = {},
+            onDownloadLocalModel = {},
+            onImportLocalModel = {},
+            onCancelLocalModel = {},
+            onRemoveLocalModel = {},
             onRunDiagnostics = {},
             onCopyDiagnostics = {},
             onExportDiagnostics = {},

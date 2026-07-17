@@ -1,0 +1,27 @@
+#!/data/data/com.yaakovch.fleet/files/usr/bin/bash
+set -euo pipefail
+if [[ "$*" == *image-receive* ]]; then
+  marker="$HOME/.cache/agent-fleet/image-upload-retry-marker"
+  if [[ ! -f "$marker" ]]; then
+    mkdir -p "$(dirname "$marker")"
+    : >"$marker"
+    printf '%s\n' 'client_loop: send disconnect: Broken pipe' >&2
+    exit 255
+  fi
+  cat >/dev/null
+  printf '%s\n' '.wtmux/images/emulator-upload.png'
+  exit 0
+fi
+if [[ "$*" == *python3* && "$*" == *demo-session* ]]; then
+  cat >/dev/null
+  printf '%s\n' '{"protocolVersion":1,"type":"pane.scrollback","session":"demo-session","columns":80,"rows":24,"historyLines":2,"capturedLines":2,"truncated":false,"revision":"52cffb123a13b1f3475ccdfa0b34e066c2e2c9dd04f845de5dbc325add11bb75","ansiBase64":"b2xkZXIgcm93CmN1cnJlbnQgcm93"}'
+  exit 0
+fi
+if [[ "$*" == *sessions* && "$*" == *--project*demo* ]]; then
+  printf 'demo-session\tdemo-session\tactive\n'
+  exit 0
+fi
+if [[ "$*" == *attach* && "$*" == *--session*demo-session* ]]; then
+  printf '%s\n' 'attached:demo-session'
+  exit 0
+fi

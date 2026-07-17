@@ -38,11 +38,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.termux.app.TermuxActivity
-import org.json.JSONObject
 import java.io.File
-import java.io.FileOutputStream
-import java.util.UUID
-import java.util.concurrent.TimeUnit
 
 object AgentFleetComposer {
     private val attachments = mutableStateListOf<String>()
@@ -242,12 +238,12 @@ object AgentFleetComposer {
             for (uri in uris) {
                 val localResult = runCatching { copyImage(activity, uri) }
                 if (localResult.isFailure) {
-                    failure = "Image import failed (${localResult.exceptionOrNull()?.javaClass?.simpleName ?: "unknown error"})."
+                    failure = localResult.exceptionOrNull()?.message ?: "Image import failed."
                     break
                 }
                 val local = localResult.getOrThrow()
-                val remote = runCatching { sendImage(activity, local, host, project, session) }.getOrElse {
-                    failure = "Upload failed; the retry copy is at ${local.absolutePath}."
+                val remote = runCatching { sendImage(activity, local, host, project, session) }.getOrElse { error ->
+                    failure = error.message ?: "Image upload failed. Refresh the session and retry."
                     null
                 }
                 if (remote == null) break
@@ -262,72 +258,66 @@ object AgentFleetComposer {
         }, "agent-fleet-image-upload").start()
     }
 
-    private fun copyImage(activity: Context, uri: Uri): File {
+    internal fun copyImage(activity: Context, uri: Uri): File {
         val mime = activity.contentResolver.getType(uri).orEmpty()
-        require(mime.startsWith("image/"))
-        val extension = when (mime) {
-            "image/jpeg" -> "jpg"
-            "image/png" -> "png"
-            "image/webp" -> "webp"
-            "image/gif" -> "gif"
-            else -> "img"
-        }
         val appRoot = activity.filesDir.parentFile ?: error("App data directory is unavailable")
-        val directory = File(appRoot, "files/home/.cache/agent-fleet/images").apply { mkdirs() }
-        val output = File(directory, "${UUID.randomUUID()}.$extension")
-        try {
-            activity.contentResolver.openInputStream(uri).use { input ->
-                requireNotNull(input)
-                FileOutputStream(output).use { stream ->
-                    val buffer = ByteArray(32 * 1024)
-                    var total = 0L
-                    while (true) {
-                        val count = input.read(buffer)
-                        if (count < 0) break
-                        total += count
-                        require(total <= MAX_IMAGE_BYTES)
-                        stream.write(buffer, 0, count)
-                    }
-                }
-            }
-        } catch (error: Exception) {
-            output.delete()
-            throw error
+        val directory = File(appRoot, "files/home/.cache/agent-fleet/images")
+        return activity.contentResolver.openInputStream(uri).use { input ->
+            if (input == null) throw AgentFleetImageException("The selected image is no longer available.")
+            importAgentFleetImage(input, mime, directory)
         }
-        return output
     }
 
-    private fun sendImage(activity: Context, local: File, host: String, project: String, session: String): String {
+    internal fun sendImage(activity: Context, local: File, host: String, project: String, session: String): String {
         val appRoot = activity.filesDir.parentFile ?: error("App data directory is unavailable")
         val home = File(appRoot, "files/home")
         val prefix = File(appRoot, "files/usr")
+        val missingTools = runCatching { EmbeddedRuntimeManager(activity).repairImageUploadTools() }.getOrElse {
+            throw AgentFleetImageException("The built-in image tools need repair. Open More, then repair the runtime.")
+        }
+        if (missingTools.isNotEmpty()) {
+            throw AgentFleetImageException(
+                "Built-in image tools are missing (${missingTools.take(3).joinToString()}). Open More, then repair the runtime."
+            )
+        }
         val wtmux = sequenceOf(File(home, ".local/bin/wtmux"), File(prefix, "bin/wtmux")).firstOrNull { it.canExecute() }
             ?: error("wtmux is unavailable")
         val bash = File(prefix, "bin/bash").takeIf { it.canExecute() }
             ?: error("bash is unavailable")
-        val process = ProcessBuilder(
-            bash.absolutePath, wtmux.absolutePath, "image", "send", local.absolutePath,
-            "--host", host, "--project", project, "--session", session, "--json"
-        ).directory(home).apply {
-            environment()["HOME"] = home.absolutePath
-            environment()["PREFIX"] = prefix.absolutePath
-            environment()["PATH"] = "${File(home, ".local/bin")}:${File(prefix, "bin")}"
-            enableTermuxExec(environment(), prefix)
-        }.start()
-        if (!process.waitForCompat(30, TimeUnit.SECONDS)) {
-            process.destroyForciblyCompat()
-            error("image upload timed out")
+        var lastOutput: AgentFleetProcessOutput? = null
+        repeat(2) { attempt ->
+            val output = try {
+                val process = ProcessBuilder(
+                    bash.absolutePath, wtmux.absolutePath, "image", "send", local.absolutePath,
+                    "--host", host, "--project", project, "--session", session
+                ).directory(home).apply {
+                    environment()["HOME"] = home.absolutePath
+                    environment()["PREFIX"] = prefix.absolutePath
+                    environment()["PATH"] = "${File(home, ".local/bin")}:${File(prefix, "bin")}"
+                    enableTermuxExec(environment(), prefix)
+                }.start()
+                collectAgentFleetProcess(process, 30)
+            } catch (failure: AgentFleetImageException) {
+                if (attempt == 0 && failure.message.orEmpty().contains("timed out", ignoreCase = true)) return@repeat
+                throw failure
+            }
+            lastOutput = output
+            if (output.exitCode == 0) return parseAgentFleetImagePath(output.stdout)
+            if (!shouldRetryAgentFleetImageUpload(output, attempt)) {
+                throw AgentFleetImageException(agentFleetImageUploadFailure(output.stderr, output.exitCode))
+            }
+            if (output.exitCode == 127) runCatching { EmbeddedRuntimeManager(activity).repairImageUploadTools() }
+            Thread.sleep(150)
         }
-        val output = process.inputStream.bufferedReader().readText().take(64 * 1024)
-        if (process.exitValue() != 0) error("image upload failed")
-        return JSONObject(output.trim().lineSequence().last()).getString("path").also {
-            require(it.startsWith(".wtmux/images/") || it.contains("/.wtmux/images/"))
-        }
+        val failure = lastOutput
+        throw AgentFleetImageException(
+            if (failure == null) "Image upload timed out. Check the connection and retry."
+            else agentFleetImageUploadFailure(failure.stderr, failure.exitCode)
+        )
     }
 
     private const val MAX_MESSAGE_CHARS = 32_768
     private const val MAX_ATTACHMENTS = 8
-    private const val MAX_IMAGE_BYTES = 20L * 1024 * 1024
     private val CompactButtonPadding = PaddingValues(horizontal = 8.dp, vertical = 10.dp)
 private val ComposerColors = darkColorScheme(
         primary = Color(0xFFAFC6FF),

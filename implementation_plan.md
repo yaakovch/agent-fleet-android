@@ -532,3 +532,393 @@ required.
 Gate: startup places the verified registry declaration before its loader,
 Terminal resolves a real host and reconnects, Native remains healthy, the
 repair is idempotent, and no phone data reset or second migration is required.
+
+## Milestone 30: Instant Local Terminal History
+
+1. Add an alternate-screen scroll callback below the reusable Termux renderer
+   and a shared compact/Desktop history controller. Fail closed for shells,
+   normal buffers, and unsupported adapters; do not change remote PTY input.
+2. After two quiet seconds, serialize bounded no-follow conversation requests,
+   loading 100-item pages with automatic older paging up to 2,000 items. Keep
+   every snapshot memory-only and require explicit Retry after failure.
+3. Overlay a terminal-styled structured reader with History/Remote, Live,
+   Updated, Copy, loading, empty, and error states. Keep keyboard input live,
+   preserve the TerminalView instance, and restore terminal focus on exit.
+4. Add pure controller tests and API 36 Compose coverage, then run the complete
+   isolated fast/full emulator workflow, lint, minified production build,
+   embedded-runtime/privacy checks, and signed-release verification.
+5. Publish permanent-ID `0.118.4-agentfleet.45`/1047 only after Windows
+   `0.11.0-beta.15`; retain `.44`/1046 and all legacy artifacts. The physical
+   S23FE update and unstable-link Phone/DeX smoke remain manual through the
+   in-app updater.
+
+Gate: alternate-screen scrolling reads already fetched structured history
+without sending remote mouse bytes; typing still reaches Live; paging is
+bounded and memory-only; compact and Desktop behavior match; and no automated
+tool accesses the physical phone.
+
+Implementation record (2026-07-17): the final controller suite passed all 98
+JVM tests; the isolated Pixel 7/API 36 full run passed 21 instrumentation tests
+at `build/reports/agent-fleet/emulator/20260717T070616Z-full`; debug lint,
+release lint, and embedded runtime `git-a6f3063` verification passed. Signed
+permanent-ID `.45`/1047 passed APK identity, certificate, checksum, and embedded
+runtime verification. It was published only to `fleet/latest`; HTTPS served
+manifest SHA-256
+`bf445272378045cc7aca85b583117666b0bac17f7601c622fb48facfd9fef01b`
+and arm64 APK SHA-256
+`25c18a8b1c5cf83d4e75a8668dbdf0c33a09f55e913f386b9ac02924b07004f0`
+byte-for-byte. `.44`/1046 and all Legacy artifacts remain available. No
+automated tool accessed the physical S23FE.
+
+## Milestone 31: Terminal History Rollback Hotfix
+
+1. Remove the `.45` full-screen History overlay, controller lifecycle, and
+   alternate-screen scroll hook from compact and Desktop terminal renderers.
+   Restore the exact `.44` live terminal and composer path without changing
+   session attachments, Native protocol, migration state, or embedded runtime.
+2. Run the complete JVM, lint, isolated API 36 fast/full, release, runtime, and
+   privacy checks. Confirm the production resources contain no History overlay
+   and the reusable terminal renderer receives scroll directly again.
+3. Build and publish permanent-ID `0.118.4-agentfleet.46`/1048 through the
+   existing signed updater, retaining `.45` and `.44`. The user manually updates
+   the S23FE and verifies one existing Terminal session, image attachment,
+   session switching, and reconnect; automated tools never access the phone.
+
+Gate: `.46` renders the live terminal and existing attachment composer through
+the proven pre-History path, contains no History/Remote UI, preserves all phone
+data, and installs in place with certificate continuity.
+
+Implementation record (2026-07-17): the rollback contract and all 94 JVM tests
+passed. The isolated API 36 fast suite passed 15 tests at
+`build/reports/agent-fleet/emulator/20260717T085824Z-fast`; the full suite passed
+19 instrumentation tests at `20260717T090040Z-full`. Debug and Windows Release
+lint passed, as did the minified signed build, certificate/runtime verification,
+and checksum-identical local HTTPS payload check. Permanent-ID `.46`/1048 is
+published to `fleet/latest`; the manifest SHA-256 is
+`cfcf92f29ec847d3663c3c9dfd2d518c6b0c05ee09d207fac7a945b197493036`
+and the arm64 APK SHA-256 is
+`85f150eea381d4190e8aa80ebac4c7f39787e4eedaef752313d9097f5615135a`.
+`.45`, `.44`, and all Legacy artifacts remain retained. Automated tooling did
+not access the physical S23FE.
+
+## Milestone 32: Permanent-ID Image Attachment Hotfix
+
+1. Reproduce the permanent-ID picker and upload assumptions with MIME-less
+   content, supported and unsupported image bytes, a full stderr pipe, plain
+   `wtmux` output, and safe failure mapping.
+2. Centralize bounded image import. Preserve validated PNG/JPEG/WebP bytes and
+   normalize other Android-decodable phone formats to PNG/JPEG under the
+   permanent app's private cache. Delete successful temporary copies and age
+   out abandoned copies.
+3. Remove the upload client's JSON-output dependency, drain stdout/stderr in
+   parallel, keep the timeout, validate the returned `.wtmux/images/` path, and
+   show actionable errors in compact Terminal and workspace Native flows.
+4. Run all JVM tests, isolated API 36 instrumentation, lint, minified signed
+   build, runtime/privacy verification, and updater payload verification.
+5. Publish permanent-ID `0.118.4-agentfleet.47`/1049 to `fleet/latest` while
+   retaining `.46`, `.45`, `.44`, and all Legacy artifacts. The user performs
+   the physical-phone attachment smoke through the in-app updater; automated
+   tooling never accesses the phone.
+
+Gate: a MIME-less PNG imports under `/data/user/0/com.yaakovch.fleet`, Android
+16 accepts the shared picker path, upload cannot deadlock on stderr, ordinary
+`wtmux` output yields an attachment chip, and failure UI contains no private or
+repository path.
+
+Implementation record (2026-07-17): the complete JVM suite, debug lint, and
+release lint passed. The isolated Pixel 7/API 36 full run passed 20
+instrumentation tests (one intentionally skipped) at
+`build/reports/agent-fleet/emulator/20260717T093531Z-full`, including the new
+MIME-less permanent-ID import contract. The minified signed build and embedded
+runtime/certificate verification passed. Permanent-ID `.47`/1049 is published
+to `fleet/latest`; local and externally served bytes matched with manifest
+SHA-256 `9e7a576f711a3fdabdba0d5f18bbfde0f4dba588724d96b7d7db81df5956ec9d`
+and arm64 APK SHA-256
+`c172fe8bdc70fd006f36f0366ce6df727732fcdd6b4a1c5445143f8f5562afcc`.
+`.46`, `.45`, `.44`, and all Legacy artifacts remain retained. Automated
+tooling did not access the physical S23FE.
+
+## Milestone 33: Exit-127 Attachment Runtime Repair
+
+1. Reproduce `.47` at the actual boundaries: send a fixture image to Gaming
+   and Work-m with the desktop client, then install the packaged Termux and
+   wtmux runtimes on the isolated API 36 emulator and execute the complete
+   local image-send pipeline through deterministic fake SSH.
+2. Preflight only commands required by that pipeline. Map each to its signed
+   offline package, reinstall the minimum distinct package set when a preserved
+   runtime is incomplete, and make normal Runtime inspection/repair use the
+   same integrity signal.
+3. Treat Android process-pipe closure as EOF, keep concurrent bounded draining,
+   and distinguish a named missing local command from an unavailable remote
+   `wtmux-host` helper without leaking paths or arguments.
+4. Cover package selection, exit-127 messages, pipe closure, MIME-less import,
+   packaged runtime installation, config loading, hashing, temp files, SSH
+   stdin streaming, and returned image path. Run full JVM/API 36/lint/release
+   verification.
+5. Publish `0.118.4-agentfleet.48`/1050 to permanent `fleet/latest`, retain
+   `.47` and all earlier artifacts, and leave the physical phone update plus
+   real attachment smoke to the user.
+
+Gate: the full packaged-runtime emulator upload succeeds, a missing local tool
+selects its exact verified package for automatic repair, Android pipe closure
+cannot crash the app, and any remaining exit 127 identifies the safe failing
+component.
+
+Implementation record (2026-07-17): direct desktop `wtmux image send` smokes to
+Gaming and Work-m both returned a `.wtmux/images/` path. The isolated Pixel
+7/API 36 full workflow passed with zero failures (one golden intentionally
+skipped) at
+`build/reports/agent-fleet/emulator/20260717T105055Z-full`; it installed the
+packaged Termux bootstrap and wtmux runtime and completed the real image-send
+pipeline through deterministic SSH. The complete JVM suite, debug/release
+lint, minified production build, certificate, checksum, identity, and embedded
+runtime verification passed. Permanent-ID `.48`/1050 is published to
+`fleet/latest`; local and HTTPS-served bytes match with manifest SHA-256
+`32ea99ffb0b1f7d3522b856c32cef33c65c7c6bd6bf4ed0a4480a76204b1eff9`
+and arm64 APK SHA-256
+`29546763b749d8e580ef43a66aafaaf815eeb74a521313760454ffb753155167`.
+`.47` and all earlier artifacts remain retained. Automated tooling did not
+access the physical S23FE.
+
+## Milestone 34: Permanent-ID Tailscale Transport Hotfix
+
+1. Change the packaged-runtime attachment fixture from explicit SSH transport
+   to a Tailscale host and prove `.48` fails by invoking the absent `tailscale`
+   CLI under the permanent app ID.
+2. Mark all app-owned runtime children with the Termux environment identity so
+   wtmux selects its supported OpenSSH-over-tailnet path. Preserve a genuine
+   inherited Termux version and keep the exec compatibility layer unchanged.
+3. Cover the environment contract in the JVM suite and execute the complete
+   packaged Termux/wtmux image-send pipeline on API 36 through deterministic
+   OpenSSH, with no fake or packaged Tailscale CLI.
+4. Run the complete JVM/API 36/lint/release verification and publish signed
+   permanent-ID `0.118.4-agentfleet.49`/1051 to `fleet/latest`, retaining `.48`
+   and every earlier artifact. The physical-phone update and attachment smoke
+   remain manual.
+
+Gate: a permanent-ID background upload to a Tailscale-transport host completes
+through bundled OpenSSH; Runtime repair never attempts to install Tailscale;
+interactive terminal and app-owned processes share the same platform identity;
+and no automated tool accesses the physical S23FE.
+
+Implementation record (2026-07-17): the strengthened packaged-runtime test
+reproduced `.48` verbatim with `Image upload needs the missing 'tailscale'
+command`, then passed after app-owned children received the Termux environment
+identity. The complete JVM suite and isolated Pixel 7/API 36 workflow passed
+with zero failures (one golden intentionally skipped) at
+`build/reports/agent-fleet/emulator/20260717T112827Z-full`; debug/release lint,
+the minified signed build, certificate, identity, checksum, and embedded-runtime
+verification also passed. Permanent-ID `.49`/1051 is published to
+`fleet/latest`; local and HTTPS-served bytes match with manifest SHA-256
+`0f6369161641435ab957a01cd31f8ef1349fa176bcc2e9316fd3e0becf628bdf`
+and arm64 APK SHA-256
+`e9131f21410cebe886eec7c7a965201e1e49eea4b44d34170f57dda4fdceae49`.
+`.48` and all earlier artifacts remain retained. Automated tooling did not
+access the physical S23FE.
+
+## Milestone 35: Android 16 Diagnostics Accuracy Hotfix
+
+1. Verify the first successful permanent-ID attachment from its host-side
+   `.wtmux/images/` path and compare the screenshot with its copied diagnostics
+   preview.
+2. Refresh and retry a host doctor exactly once on `stale_revision`, retaining
+   failure for persistent or non-stale errors. Cover the revision transition in
+   a focused JVM test.
+3. On Android 10 and newer, download repository files into bounded app-private
+   staging and publish them through `MediaStore.Downloads`; open the resulting
+   content URI directly. Make Diagnostics exercise that same provider with a
+   create, fsync, publish, reopen, verify, and delete probe. Retain the legacy
+   direct Downloads path only below Android 10.
+4. Cover provider probing and publication on the isolated Android 16 emulator,
+   then run the complete JVM/API 36/lint/release gate and publish signed
+   permanent-ID `0.118.4-agentfleet.50`/1052 to `fleet/latest`, retaining `.49`
+   and all earlier artifacts.
+
+Gate: the attached screenshot is readable and matches the supplied report;
+ordinary fleet revision movement does not make healthy hosts fail Diagnostics;
+Downloads is tested and used through the Android 16-supported provider; no
+temporary diagnostic item remains; and no automated tool accesses the S23FE.
+
+Implementation record (2026-07-17): the host-side attachment was a readable
+1080×2201 Diagnostics screenshot matching the copied 6/9 report. Focused API 36
+tests published and reopened a real private-staged file through
+`MediaStore.Downloads`, and the JVM regression refreshed a stale host-doctor
+revision exactly once. The complete JVM suite and isolated Pixel 7/API 36 run
+passed with zero failures (one golden intentionally skipped) at
+`build/reports/agent-fleet/emulator/20260717T120003Z-full`; debug/release lint,
+the minified signed build, certificate, identity, checksum, and embedded-runtime
+verification passed. Permanent-ID `.50`/1052 is published to `fleet/latest`;
+local and HTTPS-served bytes match with manifest SHA-256
+`9ec85141458b82a6778493f00f8b6fdfa2267ab809e6a37ecf0ade990fa0ae1b`
+and arm64 APK SHA-256
+`cb7e4b77eb067ad34784bec2d0c197f8d9c7abdda46599ddb9bbe65cd836102a`.
+`.49` and all earlier artifacts remain retained. Automated tooling did not
+access the physical S23FE.
+
+## Milestone 36: Isolated Terminal History Restoration
+
+1. Reproduce `.45` from the retained APK and supplied screenshots. Separate
+   its missing-Tailscale environment failure from its blank-Live overlay
+   lifecycle, and classify the older migration warnings and Native disconnect
+   against the current `.50` fixes.
+2. Restore the alternate-screen scroll callback and a bounded, process-memory
+   history controller. Reuse `.49`'s Termux/OpenSSH process environment, redact
+   runtime paths, serialize 100-item no-follow pages, cap at 2,000 items, and
+   require explicit Retry after failure.
+3. Keep the compact full-screen reader physically `GONE` while Live is active;
+   use only a bounded Desktop control until History opens. Preserve the same
+   service PTY and TerminalView, return Remote gestures unchanged, and refit
+   the live renderer after Native/composer/toolbar geometry changes.
+4. Cover capture policy, chronological paging, memory bounds, overlay
+   visibility, Live return, Remote pass-through, and delayed initial scroll in
+   JVM and Compose tests. Extend the packaged Tailscale-host acceptance test to
+   execute a real `wtmux conversation stream --no-follow` through OpenSSH.
+5. Run the complete JVM, lint, isolated API 36 full, minified production build,
+   embedded-runtime/privacy, certificate, and release verification gates for
+   permanent-ID `0.118.4-agentfleet.51`/1053. Retain `.50` and every earlier
+   artifact; publishing and the physical S23FE update remain separate manual
+   rollout steps.
+
+Gate: Live contains no mounted history reader, History and Remote can be
+entered and exited without replacing the PTY, packaged no-follow history works
+for a Tailscale host without a Tailscale binary, prompt geometry refits after
+chrome changes, and no automated tool accesses the physical S23FE.
+
+Implementation record (2026-07-17): retained `.45` APK inspection reproduced
+the missing-Tailscale history transport and confirmed that its full-screen
+Compose reader remained mounted over Live. The restored controller now keeps
+that reader `GONE` in Live, pages 100 structured items at a time through the
+bundled OpenSSH path, caps process memory at 2,000 items, redacts private paths,
+requires explicit retry after errors, preserves the service PTY, and refits the
+terminal after chrome changes. The complete JVM suite and isolated Pixel 7/API
+36 run passed with zero failures (one review-only golden intentionally skipped)
+at `build/reports/agent-fleet/emulator/20260717T131009Z-full`; debug/release lint
+passed with zero errors. The minified signed `.51`/1053 arm64 and universal APKs,
+certificate, identity, checksums, and 84-package embedded runtime all verified.
+The local manifest SHA-256 is
+`9b0aacb875772d194aeeee7b0e63f07d258a4d21a8077d261f74b4e356d2e05d`
+and the arm64 APK SHA-256 is
+`3043d19950141b505fffddf538603058b937870c63a53c42c28b373195d49df9`.
+Permanent-ID `.51`/1053 is published to `fleet/latest`; local and HTTPS-served
+bytes match the recorded manifest and arm64 APK SHA-256 values. `.50` and all
+earlier artifacts remain retained. Automated tooling did not access the
+physical S23FE.
+
+## Milestone 37: Seamless Pane Scrollback And Attachment Retry
+
+1. Retire `.51`'s structured History overlay and controls from compact and
+   Desktop layouts. Preserve the same live PTY, composer, terminal renderer,
+   focus, Native switch, and workspace attachment lifecycle.
+2. Add a bounded `pane.scrollback` JSON contract to wtmux. Capture the current
+   tmux pane with ANSI attributes, dimensions, history count, truncation flag,
+   and SHA-256 revision; cap requests at 5,000 rows and responses at 4 MiB.
+3. Embed wtmux `git-9527c82` in `.52`. Prefetch 2,000 rows after 900 quiet
+   milliseconds, integrity-check the frame, and install it into a read-only
+   `TerminalEmulator` that is drawn by the live `TerminalView`. Consume upward
+   scroll locally only when the live buffer is alternate and dimensions match;
+   reaching bottom or typing restores Live.
+4. Retry one transient image upload after verified runtime repair. Cover empty
+   exit 127, SSH 255, Broken pipe, reset, timeout, refusal, and unreachable
+   failures; keep permanent errors single-attempt and messages path-redacted.
+5. Gate `.52`/1054 on wtmux smoke, pane parser and renderer lifecycle tests,
+   packaged-runtime OpenSSH pane/image instrumentation with a first-attempt
+   Broken pipe, complete JVM/API 36 suites, debug/release lint, minified signing,
+   embedded-runtime verification, and Windows lint/tests for shared protocol
+   compatibility. Do not use ADB against the physical phone.
+6. Prepare checksum-verified arm64 and universal artifacts while retaining
+   `.51` and earlier releases. Publish to `fleet/latest` only after the verified
+   artifact and remaining manual phone smoke are explicitly approved.
+
+Gate: terminal scrolling has no History UI and renders cached tmux ANSI in the
+terminal itself; the live xterm/PTY identity is stable; reaching bottom is
+seamless; a deterministic first Broken pipe upload succeeds on its sole retry;
+and an unrecovered 127/255 names the actionable component without private data.
+
+Implementation record (2026-07-17): `.52` removes the structured reader and
+uses a memory-only secondary terminal emulator for integrity-checked tmux ANSI;
+typing or reaching the bottom restores the unchanged live PTY. Image upload
+repairs verified local packages before transfer and retries one simulated SSH
+255/Broken pipe before succeeding. wtmux smoke, all 74 Bats tests, all 149
+Python tests, Windows TypeScript/124-test/production-build compatibility, all
+107 Android JVM tests, release lint, and the isolated Pixel 7/API 36 suite
+passed. The final clean API 36 report is
+`build/reports/agent-fleet/emulator/20260717T152500Z-full` (23 instrumentation
+tests, zero failures/errors, one review-only golden skipped). Signed arm64 and
+universal `.52`/1054 APKs, certificate, identity, checksums, and the 84-package
+embedded runtime at wtmux `git-9527c82` verified. The arm64 APK SHA-256 is
+`f7ad1668ac5e9a824a0a40cdfc69149765124c3b50540e47c6f24fd7498bcea4`;
+the local manifest SHA-256 is
+`6f1a912551928f1a25074fae112c902c6bc498740af2ef3e1012ce1f55381c3c`.
+`.51` and earlier artifacts remain retained. Following explicit rollout
+approval, `.52` was published to `fleet/latest`; the HTTPS-served manifest and
+arm64 APK matched the verified local SHA-256 values above. The standing release
+policy now publishes future fully verified permanent-ID Android versions to
+the in-app updater by default unless the user requests a hold. Automated
+tooling did not access the physical S23FE.
+
+## Milestone 38: Silent Client-Only Terminal Attachment
+
+1. Reproduce the first-attach warning with the permanent app's intentionally
+   client-only registry and trace it to wtmux local-machine registration rather
+   than the PTY, terminal renderer, SSH transport, or tmux host.
+2. Make noninteractive wtmux startup continue silently when the current client
+   is not registered. Preserve the interactive registration choice and every
+   genuine remote error.
+3. Add shared smoke coverage for a non-local Termux client and packaged API 36
+   coverage that installs the exact embedded runtime, resolves a session, and
+   reaches fake OpenSSH attach with no warning in the startup stream.
+4. Embed wtmux `git-bdc19c0`, bump permanent Android to `.53`/1055, and gate it
+   on complete wtmux, Android JVM, API 36, release-lint, minified signing,
+   identity, certificate, embedded-runtime, and checksum verification.
+5. Publish the verified artifact to `fleet/latest`, retain `.52` for rollback,
+   and compare the HTTPS-served manifest and arm64 APK bytes with the local
+   verified release. Do not access the physical S23FE through ADB.
+
+Gate: a new client-only Terminal attachment reaches the selected remote tmux
+session without rendering a local registration warning; interactive setup is
+unchanged; all release gates pass; and updater bytes are exact.
+
+Implementation record (2026-07-17): wtmux smoke, all 149 Python tests and four
+subtests, and all 74 Bats tests passed for commit `bdc19c0`. Android embedded
+runtime verification passed for exact `git-bdc19c0`; all 107 JVM tests and the
+complete managed Pixel 7/API 36 run passed with zero failures (one review-only
+golden skipped) at
+`build/reports/agent-fleet/emulator/20260717T160845Z-full`. Release lint passed
+with zero errors. Signed arm64 and universal `.53`/1055 APKs, certificate,
+identity, checksums, and all 84 embedded packages verified. `.53` is published
+to `fleet/latest`; the local and HTTPS-served manifest SHA-256 is
+`250c6f18ab615cfd50229f4d5c8715ec205658674d8d48d5b71fd0ac8ed743e2`
+and the arm64 APK SHA-256 is
+`7714e1de078412c3aa09ad1f9c3baa7f1c71ca906c884c82cbcaaabecd3137e5`.
+`.52` remains available for rollback. Automated tooling did not access the
+physical S23FE.
+
+## 39. Local Reply Suggestions
+
+1. Add pure eligibility, context bounding, prompt/output parsing, and stale
+   result contracts with JVM tests shared by composer and text-answer surfaces.
+2. Add release-pinned model metadata, resumable verified download and import,
+   model preferences, metered-network confirmation, cancellation/removal, and
+   storage/error UI under More.
+3. Add a non-exported `:local_llm` bound service using LiteRT-LM Gemma 4 E2B,
+   GPU then CPU fallback, one active request, explicit cancellation/close, and
+   60-second/background/disable process termination.
+4. Integrate Suggest/results into Native composer and free-text questions while
+   preserving drafts, focus, scrolling, tools, approvals, choices, terminal
+   behavior, and controller lifecycle. Exercise the Binder boundary with a fake
+   engine and no model download.
+5. Bump permanent Android to `.54`/1056 if still available; run all JVM tests,
+   the full isolated API 36 workflow, lint, signed/minified release, identity,
+   certificate, runtime, and checksum verification. Publish through
+   `fleet/latest`, retain `.53`, and leave physical S23FE performance/quality
+   smoke to the user.
+
+Implementation record (2026-07-17): the pure suggestion contracts, verified
+model storage, non-exported Binder service, and Native composer/question UI are
+implemented with the feature disabled by default. All 112 JVM tests and the
+complete managed Pixel 7/API 36 run passed with zero failures at
+`build/reports/agent-fleet/emulator/20260717T185147Z-full`; all 26
+instrumentation tests ran, with the one review-only golden intentionally
+skipped. Release lint passed with zero errors. Signed artifact verification,
+publication, and the manual physical S23FE model performance/quality smoke are
+recorded separately after release packaging.

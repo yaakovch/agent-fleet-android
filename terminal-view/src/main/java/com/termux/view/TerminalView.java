@@ -39,14 +39,21 @@ import androidx.annotation.RequiresApi;
 
 import com.termux.terminal.KeyHandler;
 import com.termux.terminal.TerminalEmulator;
+import com.termux.terminal.TerminalOutput;
 import com.termux.terminal.TerminalSession;
 import com.termux.view.textselection.TextSelectionCursorController;
+
+import java.io.ByteArrayOutputStream;
 
 /** View displaying and interacting with a {@link TerminalSession}. */
 public final class TerminalView extends View {
 
     /** Log terminal view key and IME events. */
     private static boolean TERMINAL_VIEW_KEY_LOGGING_ENABLED = false;
+
+    /** A read-only, prefetched tmux pane rendered with the same renderer as the live terminal. */
+    private TerminalEmulator mLocalScrollbackEmulator;
+    private boolean mLocalScrollbackActive;
 
     /** The currently displayed terminal session, whose emulator is {@link #mEmulator}. */
     public TerminalSession mTermSession;
@@ -193,12 +200,14 @@ public final class TerminalView extends View {
                 // Do not start scrolling until last fling has been taken care of:
                 if (!mScroller.isFinished()) return true;
 
-                final boolean mouseTrackingAtStartOfFling = mEmulator.isMouseTrackingActive();
+                final boolean localScrollbackAtStartOfFling = mLocalScrollbackActive;
+                final TerminalEmulator flingEmulator = displayedEmulator();
+                final boolean mouseTrackingAtStartOfFling = !localScrollbackAtStartOfFling && flingEmulator.isMouseTrackingActive();
                 float SCALE = 0.25f;
                 if (mouseTrackingAtStartOfFling) {
-                    mScroller.fling(0, 0, 0, -(int) (velocityY * SCALE), 0, 0, -mEmulator.mRows / 2, mEmulator.mRows / 2);
+                    mScroller.fling(0, 0, 0, -(int) (velocityY * SCALE), 0, 0, -flingEmulator.mRows / 2, flingEmulator.mRows / 2);
                 } else {
-                    mScroller.fling(0, mTopRow, 0, -(int) (velocityY * SCALE), 0, 0, -mEmulator.getScreen().getActiveTranscriptRows(), 0);
+                    mScroller.fling(0, mTopRow, 0, -(int) (velocityY * SCALE), 0, 0, -flingEmulator.getScreen().getActiveTranscriptRows(), 0);
                 }
 
                 post(new Runnable() {
@@ -206,7 +215,8 @@ public final class TerminalView extends View {
 
                     @Override
                     public void run() {
-                        if (mouseTrackingAtStartOfFling != mEmulator.isMouseTrackingActive()) {
+                        if (localScrollbackAtStartOfFling != mLocalScrollbackActive ||
+                            mouseTrackingAtStartOfFling != (!mLocalScrollbackActive && mEmulator.isMouseTrackingActive())) {
                             mScroller.abortAnimation();
                             return;
                         }
@@ -284,6 +294,7 @@ public final class TerminalView extends View {
     public boolean attachSession(TerminalSession session) {
         if (session == mTermSession) return false;
         mTopRow = 0;
+        clearLocalScrollback();
 
         mTermSession = session;
         mEmulator = null;
@@ -431,21 +442,31 @@ public final class TerminalView extends View {
 
     @Override
     protected int computeVerticalScrollRange() {
-        return mEmulator == null ? 1 : mEmulator.getScreen().getActiveRows();
+        TerminalEmulator emulator = displayedEmulator();
+        return emulator == null ? 1 : emulator.getScreen().getActiveRows();
     }
 
     @Override
     protected int computeVerticalScrollExtent() {
-        return mEmulator == null ? 1 : mEmulator.mRows;
+        TerminalEmulator emulator = displayedEmulator();
+        return emulator == null ? 1 : emulator.mRows;
     }
 
     @Override
     protected int computeVerticalScrollOffset() {
-        return mEmulator == null ? 1 : mEmulator.getScreen().getActiveRows() + mTopRow - mEmulator.mRows;
+        TerminalEmulator emulator = displayedEmulator();
+        return emulator == null ? 1 : emulator.getScreen().getActiveRows() + mTopRow - emulator.mRows;
     }
 
     public void onScreenUpdated() {
         if (mEmulator == null) return;
+
+        if (mLocalScrollbackActive) {
+            mEmulator.clearScrollCounter();
+            invalidate();
+            if (mAccessibilityEnabled) setContentDescription(getText());
+            return;
+        }
 
         int rowsInHistory = mEmulator.getScreen().getActiveTranscriptRows();
         if (mTopRow < -rowsInHistory) mTopRow = -rowsInHistory;
@@ -556,6 +577,16 @@ public final class TerminalView extends View {
 
     /** Perform a scroll, either from dragging the screen or by scrolling a mouse wheel. */
     void doScroll(MotionEvent event, int rowsDown) {
+        if (rowsDown == 0) return;
+        if (mLocalScrollbackActive || (rowsDown < 0 && mEmulator.isAlternateBufferActive() && canEnterLocalScrollback())) {
+            if (!mLocalScrollbackActive) mLocalScrollbackActive = true;
+            int transcriptRows = mLocalScrollbackEmulator.getScreen().getActiveTranscriptRows();
+            mTopRow = Math.min(0, Math.max(-transcriptRows, mTopRow + rowsDown));
+            if (rowsDown > 0 && mTopRow == 0) mLocalScrollbackActive = false;
+            if (!awakenScrollBars()) invalidate();
+            return;
+        }
+
         boolean up = rowsDown < 0;
         int amount = Math.abs(rowsDown);
         for (int i = 0; i < amount; i++) {
@@ -570,6 +601,63 @@ public final class TerminalView extends View {
                 if (!awakenScrollBars()) invalidate();
             }
         }
+    }
+
+    /** Install a bounded pane capture without changing the currently visible live terminal. */
+    public boolean setLocalScrollback(byte[] ansi, int columns, int rows) {
+        if (mEmulator == null || mLocalScrollbackActive || ansi == null || ansi.length == 0 ||
+            columns != mEmulator.mColumns || rows != mEmulator.mRows) return false;
+        TerminalEmulator local = new TerminalEmulator(NO_OP_OUTPUT, columns, rows, 1, 1, 5000, null);
+        System.arraycopy(mEmulator.mColors.mCurrentColors, 0, local.mColors.mCurrentColors, 0,
+            mEmulator.mColors.mCurrentColors.length);
+        byte[] normalized = normalizeCapturedAnsi(ansi);
+        local.append(normalized, normalized.length);
+        byte[] hideCursor = "\033[?25l".getBytes(java.nio.charset.StandardCharsets.UTF_8);
+        local.append(hideCursor, hideCursor.length);
+        if (local.getScreen().getActiveTranscriptRows() <= 0) return false;
+        mLocalScrollbackEmulator = local;
+        return true;
+    }
+
+    public void clearLocalScrollback() {
+        mLocalScrollbackActive = false;
+        mLocalScrollbackEmulator = null;
+        mTopRow = 0;
+        invalidate();
+    }
+
+    public boolean hasLocalScrollback() {
+        return mLocalScrollbackEmulator != null;
+    }
+
+    public boolean isLocalScrollbackActive() {
+        return mLocalScrollbackActive;
+    }
+
+    private boolean canEnterLocalScrollback() {
+        return mLocalScrollbackEmulator != null &&
+            mLocalScrollbackEmulator.mColumns == mEmulator.mColumns &&
+            mLocalScrollbackEmulator.mRows == mEmulator.mRows &&
+            mLocalScrollbackEmulator.getScreen().getActiveTranscriptRows() > 0;
+    }
+
+    private TerminalEmulator displayedEmulator() {
+        return mLocalScrollbackActive && mLocalScrollbackEmulator != null ? mLocalScrollbackEmulator : mEmulator;
+    }
+
+    private static byte[] normalizeCapturedAnsi(byte[] ansi) {
+        int end = ansi.length;
+        if (end > 0 && ansi[end - 1] == '\n') end--;
+        if (end > 0 && ansi[end - 1] == '\r') end--;
+        ByteArrayOutputStream output = new ByteArrayOutputStream(end + 256);
+        byte previous = 0;
+        for (int i = 0; i < end; i++) {
+            byte value = ansi[i];
+            if (value == '\n' && previous != '\r') output.write('\r');
+            output.write(value);
+            previous = value;
+        }
+        return output.toByteArray();
     }
 
     /** Overriding {@link View#onGenericMotionEvent(MotionEvent)}. */
@@ -754,6 +842,11 @@ public final class TerminalView extends View {
         if (TERMINAL_VIEW_KEY_LOGGING_ENABLED)
             mClient.logInfo(LOG_TAG, "onKeyDown(keyCode=" + keyCode + ", isSystem()=" + event.isSystem() + ", event=" + event + ")");
         if (mEmulator == null) return true;
+        if (mLocalScrollbackActive) {
+            mLocalScrollbackActive = false;
+            mTopRow = 0;
+            invalidate();
+        }
         if (isSelectingText()) {
             stopTextSelectionMode();
         }
@@ -832,6 +925,11 @@ public final class TerminalView extends View {
         }
 
         if (mTermSession == null) return;
+        if (mLocalScrollbackActive) {
+            mLocalScrollbackActive = false;
+            mTopRow = 0;
+            invalidate();
+        }
 
         // Ensure cursor is shown when a key is pressed down like long hold on (arrow) keys
         if (mEmulator != null)
@@ -979,6 +1077,8 @@ public final class TerminalView extends View {
                 mTerminalCursorBlinkerRunnable.setEmulator(mEmulator);
 
             mTopRow = 0;
+            mLocalScrollbackActive = false;
+            mLocalScrollbackEmulator = null;
             scrollTo(0, 0);
             invalidate();
         }
@@ -995,7 +1095,7 @@ public final class TerminalView extends View {
                 mTextSelectionCursorController.getSelectors(sel);
             }
 
-            mRenderer.render(mEmulator, canvas, mTopRow, sel[0], sel[1], sel[2], sel[3]);
+            mRenderer.render(displayedEmulator(), canvas, mTopRow, sel[0], sel[1], sel[2], sel[3]);
 
             // render the text selection handles
             renderTextSelection();
@@ -1007,7 +1107,8 @@ public final class TerminalView extends View {
     }
 
     private CharSequence getText() {
-        return mEmulator.getScreen().getSelectedText(0, mTopRow, mEmulator.mColumns, mTopRow + mEmulator.mRows);
+        TerminalEmulator emulator = displayedEmulator();
+        return emulator.getScreen().getSelectedText(0, mTopRow, emulator.mColumns, mTopRow + emulator.mRows);
     }
 
     public int getCursorX(float x) {
@@ -1019,8 +1120,9 @@ public final class TerminalView extends View {
     }
 
     public int getPointX(int cx) {
-        if (cx > mEmulator.mColumns) {
-            cx = mEmulator.mColumns;
+        TerminalEmulator emulator = displayedEmulator();
+        if (cx > emulator.mColumns) {
+            cx = emulator.mColumns;
         }
         return Math.round(cx * mRenderer.mFontWidth);
     }
@@ -1028,6 +1130,15 @@ public final class TerminalView extends View {
     public int getPointY(int cy) {
         return Math.round((cy - mTopRow) * mRenderer.mFontLineSpacing);
     }
+
+    private static final TerminalOutput NO_OP_OUTPUT = new TerminalOutput() {
+        @Override public void write(byte[] data, int offset, int count) {}
+        @Override public void titleChanged(String oldTitle, String newTitle) {}
+        @Override public void onCopyTextToClipboard(String text) {}
+        @Override public void onPasteTextFromClipboard() {}
+        @Override public void onBell() {}
+        @Override public void onColorsChanged() {}
+    };
 
     public int getTopRow() {
         return mTopRow;

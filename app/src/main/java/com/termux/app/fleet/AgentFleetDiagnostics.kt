@@ -2,7 +2,6 @@ package com.termux.app.fleet
 
 import android.content.Context
 import android.os.Build
-import android.os.Environment
 import java.io.File
 import java.io.FileOutputStream
 import java.text.SimpleDateFormat
@@ -197,7 +196,7 @@ class AgentFleetDiagnosticsRunner(
                 "${runtimeStatus.packageCount - runtimeStatus.missingOrOldPackages}/${runtimeStatus.packageCount} locked packages ready; baseline ${runtimeStatus.baseline.ifBlank { "not installed" }}."
             )
         }
-        checks += check("downloads", "Downloads storage") { verifyDownloads() }
+        checks += check("downloads", "Downloads storage") { verifyAgentFleetDownloads(context) }
         checks += check("policy", "Pairing and updates") {
             val policy = policyStore.load() ?: throw DiagnosticAttention("No paired client policy is installed")
             "Policy ${policy.policyRevision} is ready" to "Signed app and runtime update sources are configured."
@@ -296,26 +295,6 @@ class AgentFleetDiagnosticsRunner(
             }
         } finally {
             executor.shutdownNow()
-        }
-    }
-
-    private fun verifyDownloads(): Pair<String, String> {
-        val downloads = File(home, "storage/downloads").takeIf { it.isDirectory }
-            ?: Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
-        require((downloads.exists() || downloads.mkdirs()) && downloads.isDirectory && downloads.canWrite()) { "Downloads is not writable" }
-        val id = UUID.randomUUID().toString()
-        val first = File(downloads, ".agent-fleet-diagnostic-$id.tmp")
-        val replacement = File(downloads, ".agent-fleet-diagnostic-$id.replace")
-        try {
-            FileOutputStream(first).use { output -> output.write("probe".toByteArray()); output.fd.sync() }
-            require(first.isFile && first.length() == 5L) { "Downloads write or fsync failed" }
-            require(!first.createNewFile()) { "Collision protection failed" }
-            replacement.writeText("replacement", Charsets.UTF_8)
-            require(first.delete() && replacement.renameTo(first) && first.readText() == "replacement") { "Safe replacement failed" }
-            return "Downloads is writable" to "Create, fsync, collision guard, replace, and cleanup checks passed."
-        } finally {
-            first.delete()
-            replacement.delete()
         }
     }
 

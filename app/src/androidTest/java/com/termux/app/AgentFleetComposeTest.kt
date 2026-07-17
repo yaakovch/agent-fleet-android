@@ -1,6 +1,7 @@
 package com.termux.app
 
 import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.assertIsNotDisplayed
 import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.assertTextContains
@@ -40,6 +41,9 @@ import com.termux.app.fleet.NativeSessionUiState
 import com.termux.app.fleet.ToolPresentation
 import com.termux.app.fleet.ToolPresentationBlock
 import com.termux.app.fleet.UpdateUiState
+import com.termux.app.fleet.LocalModelUiState
+import com.termux.app.fleet.LocalSuggestionClient
+import com.termux.app.fleet.LocalSuggestionRuntime
 import com.termux.app.fleet.AndroidWorkspaceState
 import com.termux.app.fleet.WorkspaceTerminalBroker
 import com.termux.app.fleet.WorkspacePreset
@@ -48,6 +52,8 @@ import com.termux.app.fleet.emptyWorkspaceLayout
 import com.termux.app.fleet.workspacePanes
 import androidx.test.core.app.ApplicationProvider
 import java.util.concurrent.atomic.AtomicInteger
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
 import androidx.compose.runtime.mutableStateOf
 import org.junit.Assert.assertEquals
 import org.junit.Rule
@@ -217,6 +223,56 @@ class AgentFleetComposeTest {
     }
 
     @Test
+    fun localSuggestionsAreOffUntilThePinnedModelIsReady() {
+        compose.setContent { FixtureApp() }
+        compose.onNodeWithTag("nav-more").performClick()
+        compose.onNodeWithTag("more-screen").performScrollToNode(hasTestTag("local-suggestions-settings"))
+        compose.onNodeWithTag("local-suggestions-settings").assertIsDisplayed()
+        compose.onNodeWithText("Gemma 4 E2B Instruct", substring = true).assertIsDisplayed()
+        compose.onNodeWithTag("local-suggestions-toggle").assertIsNotEnabled()
+        compose.onNodeWithTag("local-model-download").assertIsDisplayed()
+        compose.onNodeWithTag("local-model-import").assertIsDisplayed()
+    }
+
+    @Test
+    fun nativeSuggestIsAvailableOnlyWhileTheDraftIsEmpty() {
+        val assistant = ConversationItem(
+            id = "assistant", kind = "message", timestamp = "2026-07-17T00:00:00Z", role = "assistant",
+            title = "", text = "Which rollout should I use?", detail = "", state = "complete", tool = "",
+            attachments = emptyList(), choices = emptyList()
+        )
+        compose.setContent {
+            NativeStateFixture(
+                NativeSessionUiState(
+                    "Fixture", "gaming", "wtmux-main", adapter = "codex", connection = "Live",
+                    items = listOf(assistant)
+                ),
+                inlineComposer = true,
+                localSuggestionsAvailableOverride = true
+            )
+        }
+        compose.onNodeWithTag("local-suggest-composer").assertIsDisplayed()
+        compose.onNodeWithTag("native-message-input").performTextInput("I will answer manually")
+        compose.onAllNodes(hasTestTag("local-suggest-composer")).assertCountEquals(0)
+    }
+
+    @Test
+    fun localSuggestionBinderReturnsParsedFakeEngineResultsWithoutAModel() {
+        val context = ApplicationProvider.getApplicationContext<android.content.Context>()
+        val latch = CountDownLatch(1)
+        var result: Result<List<String>>? = null
+        val client = LocalSuggestionClient(context, """{"suggestions":["Use the safe default","Show me the tradeoff"]}""")
+        client.generate("bounded fixture prompt") {
+            result = it
+            latch.countDown()
+        }
+        org.junit.Assert.assertTrue("fake local model callback timed out", latch.await(10, TimeUnit.SECONDS))
+        assertEquals(listOf("Use the safe default", "Show me the tradeoff"), result?.getOrThrow())
+        client.close()
+        LocalSuggestionRuntime.shutdown(context)
+    }
+
+    @Test
     fun onePlanQuestionSubmitsExactlyOnceOnTap() {
         val submissions = mutableListOf<List<ConversationAnswer>>()
         compose.setContent { NativeFixture(listOf(question("q1", "Choose a direction")), submissions::add) }
@@ -336,7 +392,9 @@ class AgentFleetComposeTest {
     @androidx.compose.runtime.Composable
     private fun NativeStateFixture(
         state: NativeSessionUiState,
-        onQuestion: (ConversationItem, List<ConversationAnswer>) -> Unit = { _, _ -> }
+        onQuestion: (ConversationItem, List<ConversationAnswer>) -> Unit = { _, _ -> },
+        inlineComposer: Boolean = false,
+        localSuggestionsAvailableOverride: Boolean? = null
     ) {
         AgentFleetTheme(darkTheme = true) {
             NativeSessionScreen(
@@ -355,7 +413,9 @@ class AgentFleetComposeTest {
                 onCloseSession = {},
                 onKillSession = {},
                 onScheduleContinue = {},
-                onDismissAttention = {}
+                onDismissAttention = {},
+                inlineComposer = inlineComposer,
+                localSuggestionsAvailableOverride = localSuggestionsAvailableOverride
             )
         }
     }
@@ -379,6 +439,7 @@ class AgentFleetComposeTest {
                 runtimeUi = RuntimeUiState(runtimeStatus, detail = "Ready"),
                 diagnosticsUi = diagnosticsUi,
                 diagnosticError = null,
+                localModelUi = LocalModelUiState(),
                 onSharedImagesHandled = {},
                 onRefresh = {},
                 onOpenSession = {},
@@ -407,6 +468,11 @@ class AgentFleetComposeTest {
                 onRestoreBaseline = {},
                 onOpenAppearance = {},
                 onMigrateFleetState = {},
+                onSetLocalSuggestions = {},
+                onDownloadLocalModel = {},
+                onImportLocalModel = {},
+                onCancelLocalModel = {},
+                onRemoveLocalModel = {},
                 onRunDiagnostics = {},
                 onCopyDiagnostics = {},
                 onExportDiagnostics = onExportDiagnostics,

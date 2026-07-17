@@ -33,6 +33,7 @@ import com.termux.app.fleet.AgentFleetComposer;
 import com.termux.app.fleet.AgentFleetContract;
 import com.termux.app.fleet.NativeSessionController;
 import com.termux.app.fleet.NativeSessionHost;
+import com.termux.app.fleet.TerminalScrollbackController;
 import com.termux.app.fleet.DrawerSessionSurface;
 import com.termux.app.fleet.FleetSession;
 import com.termux.app.fleet.UnifiedTerminalDrawerController;
@@ -180,6 +181,7 @@ public final class TermuxActivity extends ComponentActivity implements ServiceCo
     private static final int REQUEST_AGENT_FLEET_CAMERA = 8402;
     private Uri mAgentFleetCameraUri;
     private NativeSessionController mAgentFleetNativeSession;
+    private TerminalScrollbackController mAgentFleetTerminalScrollback;
 
     private static final String LOG_TAG = "TermuxActivity";
 
@@ -244,6 +246,8 @@ public final class TermuxActivity extends ComponentActivity implements ServiceCo
         findViewById(R.id.agent_fleet_native_return).setOnClickListener(v -> {
             if (mAgentFleetNativeSession != null) mAgentFleetNativeSession.showNative();
         });
+        mAgentFleetTerminalScrollback = new TerminalScrollbackController(this);
+        mAgentFleetTerminalScrollback.setTerminalView(mTerminalView);
         updateAgentFleetInputMode(getIntent());
 
         registerForContextMenu(mTerminalView);
@@ -286,6 +290,9 @@ public final class TermuxActivity extends ComponentActivity implements ServiceCo
         if (mAgentFleetNativeSession != null)
             mAgentFleetNativeSession.onStart();
 
+        if (mAgentFleetTerminalScrollback != null)
+            mAgentFleetTerminalScrollback.onStart();
+
         if (mUnifiedDrawerController != null)
             mUnifiedDrawerController.onStart();
     }
@@ -302,6 +309,8 @@ public final class TermuxActivity extends ComponentActivity implements ServiceCo
         ComposeView composer = findViewById(R.id.agent_fleet_composer);
         AgentFleetComposer.bind(this, composer,
             intent != null && intent.getBooleanExtra(AgentFleetContract.EXTRA_COMPOSE_INPUT, false));
+        if (mAgentFleetTerminalScrollback != null)
+            mAgentFleetTerminalScrollback.bind(intent);
         if (mAgentFleetNativeSession != null)
             mAgentFleetNativeSession.bind(intent);
     }
@@ -446,15 +455,28 @@ public final class TermuxActivity extends ComponentActivity implements ServiceCo
         View returnButton = findViewById(R.id.agent_fleet_native_return);
         if (returnButton != null)
             returnButton.setVisibility(nativeAvailable && !nativeView ? View.VISIBLE : View.GONE);
+
+        if (mAgentFleetTerminalScrollback != null)
+            mAgentFleetTerminalScrollback.setTerminalVisible(!nativeView);
+
+        if (mTerminalView != null) mTerminalView.post(() -> {
+            mTerminalView.updateSize();
+            if (!nativeView) mTerminalView.onScreenUpdated();
+        });
     }
 
     public void onAgentFleetTerminalScreenChanged(TerminalSession changedSession) {
-        if (mAgentFleetNativeSession == null || changedSession == null ||
-            changedSession != getCurrentSession() || changedSession.getEmulator() == null) return;
-        mAgentFleetNativeSession.onTerminalScreenChanged(changedSession.getEmulator().isAlternateBufferActive());
+        if (changedSession == null || changedSession != getCurrentSession() || changedSession.getEmulator() == null) return;
+        boolean alternate = changedSession.getEmulator().isAlternateBufferActive();
+        if (mAgentFleetNativeSession != null)
+            mAgentFleetNativeSession.onTerminalScreenChanged(alternate);
+        if (mAgentFleetTerminalScrollback != null)
+            mAgentFleetTerminalScrollback.onTerminalScreenChanged(alternate);
     }
 
     public void onAgentFleetTerminalTextChanged(TerminalSession changedSession) {
+        if (mAgentFleetTerminalScrollback != null && changedSession != null && changedSession == getCurrentSession())
+            mAgentFleetTerminalScrollback.onTerminalActivity();
         if (mAgentFleetNativeSession == null || changedSession == null ||
             !mAgentFleetNativeSession.wantsLocalTerminalText() ||
             changedSession != getCurrentSession() || changedSession.getEmulator() == null) return;
@@ -558,6 +580,9 @@ public final class TermuxActivity extends ComponentActivity implements ServiceCo
         if (mAgentFleetNativeSession != null)
             mAgentFleetNativeSession.onStop();
 
+        if (mAgentFleetTerminalScrollback != null)
+            mAgentFleetTerminalScrollback.onStop();
+
         if (mUnifiedDrawerController != null)
             mUnifiedDrawerController.onStop();
     }
@@ -573,6 +598,11 @@ public final class TermuxActivity extends ComponentActivity implements ServiceCo
         if (mAgentFleetNativeSession != null) {
             mAgentFleetNativeSession.close();
             mAgentFleetNativeSession = null;
+        }
+
+        if (mAgentFleetTerminalScrollback != null) {
+            mAgentFleetTerminalScrollback.close();
+            mAgentFleetTerminalScrollback = null;
         }
 
         if (mUnifiedDrawerController != null) {
@@ -784,7 +814,7 @@ public final class TermuxActivity extends ComponentActivity implements ServiceCo
         if (getDrawer().isDrawerOpen(Gravity.LEFT)) {
             getDrawer().closeDrawers();
         } else {
-            finishActivityIfNotFinishing();
+            super.onBackPressed();
         }
     }
 

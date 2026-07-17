@@ -14,10 +14,21 @@ fi
 build_tools="$(find "$sdk/build-tools" -mindepth 1 -maxdepth 1 -type d | sort -V | tail -1)"
 apksigner_jar="$build_tools/lib/apksigner.jar"
 aapt2="$build_tools/aapt2"
+aapt2_platform="linux"
+aapt2_directory="$directory"
+windows_cmd=""
+if [[ ! -x "$aapt2" && -f "${aapt2}.exe" ]]; then
+    aapt2_platform="windows"
+    aapt2="$(wslpath -w "${aapt2}.exe")"
+    aapt2_directory="$(wslpath -w "$directory")"
+    windows_cmd="/mnt/c/Windows/System32/cmd.exe"
+    [[ -x /init && -x "$windows_cmd" ]] || { echo "Windows aapt2 runner is unavailable" >&2; exit 1; }
+fi
+[[ "$aapt2_platform" == "windows" || -x "$aapt2" ]] || { echo "missing aapt2 in $build_tools" >&2; exit 1; }
 
-python3 - "$directory/manifest.json" "$directory" "$apksigner_jar" "$aapt2" <<'PY'
+python3 - "$directory/manifest.json" "$directory" "$apksigner_jar" "$aapt2" "$aapt2_platform" "$aapt2_directory" "$windows_cmd" <<'PY'
 import base64, hashlib, json, pathlib, re, subprocess, sys, zipfile
-manifest_path, directory, apksigner, aapt2 = sys.argv[1:]
+manifest_path, directory, apksigner, aapt2, aapt2_platform, aapt2_directory, windows_cmd = sys.argv[1:]
 manifest = json.loads(pathlib.Path(manifest_path).read_text(encoding="utf-8"))
 required = {"schemaVersion", "applicationId", "versionCode", "versionName", "apkUrl", "apkSha256", "certificateSha256", "size"}
 if not required <= manifest.keys() or manifest["schemaVersion"] != 1 or manifest["applicationId"] != "com.yaakovch.fleet":
@@ -85,7 +96,12 @@ for item in artifacts:
     match = re.search(r"Signer #1 certificate SHA-256 digest: ([0-9a-fA-F]{64})", result.stdout)
     if not match or match.group(1).lower() != manifest["certificateSha256"]:
         raise SystemExit(f"{item['abi']} APK certificate mismatch")
-    badging = subprocess.run([aapt2, "dump", "badging", str(apk)], check=True, text=True, capture_output=True).stdout
+    if aapt2_platform == "windows":
+        apk_for_aapt = str(pathlib.PureWindowsPath(aapt2_directory, apk.name))
+        aapt_command = ["/init", windows_cmd, "/d", "/c", aapt2, "dump", "badging", apk_for_aapt]
+    else:
+        aapt_command = [aapt2, "dump", "badging", str(apk)]
+    badging = subprocess.run(aapt_command, check=True, text=True, capture_output=True).stdout
     package = re.search(r"^package: name='([^']+)' versionCode='([^']+)' versionName='([^']+)'", badging, re.MULTILINE)
     if not package or package.groups() != (manifest["applicationId"], str(manifest["versionCode"]), manifest["versionName"]):
         raise SystemExit(f"{item['abi']} APK identity or version mismatch")

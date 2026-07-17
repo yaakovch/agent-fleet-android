@@ -4,8 +4,6 @@ import android.content.Context
 import android.content.Intent
 import android.net.Uri
 import android.os.Build
-import android.os.Environment
-import android.media.MediaScannerConnection
 import com.termux.app.TermuxActivity
 import com.termux.app.TermuxService
 import com.termux.shared.termux.TermuxConstants.TERMUX_APP.TERMUX_SERVICE
@@ -85,6 +83,23 @@ internal fun killSessionWithStaleRetry(
             throw FleetUnavailableException("${current.name}'s host is offline; no changes were made.", "host_offline")
         }
         execute(fresh, current)
+    }
+}
+
+internal fun doctorHostWithStaleRetry(
+    snapshot: FleetSnapshot,
+    hostId: String,
+    execute: (FleetSnapshot, String) -> FleetDoctorResult,
+    refresh: () -> FleetSnapshot
+): FleetDoctorResult {
+    require(snapshot.hosts.any { it.id == hostId }) { "Host is not part of this fleet snapshot." }
+    return try {
+        execute(snapshot, hostId)
+    } catch (error: FleetUnavailableException) {
+        if (error.code != "stale_revision") throw error
+        val fresh = refresh()
+        require(fresh.hosts.any { it.id == hostId }) { "Host is no longer part of this fleet snapshot." }
+        execute(fresh, hostId)
     }
 }
 
@@ -402,71 +417,71 @@ class FleetRuntime(private val context: Context) {
         require(validRepositoryPath(entry.relativePath, false)) { "Repository file path is invalid." }
         val wtmux = executable("wtmux") ?: throw FleetUnavailableException("wtmux is not installed.")
         val bash = executable("bash") ?: throw FleetUnavailableException("Bash is missing from the terminal runtime.")
-        val downloads = File(userHome, "storage/downloads").takeIf { it.isDirectory }
-            ?: Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
-        require((downloads.exists() || downloads.mkdirs()) && downloads.isDirectory && downloads.canWrite()) {
-            "Android Downloads is not writable. Grant storage access from the terminal first."
-        }
-        onProgress(FleetDownloadState(entry.name, entry.relativePath, "running", 0, entry.size, message = "Starting download…"))
-        val process = ProcessBuilder(
-            bash.absolutePath, wtmux.absolutePath, "file", "download",
-            "--host", session.hostId, "--session", session.internalName, "--path", entry.relativePath,
-            "--output-dir", downloads.absolutePath, "--yes", "--json", "--json-progress"
-        ).directory(userHome).apply { configureEnvironment(environment()) }.start()
-        cancellation.bind(process)
-        val output = ByteArrayOutputStream()
-        val outputExceeded = AtomicBoolean(false)
-        val errors = StringBuilder()
-        val stdoutReader = thread(name = "fleet-download-output", isDaemon = true) {
-            process.inputStream.use { input ->
-                val chunk = ByteArray(8 * 1024)
-                while (true) {
-                    val count = input.read(chunk)
-                    if (count < 0) break
-                    val remaining = MAX_OUTPUT_BYTES - output.size()
-                    if (remaining > 0) output.write(chunk, 0, minOf(count, remaining))
-                    if (count > remaining) outputExceeded.set(true)
-                }
-            }
-        }
-        val stderrReader = thread(name = "fleet-download-progress", isDaemon = true) {
-            process.errorStream.bufferedReader(Charsets.UTF_8).useLines { lines ->
-                lines.forEach { line ->
-                    val progress = runCatching { JSONObject(line) }.getOrNull()
-                    val received = progress?.optLong("received", -1) ?: -1
-                    val total = progress?.optLong("total", -1) ?: -1
-                    if (progress?.optString("type") == "progress" && received in 0..total && total in 0..MAX_FILE_BYTES) {
-                        val percent = if (total == 0L) 100 else (received * 100 / total).toInt()
-                        onProgress(FleetDownloadState(entry.name, entry.relativePath, "running", received, total, message = "Downloading · $percent%"))
-                    } else if (errors.length < MAX_ERROR_BYTES) {
-                        errors.append(line).append('\n')
+        val downloads = createAgentFleetDownloadDirectory(context)
+        return try {
+            onProgress(FleetDownloadState(entry.name, entry.relativePath, "running", 0, entry.size, message = "Starting download…"))
+            val process = ProcessBuilder(
+                bash.absolutePath, wtmux.absolutePath, "file", "download",
+                "--host", session.hostId, "--session", session.internalName, "--path", entry.relativePath,
+                "--output-dir", downloads.absolutePath, "--yes", "--json", "--json-progress"
+            ).directory(userHome).apply { configureEnvironment(environment()) }.start()
+            cancellation.bind(process)
+            val output = ByteArrayOutputStream()
+            val outputExceeded = AtomicBoolean(false)
+            val errors = StringBuilder()
+            val stdoutReader = thread(name = "fleet-download-output", isDaemon = true) {
+                process.inputStream.use { input ->
+                    val chunk = ByteArray(8 * 1024)
+                    while (true) {
+                        val count = input.read(chunk)
+                        if (count < 0) break
+                        val remaining = MAX_OUTPUT_BYTES - output.size()
+                        if (remaining > 0) output.write(chunk, 0, minOf(count, remaining))
+                        if (count > remaining) outputExceeded.set(true)
                     }
                 }
             }
+            val stderrReader = thread(name = "fleet-download-progress", isDaemon = true) {
+                process.errorStream.bufferedReader(Charsets.UTF_8).useLines { lines ->
+                    lines.forEach { line ->
+                        val progress = runCatching { JSONObject(line) }.getOrNull()
+                        val received = progress?.optLong("received", -1) ?: -1
+                        val total = progress?.optLong("total", -1) ?: -1
+                        if (progress?.optString("type") == "progress" && received in 0..total && total in 0..MAX_FILE_BYTES) {
+                            val percent = if (total == 0L) 100 else (received * 100 / total).toInt()
+                            onProgress(FleetDownloadState(entry.name, entry.relativePath, "running", received, total, message = "Downloading · $percent%"))
+                        } else if (errors.length < MAX_ERROR_BYTES) {
+                            errors.append(line).append('\n')
+                        }
+                    }
+                }
+            }
+            val exitCode = process.waitFor()
+            stdoutReader.join(1_000)
+            stderrReader.join(1_000)
+            if (cancellation.isCancelled()) {
+                return FleetDownloadState(entry.name, entry.relativePath, "cancelled", 0, entry.size, message = "Download cancelled")
+            }
+            if (exitCode != 0 || outputExceeded.get()) {
+                throw FleetUnavailableException(safeError(errors.toString().ifBlank { "Download failed." }))
+            }
+            val result = JSONObject(String(output.toByteArray(), Charsets.UTF_8).lineSequence().last { it.isNotBlank() })
+            require(result.optString("status") == "downloaded") { "Host returned an invalid download result." }
+            val resultName = result.getString("name").safeDirectoryLabel(255)
+            require(!resultName.contains('/') && !resultName.contains('\\')) { "Host returned an invalid file name." }
+            val resultFile = File(result.getString("path")).canonicalFile
+            val root = downloads.canonicalFile
+            require(resultFile.parentFile == root && resultFile.name == resultName && resultFile.isFile) {
+                "Downloaded file was not written safely to Android Downloads."
+            }
+            val published = publishAgentFleetDownload(context, resultFile, resultName)
+            FleetDownloadState(
+                published.name, entry.relativePath, "completed", published.size, published.size,
+                published.location, "Downloaded to Android Downloads"
+            )
+        } finally {
+            cleanupAgentFleetDownloadDirectory(context, downloads)
         }
-        val exitCode = process.waitFor()
-        stdoutReader.join(1_000)
-        stderrReader.join(1_000)
-        if (cancellation.isCancelled()) {
-            return FleetDownloadState(entry.name, entry.relativePath, "cancelled", 0, entry.size, message = "Download cancelled")
-        }
-        if (exitCode != 0 || outputExceeded.get()) {
-            throw FleetUnavailableException(safeError(errors.toString().ifBlank { "Download failed." }))
-        }
-        val result = JSONObject(String(output.toByteArray(), Charsets.UTF_8).lineSequence().last { it.isNotBlank() })
-        require(result.optString("status") == "downloaded") { "Host returned an invalid download result." }
-        val resultName = result.getString("name").safeDirectoryLabel(255)
-        require(!resultName.contains('/') && !resultName.contains('\\')) { "Host returned an invalid file name." }
-        val resultFile = File(result.getString("path")).canonicalFile
-        val root = downloads.canonicalFile
-        require(resultFile.parentFile == root && resultFile.name == resultName && resultFile.isFile) {
-            "Downloaded file was not written safely to Android Downloads."
-        }
-        MediaScannerConnection.scanFile(context, arrayOf(resultFile.absolutePath), null, null)
-        return FleetDownloadState(
-            resultName, entry.relativePath, "completed", resultFile.length(), resultFile.length(),
-            resultFile.absolutePath, "Downloaded to Android Downloads"
-        )
     }
 
     fun killSession(snapshot: FleetSnapshot, session: FleetSession): FleetSnapshot {
@@ -483,7 +498,10 @@ class FleetRuntime(private val context: Context) {
     }
 
     fun doctorHost(snapshot: FleetSnapshot, hostId: String): FleetDoctorResult {
-        require(snapshot.hosts.any { it.id == hostId }) { "Host is not part of this fleet snapshot." }
+        return doctorHostWithStaleRetry(snapshot, hostId, ::doctorHostOnce, ::loadSnapshot)
+    }
+
+    private fun doctorHostOnce(snapshot: FleetSnapshot, hostId: String): FleetDoctorResult {
         val doctor = request(
             "host.doctor",
             JSONObject()

@@ -1,6 +1,7 @@
 plugins {
     id "com.android.application"
     id "org.jetbrains.kotlin.android"
+    id "org.jetbrains.kotlin.plugin.compose"
 }
 
 android {
@@ -22,8 +23,12 @@ android {
         implementation "androidx.activity:activity-compose:1.7.2"
         implementation "androidx.compose.foundation:foundation:1.5.4"
         implementation "androidx.compose.material3:material3:1.1.2"
+        implementation "androidx.compose.runtime:runtime:1.11.4"
+        implementation "androidx.compose.runtime:runtime-saveable:1.11.4"
         implementation "androidx.compose.ui:ui:1.5.4"
         implementation "androidx.compose.ui:ui-tooling-preview:1.5.4"
+        implementation "com.google.ai.edge.litertlm:litertlm-android:0.14.0"
+        implementation "com.google.code.gson:gson:2.13.2"
         debugImplementation "androidx.compose.ui:ui-tooling:1.5.4"
         implementation "com.google.guava:guava:24.1-jre"
         implementation "io.noties.markwon:core:$markwonVersion"
@@ -39,8 +44,8 @@ android {
         applicationId "com.yaakovch.fleet"
         minSdkVersion project.properties.minSdkVersion.toInteger()
         targetSdkVersion project.properties.targetSdkVersion.toInteger()
-        versionCode 1046
-        versionName "0.118.4-agentfleet.44"
+        versionCode 1056
+        versionName "0.118.4-agentfleet.54"
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         testInstrumentationRunnerArguments clearPackageData: "true"
 
@@ -106,10 +111,6 @@ android {
 
     buildFeatures {
         compose true
-    }
-
-    composeOptions {
-        kotlinCompilerExtensionVersion "1.4.8"
     }
 
     externalNativeBuild {

@@ -145,6 +145,7 @@ class NativeSessionController @JvmOverloads constructor(
 
     fun onStop() {
         visible = false
+        LocalSuggestionRuntime.shutdown(activity.nativeContext.applicationContext)
         FleetSnapshotStore.removeObserver(this)
         generation++
         main.removeCallbacksAndMessages(null)
