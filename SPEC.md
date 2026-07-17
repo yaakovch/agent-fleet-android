@@ -202,7 +202,9 @@ trusted fleet.
   keep home, SSH keys, package state, shell history, terminal properties, and
   wtmux configuration; they start immediately when healthy and otherwise offer
   an explicit one-tap offline Repair. Fleet-only bridge migration deliberately
-  does not copy the incompatible old package prefix.
+  does not copy the incompatible old package prefix. Clean provisioning creates
+  the permanent app's private home before the first package inspection or
+  runtime process is started.
 - Runtime storage retains an immutable APK baseline, the active release, and
   one previous release. Health-check failure rolls back atomically. Diagnostics
   exposes baseline/current/previous versions, package-floor health, update

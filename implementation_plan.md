@@ -465,3 +465,25 @@ Gate: no APK contains a bootstrap or package compiled for another application
 prefix; both signed apps coexist; forward and reverse Fleet-only migration pass;
 official Termux remains independent; the new release lane cannot serve a legacy
 APK; and all emulator, build, runtime, privacy, and release checks pass.
+
+## Milestone 27: Permanent-ID Clean-Launch Runtime Hotfix
+
+1. Reproduce the `.41` arm64 first-launch failure from diagnostics and distinguish
+   a missing executable from an absent `files/home` process working directory.
+2. Create and validate the permanent app's private home immediately before any
+   embedded-runtime subprocess, with a regression test starting from an absent
+   nested home directory.
+3. Run the focused test, complete JVM/lint suite, embedded-runtime verifier, and
+   isolated API 36 emulator suites. Build and verify signed
+   `0.118.4-agentfleet.42`/1044 without changing the runtime bundle or legacy
+   bridge, publish it only to `agent-fleet/fleet/latest`, and retain `.41`,
+   `.41-legacy`, and `.40` for rollback.
+4. Hand off only the normal signed update flow for a manual S23FE smoke. Update
+   `.41` in place, wait for terminal preparation, then verify Diagnostics,
+   forward migration, Native, Terminal, and reconnect. Automated tools must not
+   access the physical phone.
+
+Gate: a clean permanent-ID install cannot fail because `files/home` is absent;
+the embedded package/runtime inputs remain byte-for-byte pinned; `.42` replaces
+`.41` in place with certificate continuity; and the permanent release lane never
+serves the legacy bridge.

@@ -72,6 +72,14 @@ internal fun installedPackageVersions(output: String): Map<String, String> = out
     }
 }.toMap()
 
+internal fun ensureEmbeddedRuntimeHome(directory: File): File {
+    if (!directory.isDirectory) directory.mkdirs()
+    require(directory.isDirectory && directory.canRead() && directory.canWrite()) {
+        "Agent Fleet home directory is unavailable"
+    }
+    return directory
+}
+
 object EmbeddedRuntimeMetadataParser {
     private const val APPLICATION_ID = "com.yaakovch.fleet"
     private const val PREFIX = "/data/data/com.yaakovch.fleet/files/usr"
@@ -456,8 +464,9 @@ class EmbeddedRuntimeManager(private val context: Context) {
     }
 
     private fun runProcess(command: List<String>, timeoutSeconds: Long, maxOutput: Int = 256 * 1024): ProcessResult {
+        val workingDirectory = ensureEmbeddedRuntimeHome(home)
         val process = ProcessBuilder(command)
-            .directory(home)
+            .directory(workingDirectory)
             .redirectErrorStream(true)
             .apply { configureEnvironment(environment()) }
             .start()

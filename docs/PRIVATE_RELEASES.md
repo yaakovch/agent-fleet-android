@@ -23,9 +23,9 @@ on a controller with the private Agent Fleet key.
    custom bootstrap must keep remote APT sources disabled.
 4. Build with a monotonically increasing version code and the HTTPS directory
    that will host the APK:
-   `scripts/release/build-signed-release.sh 0.118.4-agentfleet.41 1043 https://host.example/agent-fleet/fleet/latest`.
+   `scripts/release/build-signed-release.sh 0.118.4-agentfleet.42 1044 https://host.example/agent-fleet/fleet/latest`.
    The release contains an arm64 daily-driver APK plus a universal recovery APK.
-5. Verify with `scripts/release/verify-release.sh dist/0.118.4-agentfleet.41`.
+5. Verify with `scripts/release/verify-release.sh dist/0.118.4-agentfleet.42`.
 6. On the primary controller, set
    `AGENT_FLEET_PUBLISH_PRIMARY=local:/absolute/private/serve/path`. For a
    remote primary use `user@gaming-desktop:/srv/agent-fleet`; optionally set

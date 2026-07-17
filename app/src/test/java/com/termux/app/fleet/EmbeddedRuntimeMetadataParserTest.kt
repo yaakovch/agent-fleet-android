@@ -40,6 +40,22 @@ class EmbeddedRuntimeMetadataParserTest {
         )
         assertEquals(mapOf("bash" to "5.3.9-1", "tmux" to "3.7b"), values)
     }
+
+    @Test
+    fun createsTheRuntimeHomeBeforeTheFirstOfflinePackageCheck() {
+        val root = Files.createTempDirectory("agent-fleet-first-launch").toFile()
+        val home = File(root, "files/home")
+        try {
+            assertFalse(home.exists())
+            assertEquals(home, ensureEmbeddedRuntimeHome(home))
+            assertTrue(home.isDirectory)
+            assertTrue(home.canRead())
+            assertTrue(home.canWrite())
+        } finally {
+            root.deleteRecursively()
+        }
+    }
+
     private val descriptor = """
         {
           "schemaVersion":1,
