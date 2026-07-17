@@ -182,22 +182,27 @@ trusted fleet.
 
 - The arm64 APK is fleet-ready without a separate Termux package or wtmux
   installation. It carries an APK-authenticated baseline containing Bash,
-  Python, OpenSSH, tmux, Git, fzf, certificates, core terminal tools, and the
-  exact compatible wtmux runtime. AI CLIs, Node, credentials, fleet topology,
-  and Tailscale remain outside the APK.
-- A universal recovery/testing APK is also produced. Android 16/arm64 remains
-  the supported private daily-driver target; unsupported ABIs retain the stock
-  terminal bootstrap and report that the offline fleet payload is unavailable.
-- The offline package set is resolved from pinned official Termux packages.
-  Every artifact has a URL, version, size, and SHA-256 lock plus license/source
-  metadata and an SBOM. Repair installs only missing packages or packages below
-  the compatible floor and never downgrades newer user packages or performs a
-  full package upgrade.
+  Python, OpenSSH, Git, certificates, core terminal tools, and the exact
+  compatible wtmux runtime. AI CLIs, Node, credentials, fleet topology, and
+  Tailscale remain outside the APK.
+- A universal recovery/testing APK is also produced with only fixed-prefix
+  arm64 and x86_64 bootstraps. Android 16/arm64 remains the supported private
+  daily-driver target; x86_64 exists for the isolated API 36 emulator and does
+  not claim the arm64 offline wtmux repair payload.
+- The offline package set is built in the pinned public Agent Fleet Termux fork,
+  never downloaded from the official Termux repository during an app build.
+  The immutable bundle and every member have a version, size, and SHA-256 lock
+  plus license/source metadata and an SBOM. Repair installs only missing
+  packages or packages below the compatible floor and never downgrades newer
+  user packages or performs a full package upgrade. The fixed-prefix bootstrap
+  leaves remote APT sources disabled because official Termux packages target a
+  different prefix; package refreshes ship only in a reviewed Fleet release.
 - Clean first launch automatically shows one `Preparing terminal` surface and
-  provisions entirely offline before pairing. Existing/restored prefixes keep
-  home, SSH keys, package state, shell history, Termux properties, and wtmux
-  configuration; they start immediately when healthy and otherwise offer an
-  explicit one-tap offline Repair.
+  provisions entirely offline before pairing. Existing permanent-ID prefixes
+  keep home, SSH keys, package state, shell history, terminal properties, and
+  wtmux configuration; they start immediately when healthy and otherwise offer
+  an explicit one-tap offline Repair. Fleet-only bridge migration deliberately
+  does not copy the incompatible old package prefix.
 - Runtime storage retains an immutable APK baseline, the active release, and
   one previous release. Health-check failure rolls back atomically. Diagnostics
   exposes baseline/current/previous versions, package-floor health, update
@@ -440,5 +445,7 @@ trusted fleet.
   legacy bridge until at least 90 days have passed and two permanent-ID releases
   have succeeded. The final S23FE acceptance is manual and must prove official
   Termux coinstallation, forward/reverse migration, Native/Terminal sessions,
-  reconnect, resize/DeX, update, and rollback; automated tools never operate the
-  physical phone.
+  reconnect, resize/DeX, update, and rollback. Reverse migration is tested while
+  the bridge is installed; the bridge must then be removed before installing
+  official Termux because both own `com.termux`. Automated tools never operate
+  the physical phone.

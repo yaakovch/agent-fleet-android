@@ -1,0 +1,22 @@
+{
+  "applicationId": "com.yaakovch.fleet",
+  "architecture": "aarch64",
+  "bootstrapFile": "bootstrap-aarch64.zip",
+  "bootstrapSha256": "765681c8878ac8f7fcf6aa06b8f74a6bb68a06caf8204ab14d337e9e52ecc0ed",
+  "bootstrapSize": 57221455,
+  "file": "agent-fleet-runtime-aarch64.zip",
+  "forkCommit": "e3c69b599d8fd4371514f6eaf1b5710d2f652624",
+  "packageCount": 84,
+  "packageLockSha256": "dfc85f8f7885a54b54845659a02f4e7d1afc36994196d2663da09362cb84aee7",
+  "packageLockSize": 42615,
+  "packagePayloadSize": 33189712,
+  "prefix": "/data/data/com.yaakovch.fleet/files/usr",
+  "releaseTag": "agent-fleet-runtime-c7ca367-13",
+  "sbomSha256": "5d55c1e3eed0cb099b526049887ec5dc4d30e4ee176aca9ab8837a365191d136",
+  "sbomSize": 72368,
+  "schemaVersion": 1,
+  "sha256": "e77fee872dd45e1168c336332e5ed4dbf30a6f94fc5054d22c0bd7411f85f8f3",
+  "size": 89319525,
+  "upstreamCommit": "c7ca367ba4271dd58dee1bdc220899dda7dc4a71",
+  "url": "https://github.com/yaakovch/agent-fleet-termux-packages/releases/download/agent-fleet-runtime-c7ca367-13/agent-fleet-runtime-aarch64.zip"
+}

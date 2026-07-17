@@ -14,14 +14,18 @@ on a controller with the private Agent Fleet key.
    From version code 1035 onward, use the same monotonic number space for APK
    version codes and runtime sequences; the runtime sequence must be at least
    its declared minimum app version code.
-3. Regenerate and review the pinned Termux package lock only when intentionally
-   raising package floors. `scripts/runtime/verify-embedded-runtime.py
-   app/src/main/agent-fleet` must pass before every build.
+3. Build and publish a fixed-prefix runtime release from the public Agent Fleet
+   Termux fork only when intentionally raising package floors. Commit both
+   immutable release descriptors under `app/runtime-pins` plus the matching
+   arm64 lock/SBOM, then run `scripts/runtime/verify-embedded-runtime.py
+   app/src/main/agent-fleet`. App builds verify both complete public bundles;
+   never substitute an official-Termux bootstrap or direct package URL. The
+   custom bootstrap must keep remote APT sources disabled.
 4. Build with a monotonically increasing version code and the HTTPS directory
    that will host the APK:
    `scripts/release/build-signed-release.sh 0.118.4-agentfleet.41 1043 https://host.example/agent-fleet/fleet/latest`.
    The release contains an arm64 daily-driver APK plus a universal recovery APK.
-5. Verify with `scripts/release/verify-release.sh dist/0.118.4-agentfleet.1`.
+5. Verify with `scripts/release/verify-release.sh dist/0.118.4-agentfleet.41`.
 6. On the primary controller, set
    `AGENT_FLEET_PUBLISH_PRIMARY=local:/absolute/private/serve/path`. For a
    remote primary use `user@gaming-desktop:/srv/agent-fleet`; optionally set

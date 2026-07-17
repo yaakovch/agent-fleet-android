@@ -6,6 +6,7 @@ import android.system.Os
 import java.io.ByteArrayOutputStream
 import java.io.File
 import java.io.FileOutputStream
+import java.net.URI
 import java.security.MessageDigest
 import java.util.concurrent.TimeUnit
 import kotlin.concurrent.thread
@@ -72,12 +73,17 @@ internal fun installedPackageVersions(output: String): Map<String, String> = out
 }.toMap()
 
 object EmbeddedRuntimeMetadataParser {
+    private const val APPLICATION_ID = "com.yaakovch.fleet"
+    private const val PREFIX = "/data/data/com.yaakovch.fleet/files/usr"
+    private const val PACKAGE_REPOSITORY = "https://github.com/yaakovch/agent-fleet-termux-packages"
     private val SHA256 = Regex("^[a-f0-9]{64}$")
     private val VERSION = Regex("^[A-Za-z0-9][A-Za-z0-9._+-]{0,63}$")
     private val COMMIT = Regex("^[a-f0-9]{40}$")
     private val KEY_ID = Regex("^[a-f0-9]{32}$")
     private val PACKAGE = Regex("^[a-z0-9][a-z0-9+.-]*$")
     private val FILE = Regex("^[A-Za-z0-9][A-Za-z0-9._+-]{0,159}$")
+    private val DEB_FILE = Regex("^[A-Za-z0-9][A-Za-z0-9._+~-]{0,199}\\.deb$")
+    private val RECIPE = Regex("^(?:NOASSERTION|(?:packages|root-packages|x11-packages)/[a-z0-9][a-z0-9+.-]*/build\\.sh)$")
 
     fun descriptor(text: String): EmbeddedRuntimeDescriptor {
         require(text.length <= 64 * 1024) { "Embedded runtime descriptor is too large" }
@@ -112,27 +118,61 @@ object EmbeddedRuntimeMetadataParser {
         require(text.length <= 2 * 1024 * 1024) { "Termux package lock is too large" }
         val root = JSONObject(text)
         root.requireFields(
-            "schemaVersion", "architecture", "repository", "indexUrl", "indexSha256",
-            "rootPackages", "totalSize", "packages"
+            "schemaVersion", "applicationId", "prefix", "architecture", "repository", "bundleUrl",
+            "upstreamCommit", "forkCommit", "rootPackages", "totalSize", "packages"
         )
-        require(root.getInt("schemaVersion") == 1 && root.getString("architecture") == expectedArchitecture)
-        require(SHA256.matches(root.getString("indexSha256")))
+        require(root.getInt("schemaVersion") == 2 && root.getString("architecture") == expectedArchitecture)
+        require(root.getString("applicationId") == APPLICATION_ID && root.getString("prefix") == PREFIX)
+        require(root.getString("repository") == PACKAGE_REPOSITORY)
+        val bundleUrl = root.getString("bundleUrl")
+        requireHttps(bundleUrl)
+        require(bundleUrl.startsWith("$PACKAGE_REPOSITORY/releases/download/agent-fleet-runtime-") &&
+            bundleUrl.endsWith("/agent-fleet-runtime-$expectedArchitecture.zip"))
+        require(COMMIT.matches(root.getString("upstreamCommit")) && COMMIT.matches(root.getString("forkCommit")))
+        val rootPackages = root.getJSONArray("rootPackages").strings(64).also { roots ->
+            require(roots.distinct().size == roots.size && roots.all(PACKAGE::matches))
+        }
         val values = root.getJSONArray("packages").objects(512).map { item ->
-            require(item.keys().asSequence().toSet().containsAll(setOf(
-                "name", "version", "architecture", "file", "sha256", "size"
-            )))
+            item.requireFields(
+                "name", "version", "architecture", "file", "sha256", "size", "sourcePackage",
+                "recipe", "homepage", "license", "description"
+            )
+            val homepage = item.getString("homepage")
+            if (homepage != "NOASSERTION") requireWebMetadataUrl(homepage)
+            require(item.getString("sourcePackage").matches(PACKAGE))
+            require(item.getString("recipe").matches(RECIPE))
+            requireBoundedMetadata(item.getString("license"), 256)
+            requireBoundedMetadata(item.getString("description"), 4096, allowEmpty = true)
             LockedTermuxPackage(
                 item.getString("name").also { require(PACKAGE.matches(it)) },
                 item.getString("version").also { require(it.isNotBlank() && it.length <= 128 && it.none(Char::isISOControl)) },
                 item.getString("architecture").also { require(it == expectedArchitecture || it == "all") },
-                item.getString("file").also { require(FILE.matches(it) && it.endsWith(".deb")) },
+                item.getString("file").also { require(DEB_FILE.matches(it)) },
                 item.getString("sha256").also { require(SHA256.matches(it)) },
                 item.getLong("size").also { require(it in 1..64L * 1024L * 1024L) }
             )
         }
         require(values.isNotEmpty() && values.map(LockedTermuxPackage::name).distinct().size == values.size)
+        require(values.map(LockedTermuxPackage::file).distinct().size == values.size)
+        require(rootPackages.toSet().all { rootPackage -> values.any { it.name == rootPackage } })
         require(values.sumOf(LockedTermuxPackage::size) == root.getLong("totalSize"))
         return values
+    }
+
+    private fun requireHttps(value: String) {
+        require(value.length <= 2048 && value.none(Char::isISOControl))
+        val uri = URI(value)
+        require(uri.scheme == "https" && !uri.host.isNullOrBlank() && uri.userInfo == null && uri.fragment == null)
+    }
+
+    private fun requireWebMetadataUrl(value: String) {
+        require(value.length <= 2048 && value.none(Char::isISOControl))
+        val uri = URI(value)
+        require(uri.scheme in setOf("http", "https") && !uri.host.isNullOrBlank() && uri.userInfo == null)
+    }
+
+    private fun requireBoundedMetadata(value: String, maximum: Int, allowEmpty: Boolean = false) {
+        require((allowEmpty || value.isNotBlank()) && value.length <= maximum && value.none(Char::isISOControl))
     }
 
     private fun file(value: JSONObject, maximum: Long): EmbeddedRuntimeFile {

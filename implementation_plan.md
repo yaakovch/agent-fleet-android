@@ -431,7 +431,9 @@ respectively.
    `yaakovch/agent-fleet-termux-packages` fork at upstream commit
    `c7ca367ba4271dd58dee1bdc220899dda7dc4a71`, pin its builder image digest,
    and produce arm64/x86_64 custom-prefix bootstrap, packages, lock, SBOM,
-   provenance, and immutable release checksums.
+   provenance, and immutable release checksums. Pin the CI actions by commit and
+   leave remote APT sources disabled so official-prefix packages cannot enter
+   the Fleet runtime.
 2. Change the production application identity and all runtime path constants to
    `com.yaakovch.fleet` / `/data/data/com.yaakovch.fleet/files/usr`, remove the
    shared UID and exported generic Termux components, retain the internal PTY
@@ -452,9 +454,12 @@ respectively.
    certificate continuity, retain `.40`, and publish both lanes without
    accessing the physical S23FE.
 6. Hand off a manual S23FE checklist: install legacy `.41`, migrate forward,
-   install official Termux alongside the new app, verify Fleet and terminal
-   workflows, migrate back, then return to the new app. Retain legacy support
-   until both 90 days and two successful permanent-ID releases have elapsed.
+   verify the permanent app, migrate back, and migrate forward once more. Then
+   remove only the temporary bridge, install official Termux beside the permanent
+   app, and verify Fleet and terminal workflows. The bridge and official Termux
+   cannot coexist because both own `com.termux`; retain the bridge APK for
+   rollback until both 90 days and two successful permanent-ID releases have
+   elapsed.
 
 Gate: no APK contains a bootstrap or package compiled for another application
 prefix; both signed apps coexist; forward and reverse Fleet-only migration pass;

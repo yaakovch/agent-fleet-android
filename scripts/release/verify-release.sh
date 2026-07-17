@@ -40,7 +40,20 @@ def archive_runtime(apk):
             if len(payload) != value["size"] or hashlib.sha256(payload).hexdigest() != value["sha256"]:
                 raise SystemExit(f"APK embedded {key} verification failed")
         lock = json.loads(archive.read(prefix + descriptor["packageLock"]["file"]))
-        if len(lock["packages"]) != descriptor["packageLock"]["packages"]:
+        if (lock.get("schemaVersion") != 2 or lock.get("applicationId") != "com.yaakovch.fleet" or
+                lock.get("prefix") != "/data/data/com.yaakovch.fleet/files/usr" or
+                lock.get("architecture") != "aarch64" or
+                lock.get("repository") != "https://github.com/yaakovch/agent-fleet-termux-packages" or
+                not lock.get("bundleUrl", "").startswith("https://github.com/yaakovch/agent-fleet-termux-packages/releases/download/agent-fleet-runtime-") or
+                not lock.get("bundleUrl", "").endswith("/agent-fleet-runtime-aarch64.zip") or
+                lock.get("upstreamCommit") != "c7ca367ba4271dd58dee1bdc220899dda7dc4a71" or
+                not re.fullmatch(r"[a-f0-9]{40}", lock.get("forkCommit", "")) or
+                lock.get("rootPackages") != [
+                    "bash", "ca-certificates", "coreutils", "curl", "findutils", "git", "grep", "gzip",
+                    "openssh", "procps", "python", "sed", "tar", "termux-tools",
+                ] or
+                len(lock["packages"]) != descriptor["packageLock"]["packages"] or
+                sum(item["size"] for item in lock["packages"]) != descriptor["packageLock"]["payloadSize"]):
             raise SystemExit("APK package lock count mismatch")
         for item in lock["packages"]:
             payload = archive.read(prefix + "packages/" + item["file"])
@@ -50,6 +63,15 @@ def archive_runtime(apk):
             payload = archive.read(prefix + key["file"])
             if hashlib.sha256(payload).hexdigest() != key["sha256"]:
                 raise SystemExit("APK trusted runtime key verification failed")
+        expected_assets = {
+            prefix + "embedded-runtime-v1.json", prefix + descriptor["runtime"]["file"],
+            prefix + descriptor["packageLock"]["file"], prefix + descriptor["sbom"]["file"],
+            *(prefix + key["file"] for key in descriptor["trustedRuntimeKeys"]),
+            *(prefix + "packages/" + item["file"] for item in lock["packages"]),
+        }
+        actual_assets = {name for name in archive.namelist() if name.startswith(prefix) and not name.endswith("/")}
+        if actual_assets != expected_assets:
+            raise SystemExit("APK contains stale or unexpected embedded runtime assets")
         return descriptor
 
 embedded = None

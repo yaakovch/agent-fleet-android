@@ -56,18 +56,21 @@ class EmbeddedRuntimeMetadataParserTest {
 
     private val packages = """
         {
-          "schemaVersion":1,
+          "schemaVersion":2,
+          "applicationId":"com.yaakovch.fleet",
+          "prefix":"/data/data/com.yaakovch.fleet/files/usr",
           "architecture":"aarch64",
-          "repository":"https://packages.termux.dev/apt/termux-main",
-          "indexUrl":"https://packages.termux.dev/Packages",
-          "indexSha256":"${"56".repeat(32)}",
+          "repository":"https://github.com/yaakovch/agent-fleet-termux-packages",
+          "bundleUrl":"https://github.com/yaakovch/agent-fleet-termux-packages/releases/download/agent-fleet-runtime-c7ca367-4/agent-fleet-runtime-aarch64.zip",
+          "upstreamCommit":"${"56".repeat(20)}",
+          "forkCommit":"${"67".repeat(20)}",
           "rootPackages":["python"],
           "totalSize":100,
           "packages":[{
             "name":"python","version":"3.14.6-1","architecture":"aarch64",
             "file":"python_3.14.6-1_aarch64.deb","sha256":"${"78".repeat(32)}","size":100,
-            "description":"Python","homepage":"https://python.org","sourcePackage":"python",
-            "recipeUrl":"https://example.invalid/build.sh","license":"custom"
+            "description":"Python","homepage":"https://python.org/downloads/#source","sourcePackage":"python",
+            "recipe":"packages/python/build.sh","license":"custom"
           }]
         }
     """.trimIndent()
@@ -89,6 +92,20 @@ class EmbeddedRuntimeMetadataParserTest {
         assertThrows(IllegalArgumentException::class.java) {
             EmbeddedRuntimeMetadataParser.packages(packages.replace("python_3.14.6-1_aarch64.deb", "../python.deb"))
         }
+        assertThrows(IllegalArgumentException::class.java) {
+            EmbeddedRuntimeMetadataParser.packages(packages.replace("com.yaakovch.fleet", "com.termux"))
+        }
+        assertThrows(IllegalArgumentException::class.java) {
+            EmbeddedRuntimeMetadataParser.packages(packages.replace("agent-fleet-runtime-c7ca367-4", "other-runtime"))
+        }
+        assertThrows(IllegalArgumentException::class.java) {
+            EmbeddedRuntimeMetadataParser.packages(packages.replace("https://python.org", "file:///data/local/tmp/python"))
+        }
+    }
+
+    @Test
+    fun acceptsLegacyHttpHomepageAsInertMetadata() {
+        assertEquals(1, EmbeddedRuntimeMetadataParser.packages(packages.replace("https://python.org", "http://python.org")).size)
     }
 
     @Test

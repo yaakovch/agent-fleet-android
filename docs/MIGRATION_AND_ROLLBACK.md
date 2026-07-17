@@ -1,5 +1,11 @@
 # Migration and rollback
 
+> Historical procedure only. This was the one-time F-Droid Termux →
+> `com.termux` Agent Fleet cutover and must not be used for the permanent
+> `com.yaakovch.fleet` migration. The current signed bridge deliberately does
+> not copy `usr`, arbitrary home content, or packages; use
+> `APP_ID_AND_RUNTIME_MIGRATION.md` and More → Move Fleet state instead.
+
 Do not uninstall the S23FE's F-Droid Termux until every gate below passes.
 
 1. Copy `scripts/migration/termux-backup.sh` into the existing Termux and run it.

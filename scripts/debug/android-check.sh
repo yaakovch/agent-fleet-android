@@ -3,8 +3,8 @@ set -euo pipefail
 
 mode="${1:-fast}"
 case "$mode" in
-  fast|full|update-goldens) ;;
-  *) echo "usage: $0 [fast|full|update-goldens]" >&2; exit 2 ;;
+  fast|full|update-goldens|coinstall|migration-lanes) ;;
+  *) echo "usage: $0 [fast|full|update-goldens|coinstall|migration-lanes]" >&2; exit 2 ;;
 esac
 
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
@@ -13,6 +13,8 @@ stamp="$(date -u +%Y%m%dT%H%M%SZ)"
 artifacts="$root/build/reports/agent-fleet/emulator/$stamp-$mode"
 mkdir -p "$artifacts"
 log="$artifacts/run.log"
+app_package="com.yaakovch.fleet"
+test_package="${app_package}.test"
 
 java_home="${JAVA_HOME:-$HOME/.local/share/agent-fleet/jdk17}"
 linux_sdk="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-$HOME/.local/share/android-sdk}}"
@@ -60,7 +62,7 @@ adb_run() { /init "$cmd_exe" /c "$adb_windows" -P "$adb_port" "$@"; }
 adb_run start-server >>"$log" 2>&1
 
 emulator_serial() {
-  adb_run devices 2>/dev/null | tr -d '\r' | awk '$1 ~ /^emulator-/ && $2 == "device" { print $1; exit }'
+  adb_run devices 2>/dev/null | tr -d '\r' | awk '$1 ~ /^emulator-/ && $2 == "device" && !found { print $1; found=1 }'
 }
 
 serial="$(emulator_serial)"
@@ -95,21 +97,87 @@ adb_run -s "$serial" shell settings put global window_animation_scale 0 >/dev/nu
 adb_run -s "$serial" shell settings put global transition_animation_scale 0 >/dev/null
 adb_run -s "$serial" shell settings put global animator_duration_scale 0 >/dev/null
 
+if [[ "$mode" == "migration-lanes" ]]; then
+  permanent_apk="${AGENT_FLEET_PERMANENT_APK:-}"
+  legacy_apk="${AGENT_FLEET_LEGACY_APK:-}"
+  [[ -f "$permanent_apk" && -f "$legacy_apk" ]] || \
+    fail "set AGENT_FLEET_PERMANENT_APK and AGENT_FLEET_LEGACY_APK to signed universal APKs"
+  build_tools="$(find "$linux_sdk/build-tools" -mindepth 1 -maxdepth 1 -type d | sort -V | tail -1)"
+  aapt2="$build_tools/aapt2"
+  apksigner_jar="$build_tools/lib/apksigner.jar"
+  [[ -x "$aapt2" && -f "$apksigner_jar" ]] || fail "Android APK inspection tools were not found"
+  permanent_badging="$("$aapt2" dump badging "$permanent_apk")"
+  [[ "$permanent_badging" == "package: name='$app_package' "* ]] || \
+    fail "permanent lane APK has the wrong application ID"
+  legacy_badging="$("$aapt2" dump badging "$legacy_apk")"
+  [[ "$legacy_badging" == "package: name='com.termux' "* ]] || \
+    fail "legacy lane APK has the wrong application ID"
+  permanent_cert="$(java -jar "$apksigner_jar" verify --print-certs "$permanent_apk" | awk -F': ' '/Signer #1 certificate SHA-256 digest:/ && !found {print tolower($2); found=1}')"
+  legacy_cert="$(java -jar "$apksigner_jar" verify --print-certs "$legacy_apk" | awk -F': ' '/Signer #1 certificate SHA-256 digest:/ && !found {print tolower($2); found=1}')"
+  [[ "$permanent_cert" =~ ^[a-f0-9]{64}$ && "$permanent_cert" == "$legacy_cert" ]] || \
+    fail "migration lane APK certificates do not match"
+  adb_run -s "$serial" uninstall "$test_package" >>"$log" 2>&1 || true
+  adb_run -s "$serial" uninstall "$app_package" >>"$log" 2>&1 || true
+  adb_run -s "$serial" uninstall com.termux >>"$log" 2>&1 || true
+  adb_run -s "$serial" install -r -t "$(wslpath -w "$legacy_apk")" >>"$log" 2>&1
+  adb_run -s "$serial" install -r -t "$(wslpath -w "$permanent_apk")" >>"$log" 2>&1
+  {
+    printf 'certificate=%s\n' "$permanent_cert"
+    adb_run -s "$serial" shell pm path "$app_package"
+    adb_run -s "$serial" shell pm path com.termux
+    adb_run -s "$serial" shell dumpsys package "$app_package" | tr -d '\r' | awk '/dataDir=/ && !found {print; found=1}'
+    adb_run -s "$serial" shell dumpsys package com.termux | tr -d '\r' | awk '/dataDir=/ && !found {print; found=1}'
+  } >"$artifacts/migration-lanes.txt"
+  grep -q "dataDir=/data/user/0/$app_package" "$artifacts/migration-lanes.txt" || \
+    fail "permanent migration lane is not installed in its private root"
+  grep -q 'dataDir=/data/user/0/com.termux' "$artifacts/migration-lanes.txt" || \
+    fail "legacy migration lane is not installed in its private root"
+  say "PASS · signed migration lanes coexist: $artifacts"
+  exit 0
+fi
+
 say "building tests"
-gradle_tasks=(:app:assembleDebug :app:assembleDebugAndroidTest)
+gradle_tasks=(:app:assembleDebug)
+[[ "$mode" != "coinstall" ]] && gradle_tasks+=(:app:assembleDebugAndroidTest)
 [[ "$mode" == "full" ]] && gradle_tasks+=(:app:testDebugUnitTest)
 if ! ./gradlew "${gradle_tasks[@]}" --no-daemon --console=plain >"$log" 2>&1; then
   tail -n 35 "$log" >&2
   fail "test build failed"
 fi
-app_apk="$(find app/build/outputs/apk/debug -type f -name '*universal.apk' | head -1)"
-test_apk="$(find app/build/outputs/apk/androidTest/debug -type f -name '*.apk' | head -1)"
-[[ -f "$app_apk" && -f "$test_apk" ]] || fail "test APKs were not produced"
+app_apk="$(find app/build/outputs/apk/debug -type f -name '*universal.apk' -print -quit)"
+[[ -f "$app_apk" ]] || fail "app test APK was not produced"
 app_apk_windows="$(wslpath -w "$app_apk")"
-test_apk_windows="$(wslpath -w "$test_apk")"
-adb_run -s "$serial" uninstall com.termux.test >>"$log" 2>&1 || true
+adb_run -s "$serial" uninstall "$test_package" >>"$log" 2>&1 || true
+adb_run -s "$serial" uninstall "$app_package" >>"$log" 2>&1 || true
 adb_run -s "$serial" uninstall com.termux >>"$log" 2>&1 || true
 adb_run -s "$serial" install -r -t "$app_apk_windows" >>"$log" 2>&1
+
+if [[ "$mode" == "coinstall" ]]; then
+  official_termux="${AGENT_FLEET_OFFICIAL_TERMUX_APK:-}"
+  [[ -f "$official_termux" ]] || fail "set AGENT_FLEET_OFFICIAL_TERMUX_APK to a verified x86_64 official Termux APK"
+  build_tools="$(find "$linux_sdk/build-tools" -mindepth 1 -maxdepth 1 -type d | sort -V | tail -1)"
+  aapt2="$build_tools/aapt2"
+  [[ -x "$aapt2" ]] || fail "aapt2 was not found in the Android SDK"
+  official_badging="$("$aapt2" dump badging "$official_termux")"
+  [[ "$official_badging" == "package: name='com.termux' "* ]] || \
+    fail "official Termux fixture has the wrong application ID"
+  official_termux_windows="$(wslpath -w "$official_termux")"
+  adb_run -s "$serial" install -r -t "$official_termux_windows" >>"$log" 2>&1
+  {
+    adb_run -s "$serial" shell pm path "$app_package"
+    adb_run -s "$serial" shell pm path com.termux
+    adb_run -s "$serial" shell dumpsys package "$app_package" | tr -d '\r' | awk '/dataDir=/ && !found {print; found=1}'
+    adb_run -s "$serial" shell dumpsys package com.termux | tr -d '\r' | awk '/dataDir=/ && !found {print; found=1}'
+  } >"$artifacts/coinstallation.txt"
+  grep -q 'com.yaakovch.fleet' "$artifacts/coinstallation.txt" || fail "permanent Agent Fleet package is not installed"
+  grep -q 'com.termux' "$artifacts/coinstallation.txt" || fail "official Termux package is not installed"
+  say "PASS · permanent Agent Fleet and official Termux coexist: $artifacts"
+  exit 0
+fi
+
+test_apk="$(find app/build/outputs/apk/androidTest/debug -type f -name '*.apk' -print -quit)"
+[[ -f "$test_apk" ]] || fail "instrumentation APK was not produced"
+test_apk_windows="$(wslpath -w "$test_apk")"
 adb_run -s "$serial" install -r -t "$test_apk_windows" >>"$log" 2>&1
 
 instrument_args=(-w -r)
@@ -120,14 +188,14 @@ elif [[ "$mode" == "fast" ]]; then
 fi
 say "running $mode suite on $serial"
 set +e
-adb_run -s "$serial" shell am instrument "${instrument_args[@]}" com.termux.test/androidx.test.runner.AndroidJUnitRunner \
+adb_run -s "$serial" shell am instrument "${instrument_args[@]}" "$test_package/androidx.test.runner.AndroidJUnitRunner" \
   >"$artifacts/instrumentation.txt" 2>&1
 status=$?
 set -e
 if [[ $status -ne 0 ]] || grep -qE 'FAILURES|INSTRUMENTATION_FAILED' "$artifacts/instrumentation.txt"; then
   mkdir -p "$artifacts/device-output"
   output_windows="$(wslpath -w "$artifacts/device-output")"
-  adb_run -s "$serial" pull /sdcard/Android/media/com.termux/. "$output_windows" >>"$log" 2>&1 || true
+  adb_run -s "$serial" pull "/sdcard/Android/media/$app_package/." "$output_windows" >>"$log" 2>&1 || true
   tail -n 60 "$artifacts/instrumentation.txt" >&2
   fail "instrumentation tests failed"
 fi
@@ -135,7 +203,7 @@ fi
 if [[ "$mode" == "update-goldens" ]]; then
   mkdir -p "$artifacts/device-output"
   output_windows="$(wslpath -w "$artifacts/device-output")"
-  adb_run -s "$serial" pull /sdcard/Android/media/com.termux/. "$output_windows" >>"$log" 2>&1 || \
+  adb_run -s "$serial" pull "/sdcard/Android/media/$app_package/." "$output_windows" >>"$log" 2>&1 || \
     fail "golden output could not be copied from the emulator"
   say "PASS · review generated images under $artifacts/device-output"
   say "goldens are never replaced automatically"

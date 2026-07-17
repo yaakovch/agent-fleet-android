@@ -163,7 +163,18 @@ android {
 
 def agentFleetRuntimeSource = file("src/main/agent-fleet")
 def agentFleetGeneratedAssets = file("$buildDir/generated/agentFleetAssets/agent-fleet")
-def agentFleetPackageCache = new File(gradle.gradleUserHomeDir, "caches/agent-fleet-termux-packages/aarch64")
+def agentFleetBootstrapAssembly = file("src/main/cpp/termux-bootstrap-zip.S")
+def agentFleetRuntimePins = file("runtime-pins")
+def agentFleetRuntimeCache = new File(gradle.gradleUserHomeDir, "caches/agent-fleet-termux-runtime")
+def agentFleetApplicationId = "com.yaakovch.fleet"
+def agentFleetPrefix = "/data/data/com.yaakovch.fleet/files/usr"
+def agentFleetPackageRepository = "https://github.com/yaakovch/agent-fleet-termux-packages"
+def agentFleetRuntimeUpstreamCommit = "c7ca367ba4271dd58dee1bdc220899dda7dc4a71"
+def agentFleetRuntimeArchitectures = ["aarch64", "x86_64"]
+def agentFleetRuntimeRootPackages = [
+    "bash", "ca-certificates", "coreutils", "curl", "findutils", "git", "grep", "gzip",
+    "openssh", "procps", "python", "sed", "tar", "termux-tools"
+]
 
 def fileSha256 = { File input ->
     def digest = java.security.MessageDigest.getInstance("SHA-256")
@@ -178,21 +189,146 @@ def fileSha256 = { File input ->
     digest.digest().collect { String.format("%02x", it & 0xff) }.join()
 }
 
+def bytesSha256 = { byte[] input ->
+    java.security.MessageDigest.getInstance("SHA-256").digest(input)
+        .collect { String.format("%02x", it & 0xff) }.join()
+}
+
+def checkedRuntimeDescriptor = { String architecture ->
+    def descriptorFile = new File(agentFleetRuntimePins, "agent-fleet-runtime-${architecture}.json")
+    if (!descriptorFile.isFile()) {
+        throw new GradleException("Missing pinned Agent Fleet runtime descriptor for ${architecture}")
+    }
+    def descriptor = new groovy.json.JsonSlurper().parse(descriptorFile)
+    def expectedFields = [
+        "schemaVersion", "applicationId", "prefix", "architecture", "upstreamCommit", "forkCommit",
+        "releaseTag", "url", "file", "sha256", "size", "bootstrapFile", "bootstrapSha256",
+        "bootstrapSize", "packageLockSha256", "packageLockSize", "sbomSha256", "sbomSize",
+        "packageCount", "packagePayloadSize"
+    ] as Set
+    if (descriptor.keySet() != expectedFields || descriptor.schemaVersion != 1 ||
+        descriptor.applicationId != agentFleetApplicationId || descriptor.prefix != agentFleetPrefix ||
+        descriptor.architecture != architecture || descriptor.upstreamCommit != agentFleetRuntimeUpstreamCommit ||
+        !(descriptor.forkCommit ==~ /^[a-f0-9]{40}$/) ||
+        !(descriptor.releaseTag ==~ /^agent-fleet-runtime-[A-Za-z0-9._-]+$/) ||
+        descriptor.file != "agent-fleet-runtime-${architecture}.zip" ||
+        descriptor.bootstrapFile != "bootstrap-${architecture}.zip" ||
+        !(descriptor.sha256 ==~ /^[a-f0-9]{64}$/) || !(descriptor.bootstrapSha256 ==~ /^[a-f0-9]{64}$/) ||
+        !(descriptor.packageLockSha256 ==~ /^[a-f0-9]{64}$/) || !(descriptor.sbomSha256 ==~ /^[a-f0-9]{64}$/) ||
+        !(descriptor.size instanceof Number) || descriptor.size < 1 || descriptor.size > 768L * 1024L * 1024L ||
+        !(descriptor.bootstrapSize instanceof Number) || descriptor.bootstrapSize < 1 || descriptor.bootstrapSize > 256L * 1024L * 1024L ||
+        !(descriptor.packageLockSize instanceof Number) || descriptor.packageLockSize < 1 || descriptor.packageLockSize > 2L * 1024L * 1024L ||
+        !(descriptor.sbomSize instanceof Number) || descriptor.sbomSize < 1 || descriptor.sbomSize > 2L * 1024L * 1024L ||
+        !(descriptor.packageCount instanceof Number) || descriptor.packageCount < 1 || descriptor.packageCount > 512 ||
+        !(descriptor.packagePayloadSize instanceof Number) || descriptor.packagePayloadSize < 1 || descriptor.packagePayloadSize > 512L * 1024L * 1024L) {
+        throw new GradleException("Pinned Agent Fleet runtime descriptor is invalid for ${architecture}")
+    }
+    def expectedUrl = "${agentFleetPackageRepository}/releases/download/${descriptor.releaseTag}/${descriptor.file}"
+    if (descriptor.url != expectedUrl) {
+        throw new GradleException("Pinned Agent Fleet runtime URL is invalid for ${architecture}")
+    }
+    descriptor
+}
+
+def cachedRuntimeBundle = { descriptor ->
+    agentFleetRuntimeCache.mkdirs()
+    def cached = new File(agentFleetRuntimeCache, "${descriptor.architecture}-${descriptor.sha256}.zip")
+    if (!cached.isFile() || cached.length() != descriptor.size || fileSha256(cached) != descriptor.sha256) {
+        cached.delete()
+        def temporary = new File(agentFleetRuntimeCache, ".${descriptor.architecture}-${UUID.randomUUID()}.zip")
+        logger.lifecycle("Downloading pinned Agent Fleet ${descriptor.architecture} runtime ${descriptor.releaseTag}")
+        try {
+            def connection = new URL(descriptor.url).openConnection()
+            connection.connectTimeout = 30_000
+            connection.readTimeout = 120_000
+            connection.inputStream.withCloseable { input ->
+                temporary.withOutputStream { output -> output << input }
+            }
+            if (temporary.length() != descriptor.size || fileSha256(temporary) != descriptor.sha256) {
+                throw new GradleException("Pinned Agent Fleet runtime bundle failed verification: ${descriptor.architecture}")
+            }
+            try {
+                java.nio.file.Files.move(
+                    temporary.toPath(), cached.toPath(),
+                    java.nio.file.StandardCopyOption.REPLACE_EXISTING,
+                    java.nio.file.StandardCopyOption.ATOMIC_MOVE
+                )
+            } catch (java.nio.file.AtomicMoveNotSupportedException ignored) {
+                java.nio.file.Files.move(
+                    temporary.toPath(), cached.toPath(),
+                    java.nio.file.StandardCopyOption.REPLACE_EXISTING
+                )
+            }
+        } finally {
+            temporary.delete()
+        }
+    }
+    cached
+}
+
+def checkedZipBytes = { java.util.zip.ZipFile archive, String name, long maximum ->
+    def entry = archive.getEntry(name)
+    if (entry == null || entry.isDirectory() || entry.size < 1 || entry.size > maximum) {
+        throw new GradleException("Agent Fleet runtime bundle entry is missing or unsafe: ${name}")
+    }
+    archive.getInputStream(entry).withCloseable { input -> input.readAllBytes() }
+}
+
+def verifyOfflineBootstrap = { byte[] payload, String architecture ->
+    def names = [] as Set
+    def mainSourcesFound = false
+    new java.util.zip.ZipInputStream(new java.io.ByteArrayInputStream(payload)).withCloseable { stream ->
+        java.util.zip.ZipEntry entry
+        while ((entry = stream.nextEntry) != null) {
+            if (!names.add(entry.name) || entry.name.startsWith("/") || entry.name.contains("..") || entry.name.contains("\\")) {
+                throw new GradleException("Agent Fleet bootstrap has unsafe entries: ${architecture}")
+            }
+            if (!entry.isDirectory() &&
+                (entry.name == "etc/apt/sources.list" ||
+                    (entry.name.startsWith("etc/apt/sources.list.d/") && entry.name.endsWith(".list")))) {
+                def sourceBytes = stream.readNBytes(64 * 1024 + 1)
+                if (sourceBytes.length > 64 * 1024) {
+                    throw new GradleException("Agent Fleet bootstrap package sources are oversized: ${architecture}")
+                }
+                def activeSources = new String(sourceBytes, java.nio.charset.StandardCharsets.UTF_8).readLines().findAll {
+                    def line = it.trim()
+                    !line.isEmpty() && !line.startsWith("#")
+                }
+                if (!activeSources.isEmpty()) {
+                    throw new GradleException("Agent Fleet bootstrap enables an incompatible package source: ${architecture}")
+                }
+                if (entry.name == "etc/apt/sources.list") mainSourcesFound = true
+            }
+        }
+    }
+    if (!mainSourcesFound) {
+        throw new GradleException("Agent Fleet bootstrap does not declare its offline package policy: ${architecture}")
+    }
+}
+
 task prepareAgentFleetRuntimeAssets {
     inputs.dir(agentFleetRuntimeSource)
+    inputs.dir(agentFleetRuntimePins)
     outputs.dir(agentFleetGeneratedAssets)
+    outputs.files(agentFleetRuntimeArchitectures.collect { file("src/main/cpp/bootstrap-${it}.zip") })
+    outputs.upToDateWhen {
+        fileTree(file("src/main/cpp")) { include "bootstrap-*.zip" }.files.every { bootstrap ->
+            agentFleetRuntimeArchitectures.any { bootstrap.name == "bootstrap-${it}.zip" }
+        }
+    }
     doLast {
         def descriptorFile = new File(agentFleetRuntimeSource, "embedded-runtime-v1.json")
         def lockFile = new File(agentFleetRuntimeSource, "termux-packages-aarch64.json")
-        if (!descriptorFile.isFile() || !lockFile.isFile()) {
-            throw new GradleException("Agent Fleet embedded runtime descriptor or package lock is missing")
+        def sbomFile = new File(agentFleetRuntimeSource, "termux-packages-aarch64.spdx.json")
+        if (!descriptorFile.isFile() || !lockFile.isFile() || !sbomFile.isFile()) {
+            throw new GradleException("Agent Fleet embedded runtime metadata is missing")
         }
         def descriptor = new groovy.json.JsonSlurper().parse(descriptorFile)
-        def lock = new groovy.json.JsonSlurper().parse(lockFile)
-        if (descriptor.schemaVersion != 1 || lock.schemaVersion != 1 || lock.architecture != "aarch64") {
+        if (descriptor.schemaVersion != 1) {
             throw new GradleException("Agent Fleet embedded runtime metadata is unsupported")
         }
-        if (fileSha256(lockFile) != descriptor.packageLock.sha256 || lockFile.length() != descriptor.packageLock.size) {
+        if (fileSha256(lockFile) != descriptor.packageLock.sha256 || lockFile.length() != descriptor.packageLock.size ||
+            fileSha256(sbomFile) != descriptor.sbom.sha256 || sbomFile.length() != descriptor.sbom.size) {
             throw new GradleException("Agent Fleet package lock does not match embedded-runtime-v1")
         }
         delete(agentFleetGeneratedAssets)
@@ -203,37 +339,97 @@ task prepareAgentFleetRuntimeAssets {
         }
         def packageOutput = new File(agentFleetGeneratedAssets, "packages")
         packageOutput.mkdirs()
-        agentFleetPackageCache.mkdirs()
-        lock.packages.each { item ->
-            if (!(item.name instanceof String) || !(item.file instanceof String) || !(item.url instanceof String) ||
-                !(item.sha256 ==~ /^[a-f0-9]{64}$/) || !(item.size instanceof Number)) {
-                throw new GradleException("Agent Fleet package lock contains an invalid record")
+
+        def runtimePins = agentFleetRuntimeArchitectures.collectEntries { architecture ->
+            [(architecture): checkedRuntimeDescriptor(architecture)]
+        }
+        if (runtimePins.values()*.releaseTag.toSet().size() != 1 ||
+            runtimePins.values()*.upstreamCommit.toSet().size() != 1 ||
+            runtimePins.values()*.forkCommit.toSet().size() != 1) {
+            throw new GradleException("Pinned Agent Fleet runtime architectures do not share one source release")
+        }
+
+        fileTree(file("src/main/cpp")) { include "bootstrap-*.zip" }.files.each { bootstrap ->
+            if (!agentFleetRuntimeArchitectures.any { bootstrap.name == "bootstrap-${it}.zip" }) {
+                delete(bootstrap)
             }
-            def cached = new File(agentFleetPackageCache, item.file)
-            if (!cached.isFile() || cached.length() != item.size || fileSha256(cached) != item.sha256) {
-                cached.delete()
-                def temporary = new File(agentFleetPackageCache, ".${item.file}.${UUID.randomUUID()}")
-                logger.lifecycle("Downloading locked Termux package ${item.name} ${item.version}")
-                try {
-                    new URL(item.url).withInputStream { input ->
-                        temporary.withOutputStream { output -> output << input }
-                    }
-                    if (temporary.length() != item.size || fileSha256(temporary) != item.sha256) {
-                        throw new GradleException("Locked Termux package failed verification: ${item.name}")
-                    }
-                    java.nio.file.Files.move(
-                        temporary.toPath(), cached.toPath(),
-                        java.nio.file.StandardCopyOption.REPLACE_EXISTING,
-                        java.nio.file.StandardCopyOption.ATOMIC_MOVE
-                    )
-                } finally {
-                    temporary.delete()
+        }
+
+        agentFleetRuntimeArchitectures.each { architecture ->
+            def pin = runtimePins[architecture]
+            def bundle = cachedRuntimeBundle(pin)
+            new java.util.zip.ZipFile(bundle).withCloseable { archive ->
+                def names = []
+                def entries = archive.entries()
+                while (entries.hasMoreElements()) names.add(entries.nextElement().name)
+                if (names.size() != names.toSet().size() || names.any { it.startsWith("/") || it.contains("..") || it.contains("\\") }) {
+                    throw new GradleException("Agent Fleet runtime bundle has unsafe entries: ${architecture}")
                 }
+                def lockBytes = checkedZipBytes(archive, "agent-fleet-package-lock-v2.json", 2L * 1024L * 1024L)
+                def sbomBytes = checkedZipBytes(archive, "agent-fleet-packages.spdx.json", 2L * 1024L * 1024L)
+                def bootstrapBytes = checkedZipBytes(archive, pin.bootstrapFile, 256L * 1024L * 1024L)
+                if (lockBytes.length != pin.packageLockSize || bytesSha256(lockBytes) != pin.packageLockSha256 ||
+                    sbomBytes.length != pin.sbomSize || bytesSha256(sbomBytes) != pin.sbomSha256 ||
+                    bootstrapBytes.length != pin.bootstrapSize || bytesSha256(bootstrapBytes) != pin.bootstrapSha256) {
+                    throw new GradleException("Agent Fleet runtime metadata does not match its pin: ${architecture}")
+                }
+                verifyOfflineBootstrap(bootstrapBytes, architecture)
+                def lock = new groovy.json.JsonSlurper().parse(lockBytes)
+                def expectedLockFields = [
+                    "schemaVersion", "applicationId", "prefix", "architecture", "repository", "bundleUrl",
+                    "upstreamCommit", "forkCommit", "rootPackages", "totalSize", "packages"
+                ] as Set
+                if (lock.keySet() != expectedLockFields || lock.schemaVersion != 2 ||
+                    lock.applicationId != agentFleetApplicationId || lock.prefix != agentFleetPrefix ||
+                    lock.architecture != architecture || lock.repository != agentFleetPackageRepository ||
+                    lock.bundleUrl != pin.url || lock.upstreamCommit != pin.upstreamCommit || lock.forkCommit != pin.forkCommit ||
+                    lock.rootPackages != agentFleetRuntimeRootPackages ||
+                    !(lock.packages instanceof List) || lock.packages.size() != pin.packageCount || lock.totalSize != pin.packagePayloadSize) {
+                    throw new GradleException("Agent Fleet package lock does not match its pin: ${architecture}")
+                }
+                def expectedEntries = ["agent-fleet-package-lock-v2.json", "agent-fleet-packages.spdx.json", pin.bootstrapFile] as Set
+                def packageNames = [] as Set
+                def packageFiles = [] as Set
+                long payloadSize = 0
+                lock.packages.each { item ->
+                    def expectedPackageFields = [
+                        "name", "version", "architecture", "file", "sha256", "size", "sourcePackage",
+                        "recipe", "homepage", "license", "description"
+                    ] as Set
+                    if (item.keySet() != expectedPackageFields || !(item.name ==~ /^[a-z0-9][a-z0-9+.-]*$/) ||
+                        !(item.file ==~ /^[A-Za-z0-9][A-Za-z0-9._+~-]*\.deb$/) || !(item.sha256 ==~ /^[a-f0-9]{64}$/) ||
+                        !(item.size instanceof Number) || item.size < 1 || item.size > 64L * 1024L * 1024L ||
+                        !(item.architecture in [architecture, "all"]) || !packageNames.add(item.name) || !packageFiles.add(item.file)) {
+                        throw new GradleException("Agent Fleet package lock contains an invalid record: ${architecture}")
+                    }
+                    def entryName = "packages/${item.file}"
+                    def payload = checkedZipBytes(archive, entryName, 64L * 1024L * 1024L)
+                    if (payload.length != item.size || bytesSha256(payload) != item.sha256) {
+                        throw new GradleException("Agent Fleet package payload failed verification: ${item.name}")
+                    }
+                    expectedEntries.add(entryName)
+                    payloadSize += item.size
+                    if (architecture == "aarch64") {
+                        new File(packageOutput, item.file).bytes = payload
+                    }
+                }
+                if (!packageNames.containsAll(lock.rootPackages) || payloadSize != pin.packagePayloadSize || names.toSet() != expectedEntries) {
+                    throw new GradleException("Agent Fleet runtime bundle closure is incomplete: ${architecture}")
+                }
+                if (architecture == "aarch64" &&
+                    (!java.util.Arrays.equals(lockBytes, lockFile.bytes) || !java.util.Arrays.equals(sbomBytes, sbomFile.bytes))) {
+                    throw new GradleException("Pinned aarch64 metadata differs from the committed embedded metadata")
+                }
+                def bootstrapOutput = file("src/main/cpp/${pin.bootstrapFile}")
+                bootstrapOutput.parentFile.mkdirs()
+                bootstrapOutput.bytes = bootstrapBytes
             }
-            java.nio.file.Files.copy(
-                cached.toPath(), new File(packageOutput, item.file).toPath(),
-                java.nio.file.StandardCopyOption.REPLACE_EXISTING
-            )
+        }
+        // ndk-build does not model .incbin files as dependencies. Advance the
+        // tracked assembly source timestamp only when verified bootstrap inputs
+        // changed so an incremental build cannot reuse an older embedded ZIP.
+        if (!agentFleetBootstrapAssembly.setLastModified(System.currentTimeMillis())) {
+            throw new GradleException("Could not invalidate the Agent Fleet bootstrap assembly input")
         }
     }
 }
@@ -263,49 +459,6 @@ def validateVersionName(String versionName) {
         throw new GradleException("The versionName '"  + versionName + "' is not a valid version as per semantic version '2.0.0' spec in the format 'major.minor.patch(-prerelease)(+buildmetadata)'. https://semver.org/spec/v2.0.0.html.")
 }
 
-def downloadBootstrap(String arch, String expectedChecksum, String version) {
-    def digest = java.security.MessageDigest.getInstance("SHA-256")
-
-    def localUrl = "src/main/cpp/bootstrap-" + arch + ".zip"
-    def file = new File(projectDir, localUrl)
-    if (file.exists()) {
-        def buffer = new byte[8192]
-        def input = new FileInputStream(file)
-        while (true) {
-            def readBytes = input.read(buffer)
-            if (readBytes < 0) break
-            digest.update(buffer, 0, readBytes)
-        }
-        def checksum = new BigInteger(1, digest.digest()).toString(16)
-        while (checksum.length() < 64) { checksum = "0" + checksum }
-        if (checksum == expectedChecksum) {
-            return
-        } else {
-            logger.quiet("Deleting old local file with wrong hash: " + localUrl)
-            file.delete()
-        }
-    }
-
-    def remoteUrl = "https://github.com/termux/termux-packages/releases/download/bootstrap-" + version + "/bootstrap-" + arch + ".zip"
-    logger.quiet("Downloading " + remoteUrl + " ...")
-
-    file.parentFile.mkdirs()
-    def out = new BufferedOutputStream(new FileOutputStream(file))
-
-    def connection = new URL(remoteUrl).openConnection()
-    connection.setInstanceFollowRedirects(true)
-    def digestStream = new java.security.DigestInputStream(connection.inputStream, digest)
-    out << digestStream
-    out.close()
-
-    def checksum = new BigInteger(1, digest.digest()).toString(16)
-    while (checksum.length() < 64) { checksum = "0" + checksum }
-    if (checksum != expectedChecksum) {
-        file.delete()
-        throw new GradleException("Wrong checksum for " + remoteUrl + ": expected: " + expectedChecksum + ", actual: " + checksum)
-    }
-}
-
 clean {
     doLast {
         def tree = fileTree(new File(projectDir, 'src/main/cpp'))
@@ -314,18 +467,13 @@ clean {
     }
 }
 
-task downloadBootstraps() {
-    doLast {
-        def version = "2025.03.28-r1+apt-android-7"
-        downloadBootstrap("aarch64", "c8d702b6f742935001c37cda81b8ac69504a95d5cf28f2899532dd8cd4b057eb", version)
-        downloadBootstrap("arm",     "f3bb9d1b32552b34fff41861dbf193ec5ba2848d67d779ac1c7256da6640f85d", version)
-        downloadBootstrap("i686",    "36db3e1ac3547f9a174fd763bd9a484fa1a3449cdd81e1cf2408ff0454f839c6", version)
-        downloadBootstrap("x86_64",  "1c124ec2396ee70a51b0b0a574f29aa659526aa2b9f558f993b2fb05d1e51855", version)
-    }
-}
-
 afterEvaluate {
     android.applicationVariants.all { variant ->
-        variant.javaCompileProvider.get().dependsOn(downloadBootstraps)
+        variant.javaCompileProvider.get().dependsOn(prepareAgentFleetRuntimeAssets)
+    }
+    tasks.configureEach { candidate ->
+        if (candidate.name.startsWith("configureNdkBuild") || candidate.name.startsWith("buildNdkBuild")) {
+            candidate.dependsOn(prepareAgentFleetRuntimeAssets)
+        }
     }
 }

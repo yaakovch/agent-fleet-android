@@ -1,27 +1,27 @@
 {
   "schemaVersion": 1,
-  "baselineVersion": "git-fea7c08",
-  "wtmuxCommit": "fea7c08acd227ee123d404d8b2757f6f00765195",
+  "baselineVersion": "git-a6f3063",
+  "wtmuxCommit": "a6f3063a75bfeb69036f4df406534e7c26a213cb",
   "protocolVersion": 2,
   "supportedAbis": [
     "arm64-v8a"
   ],
   "runtime": {
-    "file": "wtmux-runtime-git-fea7c08.tar",
-    "sha256": "b02598571a11ea959827db86ff70b64ea085b3215912a869997eb3048b8cb772",
+    "file": "wtmux-runtime-git-a6f3063.tar",
+    "sha256": "8513aeb0a43a6206af7ee9a9b985ad26942840ec13efe52089e31b345a525007",
     "size": 706560
   },
   "packageLock": {
     "file": "termux-packages-aarch64.json",
-    "sha256": "0c05eb1dce868bdad7d765bb6b0ad1d18d088748ffb82a2867ecb3a7d8030ba1",
-    "size": 47966,
-    "packages": 70,
-    "payloadSize": 30271724
+    "sha256": "dfc85f8f7885a54b54845659a02f4e7d1afc36994196d2663da09362cb84aee7",
+    "size": 42615,
+    "packages": 84,
+    "payloadSize": 33189712
   },
   "sbom": {
     "file": "termux-packages-aarch64.spdx.json",
-    "sha256": "63274eccea5708be707b3f0287ba254877394a80e72d78b9ce67277b3f6a2ffd",
-    "size": 62677
+    "sha256": "5d55c1e3eed0cb099b526049887ec5dc4d30e4ee176aca9ab8837a365191d136",
+    "size": 72368
   },
   "trustedRuntimeKeys": [
     {

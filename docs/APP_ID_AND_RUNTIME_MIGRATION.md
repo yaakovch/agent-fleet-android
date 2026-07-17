@@ -11,7 +11,18 @@ The custom package source and immutable artifacts are public at
 Termux-packages commit and builder image, and publish arm64 production plus
 x86_64 emulator bundles with their package lock, SBOM, source/license metadata,
 and checksums. Package versions are refreshed only as part of a planned Agent
-Fleet app release.
+Fleet app release. The internal terminal remains available for Fleet terminal
+sessions, but its APT sources are deliberately empty: `pkg install` from the
+official Termux repository would introduce binaries built for the wrong prefix.
+
+The two immutable public release descriptors are committed under
+`app/runtime-pins`. Gradle accepts only the exact `com.yaakovch.fleet` identity,
+fixed prefix, source commits, URLs, sizes, and SHA-256 values recorded there. It
+then verifies every bootstrap, lock, SBOM, and `.deb` member before generating
+the APK inputs. The arm64 lock and SBOM are also committed beside the embedded
+wtmux runtime so signing and APK verification fail closed if the public bundle,
+offline repair packages, or recovery metadata disagree. No official-Termux
+bootstrap download remains in the permanent-ID build.
 
 ## Two installable lanes
 
@@ -45,6 +56,8 @@ days and two successful permanent-ID releases have passed.
 
 Automated validation uses only the isolated API 36 emulator. Final S23FE checks
 are manual: install/update the legacy bridge without data reset, migrate forward,
-coinstall official Termux, verify Native and Terminal sessions through reconnect
-and window/DeX resize, check the permanent update lane, migrate back, and prove
-rollback before returning to `com.yaakovch.fleet`.
+verify the permanent update lane, migrate back, prove rollback, and migrate
+forward again. Then remove only `Agent Fleet Legacy` and install official Termux
+beside `com.yaakovch.fleet`; both apps must run independently through Native and
+Terminal reconnect plus window/DeX resize. Official Termux cannot be installed
+at the same time as the bridge because both use `com.termux`.

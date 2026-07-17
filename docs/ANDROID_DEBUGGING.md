@@ -28,6 +28,20 @@ Generate candidate screenshot references for review:
 bash scripts/debug/android-check.sh update-goldens
 ```
 
+After verifying an official x86_64 Termux APK against its upstream checksum,
+prove package-level coinstallation on the same isolated emulator:
+
+```bash
+AGENT_FLEET_OFFICIAL_TERMUX_APK=/absolute/termux-x86_64.apk bash scripts/debug/android-check.sh coinstall
+```
+
+After both release lanes are signed, prove their IDs, certificate continuity,
+private roots, and coinstallation before testing transfer behavior manually:
+
+```bash
+AGENT_FLEET_PERMANENT_APK=/absolute/permanent-universal.apk AGENT_FLEET_LEGACY_APK=/absolute/legacy-universal.apk bash scripts/debug/android-check.sh migration-lanes
+```
+
 The runner uses an isolated ADB server on port 5038, accepts only an API 36
 x86_64 emulator, and verifies `ro.kernel.qemu=1` before uninstalling or
 installing anything. A physical `ANDROID_SERIAL` is rejected. Results are kept
@@ -35,6 +49,11 @@ under `build/reports/agent-fleet/emulator/`; successful output is deliberately
 short and failures point to the full log and instrumentation report. Failed
 instrumentation runs also pull screenshot actual/diff output into that run's
 `device-output` directory before exiting.
+
+Instrumentation is installed and invoked as `com.yaakovch.fleet.test`; generated
+media is collected from `Android/media/com.yaakovch.fleet`. The runner also
+cleans the temporary `com.termux` legacy lane on its isolated emulator so stale
+bridge state cannot mask permanent-ID failures.
 
 When the runner cold-starts the Windows AVD, it passes the same isolated ADB
 port into the emulator process. This is required because an emulator that

@@ -13,6 +13,22 @@ from pathlib import Path
 from urllib.parse import urlsplit
 
 
+APPLICATION_ID = "com.yaakovch.fleet"
+PREFIX = "/data/data/com.yaakovch.fleet/files/usr"
+PACKAGE_REPOSITORY = "https://github.com/yaakovch/agent-fleet-termux-packages"
+UPSTREAM_COMMIT = "c7ca367ba4271dd58dee1bdc220899dda7dc4a71"
+ROOT_PACKAGES = [
+    "bash", "ca-certificates", "coreutils", "curl", "findutils", "git", "grep", "gzip",
+    "openssh", "procps", "python", "sed", "tar", "termux-tools",
+]
+PIN_FIELDS = {
+    "schemaVersion", "applicationId", "prefix", "architecture", "upstreamCommit", "forkCommit",
+    "releaseTag", "url", "file", "sha256", "size", "bootstrapFile", "bootstrapSha256",
+    "bootstrapSize", "packageLockSha256", "packageLockSize", "sbomSha256", "sbomSize",
+    "packageCount", "packagePayloadSize",
+}
+
+
 def sha256(path: Path) -> str:
     digest = hashlib.sha256()
     with path.open("rb") as handle:
@@ -42,7 +58,37 @@ def public_der(path: Path) -> bytes:
     return base64.b64decode("".join(payload.split()), validate=True)
 
 
+def runtime_pin(path: Path, architecture: str) -> dict:
+    value = json.loads(path.read_text(encoding="utf-8"))
+    expected_file = f"agent-fleet-runtime-{architecture}.zip"
+    if (
+        set(value) != PIN_FIELDS or value.get("schemaVersion") != 1
+        or value.get("applicationId") != APPLICATION_ID or value.get("prefix") != PREFIX
+        or value.get("architecture") != architecture or value.get("upstreamCommit") != UPSTREAM_COMMIT
+        or not re.fullmatch(r"[a-f0-9]{40}", value.get("forkCommit", ""))
+        or not re.fullmatch(r"agent-fleet-runtime-[A-Za-z0-9._-]+", value.get("releaseTag", ""))
+        or value.get("file") != expected_file or value.get("bootstrapFile") != f"bootstrap-{architecture}.zip"
+        or value.get("url") != f"{PACKAGE_REPOSITORY}/releases/download/{value.get('releaseTag')}/{expected_file}"
+        or any(not re.fullmatch(r"[a-f0-9]{64}", value.get(field, "")) for field in (
+            "sha256", "bootstrapSha256", "packageLockSha256", "sbomSha256",
+        ))
+        or any(type(value.get(field)) is not int or value[field] < 1 for field in (
+            "size", "bootstrapSize", "packageLockSize", "sbomSize", "packageCount", "packagePayloadSize",
+        ))
+    ):
+        raise ValueError(f"runtime pin is invalid: {architecture}")
+    return value
+
+
 def verify(root: Path) -> dict:
+    pins_root = root.parents[2] / "runtime-pins"
+    pins = {
+        architecture: runtime_pin(pins_root / f"agent-fleet-runtime-{architecture}.json", architecture)
+        for architecture in ("aarch64", "x86_64")
+    }
+    if any(len({pin[field] for pin in pins.values()}) != 1 for field in ("releaseTag", "upstreamCommit", "forkCommit")):
+        raise ValueError("runtime architecture pins do not share one source release")
+
     descriptor_path = root / "embedded-runtime-v1.json"
     descriptor = json.loads(descriptor_path.read_text(encoding="utf-8"))
     if set(descriptor) != {
@@ -89,28 +135,102 @@ def verify(root: Path) -> dict:
     package_lock = checked_file(root, {key: package_value[key] for key in ("file", "sha256", "size")}, 2 * 1024 * 1024)
     lock = json.loads(package_lock.read_text(encoding="utf-8"))
     packages = lock.get("packages", [])
+    expected_lock_fields = {
+        "schemaVersion", "applicationId", "prefix", "architecture", "repository", "bundleUrl",
+        "upstreamCommit", "forkCommit", "rootPackages", "totalSize", "packages",
+    }
+    bundle_url = lock.get("bundleUrl", "")
+    parsed_bundle = urlsplit(bundle_url)
     if (
-        lock.get("schemaVersion") != 1 or lock.get("architecture") != "aarch64"
+        set(lock) != expected_lock_fields or lock.get("schemaVersion") != 2
+        or lock.get("applicationId") != APPLICATION_ID or lock.get("prefix") != PREFIX
+        or lock.get("architecture") != "aarch64" or lock.get("repository") != PACKAGE_REPOSITORY
+        or parsed_bundle.scheme != "https" or parsed_bundle.netloc != "github.com"
+        or not bundle_url.startswith(PACKAGE_REPOSITORY + "/releases/download/agent-fleet-runtime-")
+        or not bundle_url.endswith("/agent-fleet-runtime-aarch64.zip")
+        or lock.get("upstreamCommit") != UPSTREAM_COMMIT
+        or not re.fullmatch(r"[a-f0-9]{40}", lock.get("forkCommit", ""))
         or len(packages) != package_value["packages"] or sum(item["size"] for item in packages) != package_value["payloadSize"]
         or lock.get("totalSize") != package_value["payloadSize"]
     ):
         raise ValueError("package lock summary does not match embedded descriptor")
+    arm64_pin = pins["aarch64"]
+    if (
+        lock["bundleUrl"] != arm64_pin["url"] or lock["upstreamCommit"] != arm64_pin["upstreamCommit"]
+        or lock["forkCommit"] != arm64_pin["forkCommit"]
+        or package_value["sha256"] != arm64_pin["packageLockSha256"]
+        or package_value["size"] != arm64_pin["packageLockSize"]
+        or package_value["packages"] != arm64_pin["packageCount"]
+        or package_value["payloadSize"] != arm64_pin["packagePayloadSize"]
+        or descriptor["sbom"]["sha256"] != arm64_pin["sbomSha256"]
+        or descriptor["sbom"]["size"] != arm64_pin["sbomSize"]
+    ):
+        raise ValueError("embedded arm64 metadata does not match its immutable runtime pin")
+    root_packages = lock.get("rootPackages")
+    if (
+        root_packages != ROOT_PACKAGES
+    ):
+        raise ValueError("package lock roots are invalid")
     names = set()
     files = set()
     for item in packages:
+        if set(item) != {
+            "name", "version", "architecture", "file", "sha256", "size", "sourcePackage",
+            "recipe", "homepage", "license", "description",
+        }:
+            raise ValueError("package lock record fields are invalid")
         if item["name"] in names or item["file"] in files:
             raise ValueError("package lock contains a duplicate")
         names.add(item["name"])
         files.add(item["file"])
+        homepage = item.get("homepage")
+        homepage_url = urlsplit(homepage) if isinstance(homepage, str) else None
         if (
             not re.fullmatch(r"[a-z0-9][a-z0-9+.-]*", item["name"])
-            or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._+-]*\.deb", item["file"])
+            or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._+~-]*\.deb", item["file"])
             or not re.fullmatch(r"[a-f0-9]{64}", item["sha256"])
-            or urlsplit(item["url"]).scheme != "https"
+            or item["architecture"] not in {"aarch64", "all"}
+            or not re.fullmatch(r"[a-z0-9][a-z0-9+.-]*", item["sourcePackage"])
+            or not re.fullmatch(r"(?:NOASSERTION|(?:packages|root-packages|x11-packages)/[a-z0-9][a-z0-9+.-]*/build\.sh)", item["recipe"])
+            or not isinstance(homepage, str) or len(homepage) > 2048
+            or (homepage != "NOASSERTION" and (
+                homepage_url.scheme not in {"http", "https"} or not homepage_url.hostname
+                or homepage_url.username
+            ))
+            or not isinstance(item["license"], str) or not (1 <= len(item["license"]) <= 256)
+            or not isinstance(item["description"], str) or len(item["description"]) > 4096
         ):
             raise ValueError(f"package lock record is invalid: {item.get('name', 'unknown')}")
+    if not set(root_packages) <= names:
+        raise ValueError("package lock roots are missing from its closure")
 
-    checked_file(root, descriptor["sbom"], 2 * 1024 * 1024)
+    sbom_path = checked_file(root, descriptor["sbom"], 2 * 1024 * 1024)
+    sbom = json.loads(sbom_path.read_text(encoding="utf-8"))
+    if (
+        set(sbom) != {
+            "spdxVersion", "dataLicense", "SPDXID", "name", "documentNamespace",
+            "creationInfo", "packages", "relationships",
+        }
+        or sbom.get("spdxVersion") != "SPDX-2.3" or sbom.get("dataLicense") != "CC0-1.0"
+        or sbom.get("SPDXID") != "SPDXRef-DOCUMENT"
+        or not isinstance(sbom.get("packages"), list) or len(sbom["packages"]) != len(packages)
+    ):
+        raise ValueError("embedded SPDX SBOM summary is invalid")
+    spdx_packages = {}
+    for item in sbom["packages"]:
+        if not isinstance(item, dict):
+            raise ValueError("embedded SPDX SBOM package record is invalid")
+        checksums = item.get("checksums")
+        if (
+            not isinstance(item.get("name"), str) or item["name"] in spdx_packages
+            or not isinstance(checksums, list) or len(checksums) != 1
+            or checksums[0].get("algorithm") != "SHA256"
+            or not re.fullmatch(r"[a-f0-9]{64}", checksums[0].get("checksumValue", ""))
+        ):
+            raise ValueError("embedded SPDX SBOM package record is invalid")
+        spdx_packages[item["name"]] = (item.get("versionInfo"), checksums[0]["checksumValue"])
+    if spdx_packages != {item["name"]: (item["version"], item["sha256"]) for item in packages}:
+        raise ValueError("embedded SPDX SBOM does not match the package lock")
     keys = descriptor["trustedRuntimeKeys"]
     if not isinstance(keys, list) or not keys:
         raise ValueError("trusted runtime key list is empty")
@@ -124,6 +244,13 @@ def verify(root: Path) -> dict:
             raise ValueError("trusted runtime key asset verification failed")
         if hashlib.sha256(public_der(path)).hexdigest()[:32] != item["keyId"]:
             raise ValueError("trusted runtime key ID does not match its public key")
+    expected_source_files = {
+        "embedded-runtime-v1.json", descriptor["runtime"]["file"], descriptor["packageLock"]["file"],
+        descriptor["sbom"]["file"], *(item["file"] for item in keys),
+    }
+    actual_source_files = {path.name for path in root.iterdir() if path.is_file() and not path.is_symlink()}
+    if actual_source_files != expected_source_files or any(path.is_dir() or path.is_symlink() for path in root.iterdir()):
+        raise ValueError("embedded runtime source directory contains stale or unsafe inputs")
     return {
         "baselineVersion": descriptor["baselineVersion"],
         "wtmuxCommit": descriptor["wtmuxCommit"],
