@@ -442,7 +442,11 @@ trusted fleet.
   Rewrite both Android credential-storage aliases (`/data/data` and
   `/data/user/0`) when the package identity changes, including managed wtmux
   and SSH configuration paths. A permanent build must repair those same
-  allowlisted paths left by an older importer before starting a session.
+  allowlisted paths left by an older importer before starting a session. The
+  activated registry declaration must precede the managed registry loader;
+  migration and startup repair normalize that order and bind it to the
+  destination app's verified `registry/current/machines` path so Terminal and
+  Native resolve the same hosts.
 - Keep the existing top-level private update lane for `com.termux` legacy
   rollback. Publish `com.yaakovch.fleet` only through
   `agent-fleet/fleet/latest`, and require manifests plus APK inspection to match

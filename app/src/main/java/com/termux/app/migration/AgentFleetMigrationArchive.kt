@@ -38,6 +38,10 @@ object AgentFleetMigrationArchive {
     private const val MAX_ENTRY_BYTES = 4L * 1024L * 1024L
     private const val MAX_ENTRIES = 256
     private const val MAX_PREF_ENTRIES = 512
+    private const val RUNTIME_REGISTRY_BEGIN = "# BEGIN wtmux-runtime registry"
+    private const val RUNTIME_REGISTRY_END = "# END wtmux-runtime registry"
+    private const val MANAGED_REGISTRY_BEGIN = "# BEGIN wtmux-managed shared-registry"
+    private const val MANAGED_REGISTRY_END = "# END wtmux-managed shared-registry"
 
     private val preferenceStores = listOf(
         "agent_fleet_terminal_drawer",
@@ -179,11 +183,16 @@ object AgentFleetMigrationArchive {
             }
         }
         val home = File(context.filesDir, "home")
+        val registryMachines = activeRegistryMachines(home)?.absolutePath
         listOf(".config/wtmux/wtmux.conf", ".ssh/config").forEach { relative ->
             val file = File(home, relative)
             if (safeRegularFile(home, file)) {
                 val original = boundedBytes(file).toString(Charsets.UTF_8)
-                val rewritten = rewriteRoot(original, sourcePackage, context.packageName)
+                val rewritten = if (relative == ".config/wtmux/wtmux.conf") {
+                    rewriteWtmuxConfig(original, sourcePackage, context.packageName, registryMachines)
+                } else {
+                    rewriteRoot(original, sourcePackage, context.packageName)
+                }
                 if (rewritten != original) {
                     atomicWrite(file, rewritten.toByteArray(Charsets.UTF_8))
                     repaired++
@@ -334,13 +343,18 @@ object AgentFleetMigrationArchive {
         registryRelease: String?
     ) {
         val home = File(context.filesDir, "home").apply { mkdirs() }
+        val registryMachines = registryRelease?.let {
+            File(home, ".local/share/wtmux/registry/current/machines").absolutePath
+        }
         entries.forEach { (path, original) ->
             val relative = path.removePrefix("home/")
             val target = File(home, relative)
             require(target.canonicalPath.startsWith(home.canonicalPath + File.separator))
             val bytes = when (relative) {
                 ".config/wtmux/wtmux.conf" ->
-                    rewriteRoot(original.toString(Charsets.UTF_8), sourcePackage, context.packageName).toByteArray(Charsets.UTF_8)
+                    rewriteWtmuxConfig(
+                        original.toString(Charsets.UTF_8), sourcePackage, context.packageName, registryMachines
+                    ).toByteArray(Charsets.UTF_8)
                 ".config/wtmux/client-policy.json" ->
                     rewriteClientPolicy(original, context.packageName)
                 ".ssh/config" ->
@@ -463,6 +477,60 @@ object AgentFleetMigrationArchive {
         listOf("/data/data", "/data/user/0").fold(value) { rewritten, root ->
             rewritten.replace("$root/$source/", "$root/$destination/")
         }
+
+    private fun rewriteWtmuxConfig(
+        value: String,
+        source: String,
+        destination: String,
+        registryMachines: String?
+    ): String {
+        val rooted = rewriteRoot(value, source, destination)
+        if (registryMachines == null) return rooted
+
+        val lines = rooted.split('\n').toMutableList().apply {
+            if (lastOrNull().isNullOrEmpty()) removeAt(lastIndex)
+        }
+        val runtimeStarts = lines.indices.filter { lines[it] == RUNTIME_REGISTRY_BEGIN }
+        val runtimeEnds = lines.indices.filter { lines[it] == RUNTIME_REGISTRY_END }
+        require(runtimeStarts.size == runtimeEnds.size && runtimeStarts.size <= 1 &&
+            (runtimeStarts.isEmpty() || runtimeStarts.single() < runtimeEnds.single())) {
+            "Runtime registry config markers are malformed"
+        }
+        val managedStarts = lines.indices.filter { lines[it] == MANAGED_REGISTRY_BEGIN }
+        val managedEnds = lines.indices.filter { lines[it] == MANAGED_REGISTRY_END }
+        require(managedStarts.size == managedEnds.size && managedStarts.size <= 1 &&
+            (managedStarts.isEmpty() || managedStarts.single() < managedEnds.single())) {
+            "Managed registry config markers are malformed"
+        }
+
+        if (runtimeStarts.isNotEmpty()) {
+            var start = runtimeStarts.single()
+            var end = runtimeEnds.single()
+            while (start > 0 && lines[start - 1].isBlank()) start--
+            while (end + 1 < lines.size && lines[end + 1].isBlank()) end++
+            lines.subList(start, end + 1).clear()
+        }
+        val insertion = lines.indexOf(MANAGED_REGISTRY_BEGIN).let { if (it >= 0) it else lines.size }
+        val escapedRegistry = registryMachines.replace("'", "'\"'\"'")
+        val block = mutableListOf<String>()
+        if (insertion > 0 && lines[insertion - 1].isNotBlank()) block += ""
+        block += RUNTIME_REGISTRY_BEGIN
+        block += "WTMUX_SHARED_REGISTRY_DIR='$escapedRegistry'"
+        block += RUNTIME_REGISTRY_END
+        if (insertion < lines.size && lines[insertion].isNotBlank()) block += ""
+        lines.addAll(insertion, block)
+        return lines.joinToString("\n") + "\n"
+    }
+
+    private fun activeRegistryMachines(home: File): File? = runCatching {
+        val registry = File(home, ".local/share/wtmux/registry")
+        val releases = File(registry, "releases").canonicalFile
+        val current = File(registry, "current")
+        val release = current.canonicalFile
+        require(release.parentFile?.canonicalFile == releases && File(release, "registry-manifest.json").isFile)
+        require(File(release, "machines").isDirectory)
+        File(current, "machines")
+    }.getOrNull()
 
     private fun rewriteClientPolicy(bytes: ByteArray, destination: String): ByteArray {
         val value = JSONObject(bytes.toString(Charsets.UTF_8))

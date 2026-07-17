@@ -54,7 +54,7 @@ class AgentFleetMigrationArchiveTest {
         val home = File(source.filesDir, "home")
         File(home, ".config/wtmux").mkdirs()
         File(home, ".config/wtmux/wtmux.conf").writeText(
-            "WTMUX_SHARED_REGISTRY_DIR='/data/user/0/com.termux/files/home/.local/share/wtmux/registry/current/machines'\n"
+            legacyOrderedAfterLoaderConfig("/data/user/0/com.termux/files/home/.local/share/wtmux/registry/current/machines")
         )
         File(home, ".config/wtmux/client-policy.json").writeText("""
             {
@@ -93,8 +93,12 @@ class AgentFleetMigrationArchiveTest {
             .contains("/data/user/0/com.yaakovch.fleet/files/home/.ssh/id_ed25519"))
         assertFalse(File(destinationHome, "notes.txt").exists())
         assertFalse(File(destination.filesDir, "usr/bin/bash").exists())
-        assertTrue(File(destinationHome, ".config/wtmux/wtmux.conf").readText()
-            .contains("/data/user/0/com.yaakovch.fleet/files/home/.local/share/wtmux/registry/current/machines"))
+        val migratedConfig = File(destinationHome, ".config/wtmux/wtmux.conf").readText()
+        assertTrue(migratedConfig.contains(File(destinationHome, ".local/share/wtmux/registry/current/machines").absolutePath))
+        assertTrue(
+            migratedConfig.indexOf("# BEGIN wtmux-runtime registry") <
+                migratedConfig.indexOf("# BEGIN wtmux-managed shared-registry")
+        )
         assertEquals(
             "https://fleet.example/agent-fleet/fleet/latest/manifest.json",
             JSONObject(File(destinationHome, ".config/wtmux/client-policy.json").readText())
@@ -152,6 +156,39 @@ class AgentFleetMigrationArchiveTest {
         assertTrue(File(home, ".ssh/config").readText().contains("/data/data/com.yaakovch.fleet/"))
         assertEquals(0, AgentFleetMigrationArchive.repairMigratedPrivateRoots(destination))
     }
+
+    @Test
+    fun repairsRegistryBlockOrderLeftByThePreviousPermanentBuild() {
+        val home = File(destination.filesDir, "home")
+        File(home, ".config/wtmux").mkdirs()
+        createRegistry(home, "fedcba9876543210")
+        val registry = File(home, ".local/share/wtmux/registry/current/machines").absolutePath
+        File(home, ".config/wtmux/wtmux.conf").writeText(legacyOrderedAfterLoaderConfig(registry))
+
+        assertEquals(1, AgentFleetMigrationArchive.repairMigratedPrivateRoots(destination))
+        val repaired = File(home, ".config/wtmux/wtmux.conf").readText()
+        assertTrue(repaired.indexOf("# BEGIN wtmux-runtime registry") <
+            repaired.indexOf("# BEGIN wtmux-managed shared-registry"))
+        assertTrue(repaired.contains("WTMUX_SHARED_REGISTRY_DIR='$registry'"))
+        assertEquals(0, AgentFleetMigrationArchive.repairMigratedPrivateRoots(destination))
+    }
+
+    private fun legacyOrderedAfterLoaderConfig(registry: String): String = """
+        WTMUX_MACHINE_IDS=()
+
+        # BEGIN wtmux-managed shared-registry
+        # wtmux shared-registry loader v2
+        _wtmux_shared_registry_dir="${'$'}{WTMUX_SHARED_REGISTRY_DIR:-${'$'}{WTMUX_REPO_ROOT:-}/fleet/machines}"
+        if declare -F wtmux_load_shared_registry >/dev/null 2>&1; then
+          wtmux_load_shared_registry "${'$'}{_wtmux_shared_registry_dir}" || return 1
+        fi
+        unset _wtmux_shared_registry_dir
+        # END wtmux-managed shared-registry
+
+        # BEGIN wtmux-runtime registry
+        WTMUX_SHARED_REGISTRY_DIR='$registry'
+        # END wtmux-runtime registry
+    """.trimIndent() + "\n"
 
     private fun createRegistry(home: File, releaseId: String) {
         val release = File(home, ".local/share/wtmux/registry/releases/$releaseId")

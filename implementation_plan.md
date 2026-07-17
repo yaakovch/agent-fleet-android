@@ -509,3 +509,26 @@ Gate: an already-migrated `.42` install automatically points wtmux and SSH at
 the permanent private root; Terminal supplies a real host destination; Native
 and Terminal both reconnect; and no phone data reset or second migration is
 required.
+
+## Milestone 29: Migrated Registry Load-Order Hotfix
+
+1. Reproduce the `.43` state where Native reads the activated registry directly
+   but Terminal sources a migrated config whose runtime registry declaration
+   follows the managed loader, leaving `WTMUX_MACHINE_IDS` empty and invoking
+   `ssh` without a destination.
+2. During forward import, pin the config to the destination app's verified
+   `registry/current/machines` path and move the runtime registry block before
+   the managed loader. Apply the same bounded, marker-validated, idempotent
+   normalization at startup so existing `.43` data repairs without recopying.
+3. Cover realistic legacy ordering, forward import, exact `.43` startup repair,
+   destination-path binding, and idempotence in JVM tests. Run lint, the full
+   JVM and isolated API 36 suites, embedded-runtime verification, signed
+   migration-lane coinstallation, and release verification.
+4. Build and publish permanent-only `0.118.4-agentfleet.44`/1046 while retaining
+   `.43`, `.42`, `.41`, `.41-legacy`, and `.40`. The manual S23FE smoke updates
+   in place, launches once, closes any old completed Terminal tab, and reopens
+   one existing session in both Native and Terminal without another migration.
+
+Gate: startup places the verified registry declaration before its loader,
+Terminal resolves a real host and reconnects, Native remains healthy, the
+repair is idempotent, and no phone data reset or second migration is required.
