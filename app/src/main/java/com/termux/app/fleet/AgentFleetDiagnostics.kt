@@ -88,6 +88,9 @@ data class AgentFleetDiagnosticReport(
     }
 }
 
+internal fun localShellDiagnosticCommand(bash: File): List<String> =
+    listOf(bash.absolutePath, "--noprofile", "--norc", "-c", "printf agent-fleet-diagnostic-ok")
+
 data class DiagnosticsUiState(
     val running: Boolean = false,
     val report: AgentFleetDiagnosticReport? = null,
@@ -201,7 +204,7 @@ class AgentFleetDiagnosticsRunner(
         }
         checks += check("shell", "Local process") {
             val bash = executable("bash") ?: error("Bash is missing")
-            val process = ProcessBuilder(bash.absolutePath, "-lc", "printf agent-fleet-diagnostic-ok")
+            val process = ProcessBuilder(localShellDiagnosticCommand(bash))
                 .directory(home).apply { configureEnvironment(environment()) }.start()
             if (!process.waitForCompat(LOCAL_TIMEOUT_SECONDS, TimeUnit.SECONDS)) {
                 process.destroyForciblyCompat()

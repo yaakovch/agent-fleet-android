@@ -15,6 +15,14 @@ import org.robolectric.RuntimeEnvironment
 @RunWith(RobolectricTestRunner::class)
 class AgentFleetDiagnosticsTest {
     @Test
+    fun localShellProbeDoesNotLoadUserOrSystemProfiles() {
+        assertEquals(
+            listOf("/prefix/bin/bash", "--noprofile", "--norc", "-c", "printf agent-fleet-diagnostic-ok"),
+            localShellDiagnosticCommand(File("/prefix/bin/bash"))
+        )
+    }
+
+    @Test
     fun sanitizerRemovesCredentialsInvitationsAndPaths() {
         val secret = "super-secret-value-12345678901234567890"
         val value = safeDiagnosticText(

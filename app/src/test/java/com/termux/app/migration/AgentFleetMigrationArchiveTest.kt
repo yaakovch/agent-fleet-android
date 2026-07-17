@@ -45,7 +45,7 @@ class AgentFleetMigrationArchiveTest {
     @Test
     fun roundTripsOnlyFleetStateAndRewritesThePrivateAppRoot() {
         source.getSharedPreferences("agent_fleet_workspace_v1", Context.MODE_PRIVATE).edit()
-            .putString("layout", "{\"path\":\"/data/data/com.termux/files/home\"}")
+            .putString("layout", "{\"path\":\"/data/user/0/com.termux/files/home\"}")
             .putStringSet("hidden-unavailable", setOf("host:one"))
             .commit()
         source.getSharedPreferences("agent-fleet-native-session", Context.MODE_PRIVATE).edit()
@@ -54,7 +54,7 @@ class AgentFleetMigrationArchiveTest {
         val home = File(source.filesDir, "home")
         File(home, ".config/wtmux").mkdirs()
         File(home, ".config/wtmux/wtmux.conf").writeText(
-            "WTMUX_REGISTRY=/data/data/com.termux/files/home/.local/share/wtmux/registry/current/machines\n"
+            "WTMUX_SHARED_REGISTRY_DIR='/data/user/0/com.termux/files/home/.local/share/wtmux/registry/current/machines'\n"
         )
         File(home, ".config/wtmux/client-policy.json").writeText("""
             {
@@ -68,6 +68,9 @@ class AgentFleetMigrationArchiveTest {
         """.trimIndent() + "\n")
         File(home, ".ssh").mkdirs()
         File(home, ".ssh/id_ed25519").writeText("test-private-key")
+        File(home, ".ssh/config").writeText(
+            "IdentityFile /data/user/0/com.termux/files/home/.ssh/id_ed25519\n"
+        )
         File(home, "notes.txt").writeText("must not migrate")
         File(source.filesDir, "usr/bin").mkdirs()
         File(source.filesDir, "usr/bin/bash").writeText("must not migrate")
@@ -81,14 +84,17 @@ class AgentFleetMigrationArchiveTest {
         assertEquals("0123456789abcdef", result.registryRelease)
         assertTrue(destination.getSharedPreferences("agent-fleet-native-session", Context.MODE_PRIVATE).getBoolean("enabled", false))
         assertEquals(
-            "{\"path\":\"/data/data/com.yaakovch.fleet/files/home\"}",
+            "{\"path\":\"/data/user/0/com.yaakovch.fleet/files/home\"}",
             destination.getSharedPreferences("agent_fleet_workspace_v1", Context.MODE_PRIVATE).getString("layout", "")
         )
         val destinationHome = File(destination.filesDir, "home")
         assertTrue(File(destinationHome, ".ssh/id_ed25519").isFile)
+        assertTrue(File(destinationHome, ".ssh/config").readText()
+            .contains("/data/user/0/com.yaakovch.fleet/files/home/.ssh/id_ed25519"))
         assertFalse(File(destinationHome, "notes.txt").exists())
         assertFalse(File(destination.filesDir, "usr/bin/bash").exists())
-        assertTrue(File(destinationHome, ".config/wtmux/wtmux.conf").readText().contains("/data/data/com.yaakovch.fleet/"))
+        assertTrue(File(destinationHome, ".config/wtmux/wtmux.conf").readText()
+            .contains("/data/user/0/com.yaakovch.fleet/files/home/.local/share/wtmux/registry/current/machines"))
         assertEquals(
             "https://fleet.example/agent-fleet/fleet/latest/manifest.json",
             JSONObject(File(destinationHome, ".config/wtmux/client-policy.json").readText())
@@ -116,6 +122,35 @@ class AgentFleetMigrationArchiveTest {
         assertThrows(IllegalArgumentException::class.java) {
             AgentFleetMigrationArchive.import(destination, ByteArrayInputStream(sameArchive))
         }
+    }
+
+    @Test
+    fun repairsCanonicalRootsLeftByThePreviousPermanentBuild() {
+        destination.getSharedPreferences("agent_fleet_workspace_v1", Context.MODE_PRIVATE).edit()
+            .putString("layout", "{\"path\":\"/data/user/0/com.termux/files/home\"}")
+            .putStringSet("paths", setOf("/data/data/com.termux/files/home/.ssh/id_ed25519"))
+            .commit()
+        val home = File(destination.filesDir, "home")
+        File(home, ".config/wtmux").mkdirs()
+        File(home, ".config/wtmux/wtmux.conf").writeText(
+            "WTMUX_SHARED_REGISTRY_DIR='/data/user/0/com.termux/files/home/.local/share/wtmux/registry/current/machines'\n"
+        )
+        File(home, ".ssh").mkdirs()
+        File(home, ".ssh/config").writeText(
+            "IdentityFile /data/data/com.termux/files/home/.ssh/id_ed25519\n"
+        )
+
+        assertEquals(3, AgentFleetMigrationArchive.repairMigratedPrivateRoots(destination))
+        assertTrue(destination.getSharedPreferences("agent_fleet_workspace_v1", Context.MODE_PRIVATE)
+            .getString("layout", "").orEmpty().contains("/data/user/0/com.yaakovch.fleet/files/home"))
+        assertEquals(
+            setOf("/data/data/com.yaakovch.fleet/files/home/.ssh/id_ed25519"),
+            destination.getSharedPreferences("agent_fleet_workspace_v1", Context.MODE_PRIVATE)
+                .getStringSet("paths", emptySet())
+        )
+        assertTrue(File(home, ".config/wtmux/wtmux.conf").readText().contains("/data/user/0/com.yaakovch.fleet/"))
+        assertTrue(File(home, ".ssh/config").readText().contains("/data/data/com.yaakovch.fleet/"))
+        assertEquals(0, AgentFleetMigrationArchive.repairMigratedPrivateRoots(destination))
     }
 
     private fun createRegistry(home: File, releaseId: String) {

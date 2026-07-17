@@ -487,3 +487,25 @@ Gate: a clean permanent-ID install cannot fail because `files/home` is absent;
 the embedded package/runtime inputs remain byte-for-byte pinned; `.42` replaces
 `.41` in place with certificate continuity; and the permanent release lane never
 serves the legacy bridge.
+
+## Milestone 28: Canonical Android Root Migration Hotfix
+
+1. Reproduce the post-migration Terminal failure with a Legacy registry path
+   rooted at `/data/user/0/com.termux`, while confirming Native snapshots and
+   the migrated registry remain healthy.
+2. Rewrite both `/data/data` and `/data/user/0` package roots in allowlisted
+   preferences, wtmux config, and SSH config. On permanent-app startup, repair
+   the same stale allowlisted roots left by `.42` so existing migrations recover
+   without clearing data or copying again.
+3. Cover forward migration, automatic `.42` repair, idempotence, and both root
+   aliases in JVM tests. Run lint, the complete JVM and isolated API 36 suites,
+   signed migration-lane coinstallation, and release verification.
+4. Build and publish permanent-only `0.118.4-agentfleet.43`/1045 while retaining
+   `.42`, `.41`, `.41-legacy`, and `.40`. The manual phone smoke updates in
+   place, launches once to perform root repair, and verifies Diagnostics plus
+   Native and Terminal reconnect before Legacy is removed.
+
+Gate: an already-migrated `.42` install automatically points wtmux and SSH at
+the permanent private root; Terminal supplies a real host destination; Native
+and Terminal both reconnect; and no phone data reset or second migration is
+required.

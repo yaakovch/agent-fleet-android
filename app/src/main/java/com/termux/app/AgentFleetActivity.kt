@@ -188,6 +188,18 @@ class AgentFleetActivity : ComponentActivity() {
         runtimeUpdateManager = RuntimeUpdateManager(applicationContext, embeddedRuntime)
         clientPolicyStore = ClientPolicyStore(applicationContext)
         diagnosticJournal = AgentFleetDiagnosticJournal(applicationContext)
+        runCatching { AgentFleetMigrationArchive.repairMigratedPrivateRoots(applicationContext) }
+            .onSuccess { repaired ->
+                if (repaired > 0) diagnosticJournal.record(
+                    "migration.root_repair", "success", message = "Repaired migrated private paths"
+                )
+            }
+            .onFailure {
+                diagnosticJournal.record(
+                    "migration.root_repair", "failure", code = "migration_root_repair_failed",
+                    message = "Migrated private paths could not be repaired"
+                )
+            }
         diagnosticsRunner = AgentFleetDiagnosticsRunner(
             applicationContext, embeddedRuntime, clientPolicyStore, fleetRuntime, diagnosticJournal
         )

@@ -149,6 +149,50 @@ object AgentFleetMigrationArchive {
     fun import(context: Context, uri: Uri): AgentFleetMigrationResult =
         requireNotNull(context.contentResolver.openInputStream(uri)) { "Migration archive is unavailable" }.use { import(context, it) }
 
+    fun repairMigratedPrivateRoots(context: Context): Int {
+        require(context.packageName in setOf(LEGACY_PACKAGE, FLEET_PACKAGE)) { "Unsupported migration destination" }
+        val sourcePackage = if (context.packageName == FLEET_PACKAGE) LEGACY_PACKAGE else FLEET_PACKAGE
+        var repaired = 0
+        preferenceStores.forEach { name ->
+            val preferences = context.getSharedPreferences(name, Context.MODE_PRIVATE)
+            val editor = preferences.edit()
+            var changed = false
+            preferences.all.forEach preference@{ (key, raw) ->
+                when (raw) {
+                    is String -> rewriteRoot(raw, sourcePackage, context.packageName).takeIf { it != raw }?.let {
+                        editor.putString(key, it)
+                        changed = true
+                    }
+                    is Set<*> -> {
+                        val strings = raw.map { it as? String ?: return@preference }.toSet()
+                        val rewritten = strings.map { rewriteRoot(it, sourcePackage, context.packageName) }.toSet()
+                        if (rewritten != strings) {
+                            editor.putStringSet(key, rewritten)
+                            changed = true
+                        }
+                    }
+                }
+            }
+            if (changed) {
+                check(editor.commit()) { "Unable to repair migrated settings" }
+                repaired++
+            }
+        }
+        val home = File(context.filesDir, "home")
+        listOf(".config/wtmux/wtmux.conf", ".ssh/config").forEach { relative ->
+            val file = File(home, relative)
+            if (safeRegularFile(home, file)) {
+                val original = boundedBytes(file).toString(Charsets.UTF_8)
+                val rewritten = rewriteRoot(original, sourcePackage, context.packageName)
+                if (rewritten != original) {
+                    atomicWrite(file, rewritten.toByteArray(Charsets.UTF_8))
+                    repaired++
+                }
+            }
+        }
+        return repaired
+    }
+
     private fun encodePreferences(preferences: SharedPreferences, name: String): ByteArray? {
         if (preferences.all.isEmpty()) return null
         require(preferences.all.size <= MAX_PREF_ENTRIES)
@@ -299,6 +343,8 @@ object AgentFleetMigrationArchive {
                     rewriteRoot(original.toString(Charsets.UTF_8), sourcePackage, context.packageName).toByteArray(Charsets.UTF_8)
                 ".config/wtmux/client-policy.json" ->
                     rewriteClientPolicy(original, context.packageName)
+                ".ssh/config" ->
+                    rewriteRoot(original.toString(Charsets.UTF_8), sourcePackage, context.packageName).toByteArray(Charsets.UTF_8)
                 else -> original
             }
             atomicWrite(target, bytes)
@@ -414,7 +460,9 @@ object AgentFleetMigrationArchive {
     }
 
     private fun rewriteRoot(value: String, source: String, destination: String): String =
-        value.replace("/data/data/$source/", "/data/data/$destination/")
+        listOf("/data/data", "/data/user/0").fold(value) { rewritten, root ->
+            rewritten.replace("$root/$source/", "$root/$destination/")
+        }
 
     private fun rewriteClientPolicy(bytes: ByteArray, destination: String): ByteArray {
         val value = JSONObject(bytes.toString(Charsets.UTF_8))

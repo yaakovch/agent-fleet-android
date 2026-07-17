@@ -439,6 +439,10 @@ trusted fleet.
   roots and update lanes, and support both forward and reverse transfer. Never
   copy packages, arbitrary home content, history, caches, downloads,
   attachments, transcripts, credentials outside `.ssh`, or runtime releases.
+  Rewrite both Android credential-storage aliases (`/data/data` and
+  `/data/user/0`) when the package identity changes, including managed wtmux
+  and SSH configuration paths. A permanent build must repair those same
+  allowlisted paths left by an older importer before starting a session.
 - Keep the existing top-level private update lane for `com.termux` legacy
   rollback. Publish `com.yaakovch.fleet` only through
   `agent-fleet/fleet/latest`, and require manifests plus APK inspection to match
