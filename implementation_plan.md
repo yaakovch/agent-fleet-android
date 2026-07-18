@@ -996,9 +996,10 @@ suggestions as desktop panes. The redundant composer overflow was removed and
 the four-to-seven-line editor now sits beside the vertical Attach, Insert, and
 Send stack. The fast emulator run passed at
 `build/reports/agent-fleet/emulator/20260718T175541Z-fast`; all 116 JVM tests
-and all 30 managed Pixel 7/API 36 tests passed in the final `.56` run at
-`build/reports/agent-fleet/emulator/20260718T181042Z-full`, with two
-review-only golden candidates skipped. Release lint passed with zero errors.
+passed and the final managed Pixel 7/API 36 run completed 30 scenarios with
+zero failures at
+`build/reports/agent-fleet/emulator/20260718T181042Z-full`; two review-only
+golden candidates were skipped. Release lint passed with zero errors.
 The signed/minified arm64 and universal APKs, certificate, permanent identity,
 checksums, and all 84 embedded packages verified. `.56` is published through
 `fleet/latest`, while `.55` remains available for rollback. The HTTPS-served
