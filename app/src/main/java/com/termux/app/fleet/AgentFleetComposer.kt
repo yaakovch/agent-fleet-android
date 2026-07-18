@@ -7,23 +7,26 @@ import android.os.Handler
 import android.os.Looper
 import android.view.View
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Button
 import androidx.compose.material3.AssistChip
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -82,33 +85,73 @@ object AgentFleetComposer {
         view.setViewCompositionStrategy(ViewCompositionStrategy.DisposeOnDetachedFromWindow)
         view.setContent {
             MaterialTheme(colorScheme = ComposerColors) {
+                val density by AgentFleetDisplayDensityStore.observe(activity).collectAsState()
                 var text by rememberSaveable { mutableStateOf("") }
+                var composerActions by rememberSaveable { mutableStateOf(false) }
                 Surface(color = MaterialTheme.colorScheme.surface) {
                     Column(
-                        modifier = Modifier.fillMaxWidth().padding(horizontal = 10.dp, vertical = 8.dp),
-                        verticalArrangement = Arrangement.spacedBy(7.dp)
+                        modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 5.dp),
+                        verticalArrangement = Arrangement.spacedBy(4.dp)
                     ) {
                         if (nativeTarget == target && pendingQuestion.isNotBlank()) {
                             Button(
                                 onClick = activity::showAgentFleetPendingQuestion,
                                 modifier = Modifier.fillMaxWidth(),
-                                contentPadding = CompactButtonPadding,
+                                contentPadding = DenseButtonPadding,
                                 shape = RoundedCornerShape(14.dp)
-                            ) { Text("Answer needed · Tap to open", fontSize = 16.sp) }
+                            ) { Text("Answer needed · Tap to open", fontSize = density.nativeBodySp.sp) }
                         }
                         val composed = buildAgentFleetComposerText(text, attachments)
                         val hasContent = composed.isNotEmpty()
                         val planMode = nativeTarget == target && interactionMode == "plan"
-                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(4.dp),
+                            verticalAlignment = androidx.compose.ui.Alignment.CenterVertically
+                        ) {
+                            TextButton(
+                                onClick = activity::pickAgentFleetImages,
+                                enabled = !uploading && attachments.size < MAX_ATTACHMENTS,
+                                contentPadding = DenseButtonPadding
+                            ) { Text(if (uploading) "Wait…" else "Attach", fontSize = density.nativeMetadataSp.sp) }
                             OutlinedTextField(
                                 value = text,
                                 onValueChange = { if (it.length <= MAX_MESSAGE_CHARS && '\u0000' !in it) text = it },
                                 modifier = Modifier.weight(1f).semantics {
                                     contentDescription = if (planMode) "Plan mode message input" else "Message input"
                                 },
-                                placeholder = { Text(if (planMode) "Plan message…" else "Message…", fontSize = 17.sp) },
-                                minLines = 3,
-                                maxLines = 6,
+                                placeholder = { Text(if (planMode) "Plan message…" else "Message…", fontSize = density.nativeBodySp.sp) },
+                                minLines = 1,
+                                maxLines = 3,
+                                textStyle = MaterialTheme.typography.bodyMedium.copy(fontSize = density.nativeBodySp.sp),
+                                trailingIcon = {
+                                    Box {
+                                        TextButton(
+                                            onClick = { composerActions = true },
+                                            modifier = Modifier.semantics { contentDescription = "Composer actions" },
+                                            contentPadding = PaddingValues(0.dp)
+                                        ) { Text("⋮", fontSize = 18.sp) }
+                                        DropdownMenu(
+                                            expanded = composerActions,
+                                            onDismissRequest = { composerActions = false }
+                                        ) {
+                                            DropdownMenuItem(
+                                                text = { Text("Ctrl+C") },
+                                                onClick = {
+                                                    composerActions = false
+                                                    activity.sendAgentFleetControlC()
+                                                }
+                                            )
+                                            DropdownMenuItem(
+                                                text = { Text("Shift+Tab") },
+                                                onClick = {
+                                                    composerActions = false
+                                                    activity.sendAgentFleetKey("SHIFT_TAB")
+                                                }
+                                            )
+                                        }
+                                    }
+                                },
                                 shape = RoundedCornerShape(14.dp),
                                 colors = if (planMode) OutlinedTextFieldDefaults.colors(
                                     focusedBorderColor = PlanAmber,
@@ -117,35 +160,27 @@ object AgentFleetComposer {
                                     unfocusedPlaceholderColor = PlanAmber
                                 ) else OutlinedTextFieldDefaults.colors()
                             )
-                            Column(
-                                modifier = Modifier.width(108.dp),
-                                verticalArrangement = Arrangement.spacedBy(7.dp)
-                            ) {
-                                OutlinedButton(
-                                    onClick = {
-                                        if (activity.sendAgentFleetComposerText(composed, false)) {
-                                            text = ""
-                                            attachments.clear()
-                                        }
-                                    },
-                                    enabled = !uploading && hasContent,
-                                    modifier = Modifier.fillMaxWidth(),
-                                    contentPadding = CompactButtonPadding,
-                                    shape = RoundedCornerShape(14.dp)
-                                ) { Text("Insert", fontSize = 16.sp, textAlign = TextAlign.Center) }
-                                Button(
-                                    onClick = {
-                                        if (activity.sendAgentFleetComposerText(composed, true)) {
-                                            text = ""
-                                            attachments.clear()
-                                        }
-                                    },
-                                    enabled = !uploading,
-                                    modifier = Modifier.fillMaxWidth(),
-                                    contentPadding = CompactButtonPadding,
-                                    shape = RoundedCornerShape(14.dp)
-                                ) { Text(agentFleetPrimaryActionLabel(hasContent), fontSize = 16.sp, textAlign = TextAlign.Center) }
-                            }
+                            TextButton(
+                                onClick = {
+                                    if (activity.sendAgentFleetComposerText(composed, false)) {
+                                        text = ""
+                                        attachments.clear()
+                                    }
+                                },
+                                enabled = !uploading && hasContent,
+                                contentPadding = DenseButtonPadding
+                            ) { Text("Insert", fontSize = density.nativeMetadataSp.sp, textAlign = TextAlign.Center) }
+                            Button(
+                                onClick = {
+                                    if (activity.sendAgentFleetComposerText(composed, true)) {
+                                        text = ""
+                                        attachments.clear()
+                                    }
+                                },
+                                enabled = !uploading,
+                                contentPadding = DenseButtonPadding,
+                                shape = RoundedCornerShape(12.dp)
+                            ) { Text(agentFleetPrimaryActionLabel(hasContent), fontSize = density.nativeMetadataSp.sp, textAlign = TextAlign.Center) }
                         }
                         if (attachments.isNotEmpty()) {
                             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -155,27 +190,6 @@ object AgentFleetComposer {
                             }
                         }
                         uploadError?.let { Text(it, color = Color(0xFFFFB86B), fontSize = 14.sp) }
-                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            OutlinedButton(
-                                onClick = { activity.sendAgentFleetControlC() },
-                                modifier = Modifier.weight(1f),
-                                contentPadding = CompactButtonPadding,
-                                shape = RoundedCornerShape(14.dp)
-                            ) { Text("Ctrl+C", fontSize = 16.sp) }
-                            OutlinedButton(
-                                onClick = { activity.sendAgentFleetKey("SHIFT_TAB") },
-                                modifier = Modifier.weight(1f),
-                                contentPadding = CompactButtonPadding,
-                                shape = RoundedCornerShape(14.dp)
-                            ) { Text("⇧ Tab", fontSize = 16.sp, maxLines = 1) }
-                            OutlinedButton(
-                                onClick = activity::pickAgentFleetImages,
-                                enabled = !uploading && attachments.size < MAX_ATTACHMENTS,
-                                modifier = Modifier.weight(1f),
-                                contentPadding = CompactButtonPadding,
-                                shape = RoundedCornerShape(14.dp)
-                            ) { Text(if (uploading) "Wait…" else "Attach", fontSize = 16.sp) }
-                        }
                     }
                 }
             }
@@ -318,7 +332,7 @@ object AgentFleetComposer {
 
     private const val MAX_MESSAGE_CHARS = 32_768
     private const val MAX_ATTACHMENTS = 8
-    private val CompactButtonPadding = PaddingValues(horizontal = 8.dp, vertical = 10.dp)
+    private val DenseButtonPadding = PaddingValues(horizontal = 8.dp, vertical = 6.dp)
 private val ComposerColors = darkColorScheme(
         primary = Color(0xFFAFC6FF),
         surface = Color(0xFF111318),

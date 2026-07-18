@@ -1,8 +1,10 @@
 package com.termux.app.fleet
 
 import android.content.Intent
+import android.content.Context
 import android.os.Handler
 import android.os.Looper
+import android.view.inputmethod.InputMethodManager
 import android.widget.Toast
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -43,6 +45,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -54,6 +57,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -363,6 +367,11 @@ class UnifiedTerminalDrawerController(
 
     override fun onDrawerOpened(drawerView: android.view.View) {
         if (drawerView !== composeView) return
+        activity.currentFocus?.let { focused ->
+            (activity.getSystemService(Context.INPUT_METHOD_SERVICE) as? InputMethodManager)
+                ?.hideSoftInputFromWindow(focused.windowToken, 0)
+            focused.clearFocus()
+        }
         state.value = state.value.copy(drawerOpen = true)
         beginObserving()
         rebuild()
@@ -400,6 +409,7 @@ fun UnifiedTerminalDrawer(
     onKeyboard: () -> Unit,
     onAppearance: () -> Unit
 ) {
+    val density by AgentFleetDisplayDensityStore.observe(LocalContext.current).collectAsState()
     var query by remember { mutableStateOf("") }
     var actionSessionId by remember { mutableStateOf<String?>(null) }
     var confirmKillId by remember { mutableStateOf<String?>(null) }
@@ -432,33 +442,19 @@ fun UnifiedTerminalDrawer(
 
     Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
         Column(Modifier.fillMaxHeight()) {
-            Row(
-                Modifier.fillMaxWidth().windowInsetsPadding(WindowInsets.statusBars)
-                    .clickable(onClick = onOpenAgentFleet).padding(horizontal = 18.dp, vertical = 16.dp)
-                    .testTag("drawer-agent-fleet"),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Surface(Modifier.size(42.dp), shape = RoundedCornerShape(13.dp), color = MaterialTheme.colorScheme.primaryContainer) {
-                    Box(contentAlignment = Alignment.Center) { Text("AF", fontWeight = FontWeight.Black, fontSize = 15.sp) }
-                }
-                Column(Modifier.padding(start = 12.dp).weight(1f)) {
-                    Text("Agent Fleet", fontSize = 21.sp, fontWeight = FontWeight.Bold)
-                    Text("Sessions", fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                }
-                Text("›", fontSize = 28.sp, color = MaterialTheme.colorScheme.primary)
-            }
+            Spacer(Modifier.windowInsetsPadding(WindowInsets.statusBars))
             if (combinedCount > 8) {
                 OutlinedTextField(
                     value = query,
                     onValueChange = { query = it.take(80) },
-                    modifier = Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 4.dp).testTag("drawer-search"),
-                    placeholder = { Text("Find a session") },
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 10.dp, vertical = 2.dp).testTag("drawer-search"),
+                    placeholder = { Text("Find a session", fontSize = density.drawerMetadataSp.sp) },
                     singleLine = true
                 )
             }
             if (state.status.isNotBlank()) {
                 Row(
-                    Modifier.fillMaxWidth().clickable(onClick = onRefresh).padding(horizontal = 18.dp, vertical = 8.dp),
+                    Modifier.fillMaxWidth().clickable(onClick = onRefresh).padding(horizontal = 12.dp, vertical = 5.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Text(state.status, Modifier.weight(1f), fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 2)
@@ -476,7 +472,8 @@ fun UnifiedTerminalDrawer(
                         onOpen = { onOpenRemote(row, row.surface) },
                         onPin = { onTogglePin(row) },
                         onRevealKill = { confirmKillId = row.session.id },
-                        onMore = { actionSessionId = row.session.id }
+                        onMore = { actionSessionId = row.session.id },
+                        density = density
                     )
                 }
                 if (remote.isEmpty()) item("empty") {
@@ -485,9 +482,10 @@ fun UnifiedTerminalDrawer(
             }
             Row(
                 Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.surface)
-                    .windowInsetsPadding(WindowInsets.navigationBars).padding(horizontal = 4.dp, vertical = 4.dp),
+                    .windowInsetsPadding(WindowInsets.navigationBars).padding(horizontal = 2.dp, vertical = 2.dp),
                 horizontalArrangement = Arrangement.SpaceEvenly
             ) {
+                DrawerFooterAction("AF", "Agent Fleet", onOpenAgentFleet, Modifier.weight(1f).testTag("drawer-agent-fleet"))
                 DrawerFooterAction("⌨", "Keyboard", onKeyboard, Modifier.weight(1f))
                 DrawerFooterAction("Aa", "Appearance", onAppearance, Modifier.weight(1f))
             }
@@ -596,7 +594,8 @@ private fun RemoteDrawerRow(
     onOpen: () -> Unit,
     onPin: () -> Unit,
     onRevealKill: () -> Unit,
-    onMore: () -> Unit
+    onMore: () -> Unit,
+    density: AgentFleetDisplayDensity
 ) {
     SwipeRevealRow(
         key = row.session.id,
@@ -608,37 +607,42 @@ private fun RemoteDrawerRow(
     ) {
         val borderColor = if (active) MaterialTheme.colorScheme.primary else Color.Transparent
         Row(
-            Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 3.dp)
-                .clip(RoundedCornerShape(16.dp))
+            Modifier.fillMaxWidth().padding(horizontal = 6.dp, vertical = 1.dp)
+                .heightIn(min = density.drawerRowHeightDp.dp)
+                .clip(RoundedCornerShape(12.dp))
                 .background(if (active) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surface)
-                .border(2.dp, borderColor, RoundedCornerShape(16.dp))
+                .border(1.dp, borderColor, RoundedCornerShape(12.dp))
                 .clickable(enabled = row.available && !busy, onClick = onOpen)
                 .alpha(if (row.available) 1f else 0.62f)
-                .padding(start = 12.dp, top = 10.dp, bottom = 10.dp)
+                .padding(start = 8.dp)
                 .testTag("drawer-session-${row.session.id}"),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Surface(Modifier.size(38.dp), shape = CircleShape, color = MaterialTheme.colorScheme.surfaceVariant) {
+            Surface(Modifier.size(30.dp), shape = CircleShape, color = MaterialTheme.colorScheme.surfaceVariant) {
                 Box(contentAlignment = Alignment.Center) {
-                    Text(row.session.tool.take(1).uppercase().ifBlank { "›" }, fontSize = 16.sp, fontWeight = FontWeight.Bold)
+                    Text(row.session.tool.take(1).uppercase().ifBlank { "›" }, fontSize = density.drawerMetadataSp.sp, fontWeight = FontWeight.Bold)
                 }
             }
-            Column(Modifier.padding(start = 11.dp).weight(1f)) {
+            Column(Modifier.padding(start = 8.dp).weight(1f)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    if (row.pinned) Text("★ ", color = MaterialTheme.colorScheme.primary, fontSize = 15.sp)
-                    Text(row.session.name, Modifier.weight(1f), fontSize = 18.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    if (row.pinned) Text("★ ", color = MaterialTheme.colorScheme.primary, fontSize = density.drawerMetadataSp.sp)
+                    Text(row.session.name, Modifier.weight(1f), fontSize = density.drawerTitleSp.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 }
                 val location = listOf(hostName, row.session.project).filter(String::isNotBlank).joinToString(" · ")
                 Text(
                     if (row.available) location else "Offline · ${location.ifBlank { "last known" }}",
-                    fontSize = 13.sp,
+                    fontSize = density.drawerMetadataSp.sp,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
                 )
             }
-            if (busy) Text("…", fontSize = 22.sp, modifier = Modifier.padding(horizontal = 8.dp))
-            TextButton(onClick = onMore, modifier = Modifier.testTag("drawer-session-more-${row.session.id}")) { Text("⋮", fontSize = 23.sp) }
+            if (busy) Text("…", fontSize = density.drawerTitleSp.sp, modifier = Modifier.padding(horizontal = 4.dp))
+            TextButton(
+                onClick = onMore,
+                modifier = Modifier.size(44.dp).testTag("drawer-session-more-${row.session.id}"),
+                contentPadding = androidx.compose.foundation.layout.PaddingValues(0.dp)
+            ) { Text("⋮", fontSize = (density.drawerTitleSp + 4).sp) }
         }
     }
 }
@@ -685,7 +689,7 @@ private fun SwipeRevealRow(
     val density = LocalDensity.current
     val actionWidth = with(density) { 88.dp.toPx() }
     var offset by remember(key) { mutableStateOf(0f) }
-    Box(Modifier.fillMaxWidth().heightIn(min = 64.dp)) {
+    Box(Modifier.fillMaxWidth().heightIn(min = 48.dp)) {
         if (rightLabel.isNotBlank() && offset > 1f) {
             Box(Modifier.matchParentSize().background(MaterialTheme.colorScheme.primaryContainer).padding(start = 18.dp), contentAlignment = Alignment.CenterStart) {
                 Text(rightLabel, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
@@ -724,10 +728,10 @@ private fun SwipeRevealRow(
 
 @Composable
 private fun DrawerFooterAction(glyph: String, label: String, onClick: () -> Unit, modifier: Modifier) {
-    TextButton(onClick = onClick, modifier = modifier.heightIn(min = 52.dp)) {
+    TextButton(onClick = onClick, modifier = modifier.heightIn(min = 48.dp), contentPadding = androidx.compose.foundation.layout.PaddingValues(2.dp)) {
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
-            Text(glyph, fontSize = 17.sp, fontWeight = FontWeight.Bold)
-            Text(label, fontSize = 11.sp)
+            Text(glyph, fontSize = 14.sp, fontWeight = FontWeight.Bold)
+            Text(label, fontSize = 10.sp, maxLines = 1)
         }
     }
 }

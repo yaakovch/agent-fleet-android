@@ -47,24 +47,35 @@ import androidx.compose.ui.unit.sp
 import com.termux.app.fleet.TerminalAppearance
 import com.termux.app.fleet.TerminalAppearanceStore
 import com.termux.app.fleet.TerminalThemePreset
+import com.termux.app.fleet.AgentFleetDisplayDensity
+import com.termux.app.fleet.AgentFleetDisplayDensityStore
 import com.termux.shared.termux.TermuxConstants
 
 class TerminalAppearanceActivity : ComponentActivity() {
     private var appearance by mutableStateOf<TerminalAppearance?>(null)
+    private var displayDensity by mutableStateOf<AgentFleetDisplayDensity?>(null)
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         appearance = TerminalAppearanceStore.load(this)
+        displayDensity = AgentFleetDisplayDensityStore.load(this)
         setContent {
             AgentFleetTheme {
                 appearance?.let { current ->
-                    TerminalAppearanceScreen(
-                        appearance = current,
-                        customFontAvailable = TermuxConstants.TERMUX_FONT_FILE.isFile,
-                        onBack = ::finish,
-                        onChange = ::applyAppearance,
-                        onReset = { applyAppearance(TerminalAppearanceStore.defaults(this)) }
-                    )
+                    displayDensity?.let { density ->
+                        TerminalAppearanceScreen(
+                            appearance = current,
+                            displayDensity = density,
+                            customFontAvailable = TermuxConstants.TERMUX_FONT_FILE.isFile,
+                            onBack = ::finish,
+                            onChange = ::applyAppearance,
+                            onDensityChange = ::applyDisplayDensity,
+                            onReset = {
+                                applyAppearance(TerminalAppearanceStore.defaults(this))
+                                applyDisplayDensity(AgentFleetDisplayDensityStore.defaults())
+                            }
+                        )
+                    }
                 }
             }
         }
@@ -75,15 +86,25 @@ class TerminalAppearanceActivity : ComponentActivity() {
             .onSuccess { appearance = value }
             .onFailure { Toast.makeText(this, it.message ?: "Appearance could not be applied", Toast.LENGTH_LONG).show() }
     }
+
+    private fun applyDisplayDensity(value: AgentFleetDisplayDensity) {
+        runCatching {
+            AgentFleetDisplayDensityStore.save(this, value)
+            TermuxActivity.updateTermuxActivityStyling(this)
+        }.onSuccess { displayDensity = value.bounded() }
+            .onFailure { Toast.makeText(this, it.message ?: "Display density could not be applied", Toast.LENGTH_LONG).show() }
+    }
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun TerminalAppearanceScreen(
     appearance: TerminalAppearance,
+    displayDensity: AgentFleetDisplayDensity,
     customFontAvailable: Boolean,
     onBack: () -> Unit,
     onChange: (TerminalAppearance) -> Unit,
+    onDensityChange: (AgentFleetDisplayDensity) -> Unit,
     onReset: () -> Unit
 ) {
     val theme = TerminalAppearanceStore.themes.first { it.id == appearance.themeId }
@@ -93,7 +114,7 @@ private fun TerminalAppearanceScreen(
             TopAppBar(
                 title = {
                     Column {
-                        Text("Terminal appearance", fontWeight = FontWeight.Bold, fontSize = 21.sp)
+                        Text("Agent Fleet appearance", fontWeight = FontWeight.Bold, fontSize = 21.sp)
                         Text("Changes apply immediately", fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                 },
@@ -108,6 +129,28 @@ private fun TerminalAppearanceScreen(
             verticalArrangement = Arrangement.spacedBy(18.dp)
         ) {
             item { TerminalPreview(theme, appearance) }
+            item {
+                AppearanceCard {
+                    SectionTitle("Native conversation", "Reading-first transcript density")
+                    Stepper(
+                        "Text size", displayDensity.nativeBodySp, "sp",
+                        AgentFleetDisplayDensity.MIN_NATIVE_BODY_SP,
+                        AgentFleetDisplayDensity.MAX_NATIVE_BODY_SP,
+                        1
+                    ) { onDensityChange(displayDensity.copy(nativeBodySp = it)) }
+                }
+            }
+            item {
+                AppearanceCard {
+                    SectionTitle("Session drawer", "Compact rows show more sessions")
+                    Stepper(
+                        "Title size", displayDensity.drawerTitleSp, "sp",
+                        AgentFleetDisplayDensity.MIN_DRAWER_TITLE_SP,
+                        AgentFleetDisplayDensity.MAX_DRAWER_TITLE_SP,
+                        1
+                    ) { onDensityChange(displayDensity.copy(drawerTitleSp = it)) }
+                }
+            }
             item { SectionTitle("Color theme", theme.name) }
             TerminalAppearanceStore.themes.chunked(2).forEach { rowThemes ->
                 item {
@@ -167,6 +210,12 @@ private fun TerminalAppearanceScreen(
                 AppearanceCard {
                     SectionTitle("Controls", "Classic terminal input")
                     ToggleRow("Show extra-key row", appearance.extraKeys) { onChange(appearance.copy(extraKeys = it)) }
+                    Stepper(
+                        "Shortcut row", displayDensity.terminalShortcutHeightDp, "dp",
+                        AgentFleetDisplayDensity.MIN_TERMINAL_SHORTCUT_HEIGHT_DP,
+                        AgentFleetDisplayDensity.MAX_TERMINAL_SHORTCUT_HEIGHT_DP,
+                        2
+                    ) { onDensityChange(displayDensity.copy(terminalShortcutHeightDp = it)) }
                 }
             }
             item {

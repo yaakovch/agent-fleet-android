@@ -91,12 +91,15 @@ class AgentFleetGoldenTest {
     @Test
     fun darkUnifiedDrawerReviewCandidate() {
         assumeTrue(InstrumentationRegistry.getArguments().getString("agentFleetUpdateGoldens") == "true")
-        val sessions = listOf(
-            drawerRemote("wtmux-main", "Main work", pinned = true, used = 4),
-            drawerRemote("android", "Android drawer", used = 3),
-            drawerRemote("work-m", "Work machine", used = 2),
-            drawerRemote("offline", "Last known session", available = false, used = 1)
-        )
+        val sessions = (1..11).map { index ->
+            drawerRemote(
+                name = if (index == 1) "wtmux-main" else "session-$index",
+                label = if (index == 1) "Main work" else "Agent task $index",
+                pinned = index == 1,
+                available = index != 11,
+                used = (12 - index).toLong()
+            )
+        }
         compose.setContent {
             AgentFleetTheme(darkTheme = true) {
                 UnifiedTerminalDrawer(
@@ -119,6 +122,39 @@ class AgentFleetGoldenTest {
         assertGolden("unified-terminal-drawer")
     }
 
+    /** Candidate-only visual review for the approved Reading-first transcript. */
+    @Test
+    fun darkReadingFirstTranscriptReviewCandidate() {
+        assumeTrue(InstrumentationRegistry.getArguments().getString("agentFleetUpdateGoldens") == "true")
+        val messages = listOf(
+            ConversationItem(
+                "m1", "message", "2026-07-18T00:00:00Z", "user", "", "Can you tighten the Android session view without hiding any actions?", "", "complete", "",
+                emptyList(), emptyList()
+            ),
+            ConversationItem(
+                "m2", "message", "2026-07-18T00:00:01Z", "assistant", "",
+                "Yes. I’ll flatten ordinary assistant turns, reduce the feed rhythm, and keep questions and approvals visually distinct.\n\nThe drawer will cover the composer and expose its three utilities in a fixed footer.",
+                "", "complete", "", emptyList(), emptyList()
+            ),
+            ConversationItem(
+                "m3", "message", "2026-07-18T00:00:02Z", "user", "", "Keep terminal compatibility and make the key row scroll horizontally.", "", "complete", "",
+                emptyList(), emptyList()
+            ),
+            ConversationItem(
+                "m4", "message", "2026-07-18T00:00:03Z", "assistant", "",
+                "Done. Custom key matrices retain row-major order, modifiers, repeats, haptics, and popup behavior. The default strip is one compact row.",
+                "", "complete", "", emptyList(), emptyList()
+            )
+        )
+        setNative(
+            NativeSessionUiState(
+                "High-density UI", "gaming", "wtmux-main", adapter = "codex", connection = "Live", items = messages
+            ),
+            inlineComposer = true
+        )
+        assertGolden("native-reading-first")
+    }
+
     private fun drawerRemote(name: String, label: String, pinned: Boolean = false, available: Boolean = true, used: Long) =
         DrawerRemoteSession(
             session = FleetSession(
@@ -132,14 +168,15 @@ class AgentFleetGoldenTest {
             cached = !available
         )
 
-    private fun setNative(state: NativeSessionUiState) {
+    private fun setNative(state: NativeSessionUiState, inlineComposer: Boolean = false) {
         compose.setContent {
             AgentFleetTheme(darkTheme = true) {
                 NativeSessionScreen(
                     state = state, aiComposer = true, onToggleTerminal = {}, onRetry = {}, onLoadOlder = {},
                     onApproval = { _, _ -> }, onQuestion = { _: ConversationItem, _: List<ConversationAnswer> -> },
                     onShellCommand = {}, onShellKey = {}, onDirectory = {}, onRefreshDirectory = {}, onControlC = {},
-                    onCloseSession = {}, onKillSession = {}, onScheduleContinue = {}, onDismissAttention = {}
+                    onCloseSession = {}, onKillSession = {}, onScheduleContinue = {}, onDismissAttention = {},
+                    inlineComposer = inlineComposer
                 )
             }
         }

@@ -31,6 +31,7 @@ import com.termux.R;
 import com.termux.app.terminal.TermuxActivityRootView;
 import com.termux.app.fleet.AgentFleetComposer;
 import com.termux.app.fleet.AgentFleetContract;
+import com.termux.app.fleet.AgentFleetDisplayDensityStore;
 import com.termux.app.fleet.NativeSessionController;
 import com.termux.app.fleet.NativeSessionHost;
 import com.termux.app.fleet.TerminalScrollbackController;
@@ -160,7 +161,6 @@ public final class TermuxActivity extends ComponentActivity implements ServiceCo
 
     private int mNavBarHeight;
 
-    private int mTerminalToolbarDefaultHeight;
 
 
     private static final int CONTEXT_MENU_SELECT_URL_ID = 0;
@@ -758,9 +758,6 @@ public final class TermuxActivity extends ComponentActivity implements ServiceCo
         final ViewPager terminalToolbarViewPager = getTerminalToolbarViewPager();
         if (mPreferences.shouldShowTerminalToolbar()) terminalToolbarViewPager.setVisibility(View.VISIBLE);
 
-        ViewGroup.LayoutParams layoutParams = terminalToolbarViewPager.getLayoutParams();
-        mTerminalToolbarDefaultHeight = layoutParams.height;
-
         setTerminalToolbarHeight();
 
         String savedTextInput = null;
@@ -776,9 +773,8 @@ public final class TermuxActivity extends ComponentActivity implements ServiceCo
         if (terminalToolbarViewPager == null) return;
 
         ViewGroup.LayoutParams layoutParams = terminalToolbarViewPager.getLayoutParams();
-        layoutParams.height = (int) Math.round(mTerminalToolbarDefaultHeight *
-            (mProperties.getExtraKeysInfo() == null ? 0 : mProperties.getExtraKeysInfo().getMatrix().length) *
-            mProperties.getTerminalToolbarHeightScaleFactor());
+        int heightDp = AgentFleetDisplayDensityStore.INSTANCE.load(this).getTerminalShortcutHeightDp();
+        layoutParams.height = Math.round(heightDp * getResources().getDisplayMetrics().density);
         terminalToolbarViewPager.setLayoutParams(layoutParams);
     }
 

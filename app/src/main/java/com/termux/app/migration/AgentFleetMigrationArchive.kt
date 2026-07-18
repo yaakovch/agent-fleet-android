@@ -50,7 +50,8 @@ object AgentFleetMigrationArchive {
         "agent_fleet_workspace_presentation",
         "agent_fleet_locations",
         "agent-fleet-native-session",
-        "agent-fleet-terminal-appearance"
+        "agent-fleet-terminal-appearance",
+        "agent_fleet_display_density"
     )
     private val fixedHomeFiles = listOf(
         ".config/wtmux/wtmux.conf",

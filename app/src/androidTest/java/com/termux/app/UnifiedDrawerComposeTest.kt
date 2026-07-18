@@ -96,6 +96,18 @@ class AgentFleetDrawerComposeTest {
         compose.onAllNodesWithTag("drawer-settings").assertCountEquals(0)
     }
 
+    @Test
+    fun compactDrawerShowsNineSessionsAndBottomUtilities() {
+        val rows = (1..9).map { remote("dense-$it") }
+        setDrawer(UnifiedDrawerState(remoteSessions = rows, hostNames = mapOf("gaming" to "Gaming"), drawerOpen = true))
+
+        compose.onNodeWithTag("drawer-session-gaming:dense-1").assertIsDisplayed()
+        compose.onNodeWithTag("drawer-session-gaming:dense-9").assertIsDisplayed()
+        compose.onNodeWithTag("drawer-agent-fleet").assertIsDisplayed()
+        compose.onNodeWithText("Keyboard").assertIsDisplayed()
+        compose.onNodeWithText("Appearance").assertIsDisplayed()
+    }
+
     private fun setDrawer(
         state: UnifiedDrawerState,
         onOpenRemote: (DrawerRemoteSession, DrawerSessionSurface) -> Unit = { _, _ -> },

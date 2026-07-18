@@ -929,3 +929,28 @@ and the arm64 APK SHA-256 is
 `.53` remains available for rollback. The physical S23FE model download,
 latency, thermal, memory-reclamation, and suggestion-quality smoke remains
 manual; automated tooling did not access the phone.
+
+## 40. High-Density Android Session UI
+
+1. Add an observable, bounded density preference store for Native body text,
+   session-drawer title text, and Terminal shortcut-row height; expose all three
+   in Agent Fleet appearance with immediate preview and same-signed migration.
+2. Implement the approved Reading-first Native layout: flat assistant turns,
+   compact interactive frames/header/feed, and a one-row composer that preserves
+   Insert, Send, Attach, Suggest, Ctrl+C, Shift+Tab, questions, and approvals.
+3. Make the session drawer a full-height overlay, dismiss the IME on open, use
+   46dp visual rows with 48dp tap regions, and move Agent Fleet, Keyboard, and
+   Appearance into a compact fixed footer.
+4. Replace the default two-row extra keys with one horizontally scrollable
+   compact pill row, flattening custom matrices without changing dispatch,
+   modifier, repeat, haptic, or popup behavior.
+5. Add store/migration/layout/key unit tests, Compose interaction coverage, and
+   reviewed 393×852 golden candidates. Run focused tests, fast/full API 36,
+   lint, minified signing, identity/certificate/runtime/checksum verification,
+   then publish `.55`/1057 through `fleet/latest` while retaining `.54`.
+
+Gate: the standard Native fixture exposes 30–40% more content, at least nine
+drawer sessions fit at the default density, the drawer covers bottom input
+chrome, the one-row Terminal strip preserves every configured key, minimum and
+maximum settings do not clip essential actions, and automated tooling never
+accesses the physical S23FE.

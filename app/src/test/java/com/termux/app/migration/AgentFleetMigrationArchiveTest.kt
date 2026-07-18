@@ -212,7 +212,7 @@ class AgentFleetMigrationArchiveTest {
         listOf(
             "agent_fleet_terminal_drawer", "agent_fleet_terminal_tabs", "agent_fleet_workspace_v1",
             "agent_fleet_workspace_presentation", "agent_fleet_locations", "agent-fleet-native-session",
-            "agent-fleet-terminal-appearance"
+            "agent-fleet-terminal-appearance", "agent_fleet_display_density"
         ).forEach { destination.getSharedPreferences(it, Context.MODE_PRIVATE).edit().clear().commit() }
         File(destination.filesDir, "home/.config/wtmux").deleteRecursively()
         File(destination.filesDir, "home/.ssh").deleteRecursively()

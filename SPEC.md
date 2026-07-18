@@ -619,3 +619,28 @@ trusted fleet.
   downloaded in routine automation. Manual S23FE acceptance targets at most
   15 seconds cold and 5 seconds median warm plus one usable draft on at least
   80% of a 30-prompt benchmark.
+
+## High-Density Android Session UI
+
+- Native uses the approved Reading-first hybrid: ordinary assistant messages
+  render as a nearly flat transcript with hairline separation, while user,
+  approval, question, tool, task, error, and other interactive content retains
+  compact visual grouping. The default 15sp body, reduced chrome, 6dp feed
+  rhythm, and one-row composer target 30–40% more visible conversation without
+  changing message, draft, attachment, suggestion, action, or paging behavior.
+- The Terminal session drawer is a full-height overlay above Native/Terminal
+  content, the composer, and extra keys. It dismisses the visible IME on open,
+  uses 46dp visual session rows with at least 48dp tap regions, and moves Agent
+  Fleet, Keyboard, and Appearance into a fixed compact bottom footer. At least
+  nine ordinary session rows fit in the canonical 393×852 viewport.
+- The default Terminal extra keys become one 30dp horizontally scrollable pill
+  row containing ESC, CTRL, ALT, TAB, arrows, and Keyboard. Existing custom
+  matrices are flattened in row-major order while preserving key behavior,
+  modifier state, repeats, haptics, and popup actions.
+- Agent Fleet appearance exposes independent Native text (13–20sp), session
+  drawer text (13–18sp), and Terminal shortcut height (28–40dp, 2dp steps).
+  Defaults are 15sp, 15sp, and 30dp. Changes apply immediately, honor Android
+  font scaling, and migrate between same-signed Agent Fleet lanes.
+- These preferences are Android-local presentation state. They do not change
+  wtmux protocol, workspace schema, Terminal font/margins, Windows UI, exported
+  diagnostics, session behavior, or host runtime.

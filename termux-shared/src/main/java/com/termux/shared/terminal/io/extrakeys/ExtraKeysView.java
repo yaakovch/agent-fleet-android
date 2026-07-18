@@ -2,11 +2,13 @@ package com.termux.shared.terminal.io.extrakeys;
 
 import android.annotation.SuppressLint;
 import android.content.Context;
+import android.graphics.drawable.GradientDrawable;
 import android.os.Build;
 import android.os.Handler;
 import android.os.Looper;
 import android.provider.Settings;
 import android.util.AttributeSet;
+import android.util.TypedValue;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -193,6 +195,7 @@ public final class ExtraKeysView extends GridLayout {
     private Handler mHandler;
     private SpecialButtonsLongHoldRunnable mSpecialButtonsLongHoldRunnable;
     private int mLongPressCount;
+    private boolean mCompactSingleRow;
 
 
     public ExtraKeysView(Context context, AttributeSet attrs) {
@@ -313,6 +316,11 @@ public final class ExtraKeysView extends GridLayout {
         mButtonTextAllCaps = buttonTextAllCaps;
     }
 
+    /** Flatten configured matrices into one horizontally scrollable row. */
+    public void setCompactSingleRow(boolean compactSingleRow) {
+        mCompactSingleRow = compactSingleRow;
+    }
+
 
     /** Get {@link #mLongPressTimeout}. */
     public int getLongPressTimeout() {
@@ -373,8 +381,13 @@ public final class ExtraKeysView extends GridLayout {
 
         ExtraKeyButton[][] buttons = extraKeysInfo.getMatrix();
 
-        setRowCount(buttons.length);
-        setColumnCount(maximumLength(buttons));
+        int compactColumn = 0;
+        int compactButtonWidth = Math.round(48 * getResources().getDisplayMetrics().density);
+        int totalButtons = 0;
+        for (ExtraKeyButton[] row : buttons) totalButtons += row.length;
+        setRowCount(mCompactSingleRow ? 1 : buttons.length);
+        setColumnCount(mCompactSingleRow ? totalButtons : maximumLength(buttons));
+        if (mCompactSingleRow) setMinimumWidth(compactButtonWidth * totalButtons);
 
         for (int row = 0; row < buttons.length; row++) {
             for (int col = 0; col < buttons[row].length; col++) {
@@ -392,6 +405,12 @@ public final class ExtraKeysView extends GridLayout {
                 button.setTextColor(mButtonTextColor);
                 button.setAllCaps(mButtonTextAllCaps);
                 button.setPadding(0, 0, 0, 0);
+                if (mCompactSingleRow) {
+                    button.setMinHeight(0);
+                    button.setMinWidth(0);
+                    button.setTextSize(TypedValue.COMPLEX_UNIT_SP, 11);
+                    applyButtonBackground(button, mButtonBackgroundColor);
+                }
 
                 button.setOnClickListener(view -> {
                     performExtraKeyButtonHapticFeedback(view, buttonInfo, button);
@@ -401,7 +420,7 @@ public final class ExtraKeysView extends GridLayout {
                 button.setOnTouchListener((view, event) -> {
                     switch (event.getAction()) {
                         case MotionEvent.ACTION_DOWN:
-                            view.setBackgroundColor(mButtonActiveBackgroundColor);
+                            applyButtonBackground(view, mButtonActiveBackgroundColor);
                             // Start long press scheduled executors which will be stopped in next MotionEvent
                             startScheduledExecutors(view, buttonInfo, button);
                             return true;
@@ -411,23 +430,23 @@ public final class ExtraKeysView extends GridLayout {
                                 // Show popup on swipe up
                                 if (mPopupWindow == null && event.getY() < 0) {
                                     stopScheduledExecutors();
-                                    view.setBackgroundColor(mButtonBackgroundColor);
+                                    applyButtonBackground(view, mButtonBackgroundColor);
                                     showPopup(view, buttonInfo.getPopup());
                                 }
                                 if (mPopupWindow != null && event.getY() > 0) {
-                                    view.setBackgroundColor(mButtonActiveBackgroundColor);
+                                    applyButtonBackground(view, mButtonActiveBackgroundColor);
                                     dismissPopup();
                                 }
                             }
                             return true;
 
                         case MotionEvent.ACTION_CANCEL:
-                            view.setBackgroundColor(mButtonBackgroundColor);
+                            applyButtonBackground(view, mButtonBackgroundColor);
                             stopScheduledExecutors();
                             return true;
 
                         case MotionEvent.ACTION_UP:
-                            view.setBackgroundColor(mButtonBackgroundColor);
+                            applyButtonBackground(view, mButtonBackgroundColor);
                             stopScheduledExecutors();
                             // If ACTION_UP up was not from a repetitive key or was with a key with a popup button
                             if (mLongPressCount == 0 || mPopupWindow != null) {
@@ -449,16 +468,37 @@ public final class ExtraKeysView extends GridLayout {
                 });
 
                 LayoutParams param = new GridLayout.LayoutParams();
-                param.width = 0;
+                int compactWidth = Math.max(48, Math.min(112, 18 + buttonInfo.getDisplay().length() * 8));
+                param.width = mCompactSingleRow
+                    ? Math.round(compactWidth * getResources().getDisplayMetrics().density)
+                    : 0;
                 param.height = 0;
-                param.setMargins(0, 0, 0, 0);
-                param.columnSpec = GridLayout.spec(col, GridLayout.FILL, 1.f);
-                param.rowSpec = GridLayout.spec(row, GridLayout.FILL, 1.f);
+                int compactMargin = Math.round(2 * getResources().getDisplayMetrics().density);
+                param.setMargins(mCompactSingleRow ? compactMargin : 0, 0, mCompactSingleRow ? compactMargin : 0, 0);
+                param.columnSpec = mCompactSingleRow
+                    ? GridLayout.spec(compactColumn++, GridLayout.FILL)
+                    : GridLayout.spec(col, GridLayout.FILL, 1.f);
+                param.rowSpec = GridLayout.spec(mCompactSingleRow ? 0 : row, GridLayout.FILL, 1.f);
                 button.setLayoutParams(param);
 
                 addView(button);
             }
         }
+    }
+
+    private void applyButtonBackground(View view, int color) {
+        if (!mCompactSingleRow) {
+            view.setBackgroundColor(color);
+            return;
+        }
+        float density = getResources().getDisplayMetrics().density;
+        GradientDrawable background = new GradientDrawable();
+        background.setColor(color);
+        background.setCornerRadius(10 * density);
+        if (color == mButtonBackgroundColor) {
+            background.setStroke(Math.max(1, Math.round(density)), 0xFF3A3D45);
+        }
+        view.setBackground(background);
     }
 
 

@@ -257,6 +257,29 @@ class AgentFleetComposeTest {
     }
 
     @Test
+    fun nativeSecondaryControlsLiveInActionsMenu() {
+        var controlC = 0
+        val keys = mutableListOf<String>()
+        compose.setContent {
+            NativeStateFixture(
+                NativeSessionUiState("Fixture", "gaming", "wtmux-main", adapter = "codex", connection = "Live"),
+                onShellKey = keys::add,
+                onControlC = { controlC++ }
+            )
+        }
+
+        compose.onNodeWithText("Actions").performClick()
+        compose.onNodeWithText("Ctrl+C").performClick()
+        compose.onNodeWithText("Actions").performClick()
+        compose.onNodeWithText("Shift+Tab").performClick()
+
+        compose.runOnIdle {
+            assertEquals(1, controlC)
+            assertEquals(listOf("SHIFT_TAB"), keys)
+        }
+    }
+
+    @Test
     fun localSuggestionBinderReturnsParsedFakeEngineResultsWithoutAModel() {
         val context = ApplicationProvider.getApplicationContext<android.content.Context>()
         val latch = CountDownLatch(1)
@@ -393,6 +416,8 @@ class AgentFleetComposeTest {
     private fun NativeStateFixture(
         state: NativeSessionUiState,
         onQuestion: (ConversationItem, List<ConversationAnswer>) -> Unit = { _, _ -> },
+        onShellKey: (String) -> Unit = {},
+        onControlC: () -> Unit = {},
         inlineComposer: Boolean = false,
         localSuggestionsAvailableOverride: Boolean? = null
     ) {
@@ -406,10 +431,10 @@ class AgentFleetComposeTest {
                 onApproval = { _, _ -> },
                 onQuestion = onQuestion,
                 onShellCommand = {},
-                onShellKey = {},
+                onShellKey = onShellKey,
                 onDirectory = {},
                 onRefreshDirectory = {},
-                onControlC = {},
+                onControlC = onControlC,
                 onCloseSession = {},
                 onKillSession = {},
                 onScheduleContinue = {},

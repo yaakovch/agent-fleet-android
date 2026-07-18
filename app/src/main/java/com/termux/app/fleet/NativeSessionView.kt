@@ -3,6 +3,7 @@ package com.termux.app.fleet
 import android.graphics.Color as AndroidColor
 import android.app.DatePickerDialog
 import android.app.TimePickerDialog
+import android.util.TypedValue
 import android.widget.TextView
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -14,6 +15,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -21,6 +23,9 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.layout.statusBars
+import androidx.compose.foundation.layout.navigationBars
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
@@ -42,11 +47,11 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.TopAppBar
-import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
@@ -55,9 +60,12 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.unit.Density
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
@@ -86,6 +94,8 @@ import java.util.Locale
 import java.util.TimeZone
 import java.text.SimpleDateFormat
 
+private val LocalAgentFleetDisplayDensity = staticCompositionLocalOf { AgentFleetDisplayDensity() }
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun NativeSessionScreen(
@@ -112,6 +122,14 @@ fun NativeSessionScreen(
     localSuggestionsAvailableOverride: Boolean? = null
 ) {
     val context = LocalContext.current
+    val displayDensity by AgentFleetDisplayDensityStore.observe(context).collectAsState()
+    val systemDensity = LocalDensity.current
+    val nativeDensity = remember(systemDensity.density, systemDensity.fontScale, displayDensity.nativeBodySp) {
+        Density(
+            density = systemDensity.density,
+            fontScale = systemDensity.fontScale * displayDensity.nativeBodySp / AgentFleetDisplayDensity.DEFAULT_NATIVE_BODY_SP
+        )
+    }
     val localSuggestions = remember(state.hostId, state.internalSession, localSuggestionsAvailableOverride) {
         NativeLocalSuggestionState(context, localSuggestionsAvailableOverride)
     }
@@ -135,29 +153,47 @@ fun NativeSessionScreen(
             actionSheetId = pendingAction.id
         }
     }
-    Scaffold(
+    CompositionLocalProvider(
+        LocalAgentFleetDisplayDensity provides displayDensity,
+        LocalDensity provides nativeDensity
+    ) {
+        Scaffold(
         modifier = Modifier.fillMaxSize().testTag("native-session-screen"),
         containerColor = MaterialTheme.colorScheme.background,
         topBar = {
-            if (showChrome) TopAppBar(
-                title = {
-                    Column {
-                        Text(state.sessionLabel, fontSize = 20.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            if (showChrome) Surface(color = MaterialTheme.colorScheme.background, tonalElevation = 1.dp) {
+                Row(
+                    Modifier.fillMaxWidth().windowInsetsPadding(WindowInsets.statusBars).height(48.dp).padding(start = 12.dp, end = 4.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
+                    Column(Modifier.weight(1f)) {
+                        Text(state.sessionLabel, fontSize = AgentFleetDisplayDensity.DEFAULT_NATIVE_BODY_SP.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
                         Text(
                             "${prettyAdapter(state.adapter)} · ${state.connection}",
-                            fontSize = 13.sp,
+                            fontSize = (AgentFleetDisplayDensity.DEFAULT_NATIVE_BODY_SP - 3).sp,
                             color = if (state.connection == "Live") ReadyGreen else MaterialTheme.colorScheme.onSurfaceVariant,
                             maxLines = 1
                         )
                     }
-                },
-                actions = {
                     OutlinedButton(onClick = onToggleTerminal, shape = RoundedCornerShape(14.dp), contentPadding = PaddingValues(horizontal = 12.dp, vertical = 7.dp)) {
-                        Text("Terminal", fontSize = 15.sp)
+                        Text("Terminal", fontSize = (AgentFleetDisplayDensity.DEFAULT_NATIVE_BODY_SP - 3).sp)
                     }
                     Box {
-                        TextButton(onClick = { actionMenu = true }) { Text("Actions") }
+                        TextButton(onClick = { actionMenu = true }, contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp)) {
+                            Text("Actions", fontSize = (AgentFleetDisplayDensity.DEFAULT_NATIVE_BODY_SP - 3).sp)
+                        }
                         DropdownMenu(expanded = actionMenu, onDismissRequest = { actionMenu = false }) {
+                            if (aiComposer) {
+                                DropdownMenuItem(
+                                    text = { Text("Ctrl+C") },
+                                    onClick = { actionMenu = false; onControlC() }
+                                )
+                                DropdownMenuItem(
+                                    text = { Text("Shift+Tab") },
+                                    onClick = { actionMenu = false; onShellKey("SHIFT_TAB") }
+                                )
+                            }
                             DropdownMenuItem(
                                 text = { Text("Close this view") },
                                 onClick = { actionMenu = false; onCloseSession() }
@@ -169,20 +205,23 @@ fun NativeSessionScreen(
                             )
                         }
                     }
-                },
-                colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.background)
-            )
+                }
+            }
         },
         bottomBar = {
             if (pendingAction != null) {
-                Surface(color = MaterialTheme.colorScheme.surface, tonalElevation = 5.dp) {
+                Surface(
+                    modifier = Modifier.windowInsetsPadding(WindowInsets.navigationBars),
+                    color = MaterialTheme.colorScheme.surface,
+                    tonalElevation = 5.dp
+                ) {
                     Row(
-                        Modifier.fillMaxWidth().clickable { actionSheetId = pendingAction.id }.padding(horizontal = 16.dp, vertical = 11.dp).testTag("native-pending-action"),
+                        Modifier.fillMaxWidth().clickable { actionSheetId = pendingAction.id }.padding(horizontal = 12.dp, vertical = 7.dp).testTag("native-pending-action"),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Column(Modifier.weight(1f)) {
-                            Text(pendingAction.title.ifBlank { if (pendingAction.kind == "question") "Answer needed" else "Approval needed" }, fontSize = 17.sp, fontWeight = FontWeight.Bold)
-                            Text("Tap to respond", fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Text(pendingAction.title.ifBlank { if (pendingAction.kind == "question") "Answer needed" else "Approval needed" }, fontSize = AgentFleetDisplayDensity.DEFAULT_NATIVE_BODY_SP.sp, fontWeight = FontWeight.Bold)
+                            Text("Tap to respond", fontSize = (AgentFleetDisplayDensity.DEFAULT_NATIVE_BODY_SP - 3).sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
                         Text("Open", color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold)
                     }
@@ -190,7 +229,7 @@ fun NativeSessionScreen(
             } else if (state.sourceMode == "shell" && !aiComposer) {
                 ShellCommandBar(onShellCommand, onShellKey, onControlC)
             } else if (aiComposer && inlineComposer) {
-                NativeAiComposer(state.interactionMode, state.items, localSuggestions, onComposerText, onShellKey, onControlC, onAttach)
+                NativeAiComposer(state.interactionMode, state.items, localSuggestions, onComposerText, onAttach)
             }
         }
     ) { padding ->
@@ -213,7 +252,7 @@ fun NativeSessionScreen(
                 localSuggestions = localSuggestions
             )
         }
-    }
+        }
     if (pendingAction != null && actionSheetId == pendingAction.id) {
         Dialog(
             onDismissRequest = { actionSheetId = ""; dismissedActionId = pendingAction.id },
@@ -254,6 +293,7 @@ fun NativeSessionScreen(
             dismissButton = { TextButton(onClick = { confirmKill = false }) { Text("Cancel") } }
         )
     }
+    }
 }
 
 @Composable
@@ -262,14 +302,19 @@ private fun NativeAiComposer(
     conversationItems: List<ConversationItem>,
     localSuggestions: NativeLocalSuggestionState,
     onComposerText: (String, Boolean) -> Boolean,
-    onKey: (String) -> Unit,
-    onControlC: () -> Unit,
     onAttach: () -> Unit
 ) {
     var value by rememberSaveable { mutableStateOf("") }
-    Surface(color = MaterialTheme.colorScheme.surface, tonalElevation = 5.dp) {
-        Column(Modifier.fillMaxWidth().padding(horizontal = 10.dp, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(7.dp), verticalAlignment = Alignment.CenterVertically) {
+    Surface(
+        modifier = Modifier.windowInsetsPadding(WindowInsets.navigationBars),
+        color = MaterialTheme.colorScheme.surface,
+        tonalElevation = 5.dp
+    ) {
+        Column(Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 5.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(4.dp), verticalAlignment = Alignment.CenterVertically) {
+                TextButton(onClick = onAttach, contentPadding = PaddingValues(horizontal = 7.dp, vertical = 4.dp)) {
+                    Text("Attach", fontSize = 12.sp)
+                }
                 OutlinedTextField(
                     value = value,
                     onValueChange = {
@@ -281,28 +326,25 @@ private fun NativeAiComposer(
                     modifier = Modifier.weight(1f).testTag("native-message-input"),
                     placeholder = { Text(if (interactionMode == "plan") "Plan message…" else "Message…") },
                     minLines = 1,
-                    maxLines = 4
+                    maxLines = 3,
+                    textStyle = MaterialTheme.typography.bodyMedium.copy(fontSize = 15.sp)
                 )
-                OutlinedButton(enabled = value.isNotEmpty(), onClick = {
+                TextButton(enabled = value.isNotEmpty(), contentPadding = PaddingValues(horizontal = 7.dp, vertical = 4.dp), onClick = {
                     if (onComposerText(value, false)) value = ""
-                }) { Text("Insert") }
-                Button(onClick = {
+                }) { Text("Insert", fontSize = 12.sp) }
+                Button(contentPadding = PaddingValues(horizontal = 10.dp, vertical = 7.dp), onClick = {
                     if (onComposerText(value, true)) value = ""
-                }) { Text(if (value.isEmpty()) "Enter" else "Send") }
+                }) { Text(if (value.isEmpty()) "Enter" else "Send", fontSize = 12.sp) }
             }
             if (localSuggestions.targetKey == "composer") {
                 LocalSuggestionChoices(localSuggestions, onUse = { value = it; localSuggestions.clear() })
             }
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(7.dp)) {
-                OutlinedButton(onClick = onControlC, modifier = Modifier.weight(1f)) { Text("Ctrl+C") }
-                OutlinedButton(onClick = { onKey("SHIFT_TAB") }, modifier = Modifier.weight(1f)) { Text("⇧ Tab") }
-                OutlinedButton(onClick = onAttach, modifier = Modifier.weight(1f)) { Text("Attach") }
-                if (localSuggestions.available && canSuggestForComposer(conversationItems, value)) {
-                    OutlinedButton(
-                        onClick = { localSuggestions.request(conversationItems, LocalSuggestionTarget("composer")) },
-                        modifier = Modifier.weight(1f).testTag("local-suggest-composer")
-                    ) { Text("Suggest") }
-                }
+            if (localSuggestions.available && canSuggestForComposer(conversationItems, value)) {
+                TextButton(
+                    onClick = { localSuggestions.request(conversationItems, LocalSuggestionTarget("composer")) },
+                    modifier = Modifier.align(Alignment.End).testTag("local-suggest-composer"),
+                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp)
+                ) { Text("Suggest locally", fontSize = 12.sp) }
             }
         }
     }
@@ -454,8 +496,8 @@ private fun ConversationFeed(
             modifier = Modifier.fillMaxSize(),
             state = listState,
             reverseLayout = true,
-            contentPadding = PaddingValues(horizontal = 14.dp, vertical = 12.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp, Alignment.Bottom)
+            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp),
+            verticalArrangement = Arrangement.spacedBy(6.dp, Alignment.Bottom)
         ) {
             item("bottom-space") { Spacer(Modifier.height(6.dp)) }
             state.attention?.let { attention ->
@@ -695,15 +737,27 @@ private fun ConversationItemCard(
 private fun MessageCard(value: ConversationItem) {
     val user = value.role == "user"
     Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = if (user) Arrangement.End else Arrangement.Start) {
-        Card(
-            modifier = Modifier.widthIn(max = 680.dp).fillMaxWidth(if (user) 0.9f else 1f),
-            shape = RoundedCornerShape(if (user) 20.dp else 16.dp),
-            colors = CardDefaults.cardColors(containerColor = if (user) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surface)
-        ) {
-            Column(Modifier.padding(horizontal = 16.dp, vertical = 13.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                if (user) Text("You", fontSize = 13.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
+        if (user) {
+            Card(
+                modifier = Modifier.widthIn(max = 680.dp).fillMaxWidth(0.9f),
+                shape = RoundedCornerShape(14.dp),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer)
+            ) {
+                Column(Modifier.padding(horizontal = 11.dp, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Text("You", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
+                    MarkdownText(value.text)
+                    value.attachments.forEach { Text("📎 $it", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant) }
+                }
+            }
+        } else {
+            Column(
+                Modifier.widthIn(max = 680.dp).fillMaxWidth().padding(horizontal = 2.dp, vertical = 4.dp),
+                verticalArrangement = Arrangement.spacedBy(5.dp)
+            ) {
+                Text("Codex", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = ReadyGreen)
                 MarkdownText(value.text)
-                value.attachments.forEach { Text("📎 $it", fontSize = 14.sp, color = MaterialTheme.colorScheme.onSurfaceVariant) }
+                value.attachments.forEach { Text("📎 $it", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant) }
+                Box(Modifier.fillMaxWidth().height(1.dp).background(MaterialTheme.colorScheme.outlineVariant))
             }
         }
     }
@@ -1395,7 +1449,11 @@ private fun DirectoryCard(state: NativeSessionUiState, onDirectory: (String) -> 
 @Composable
 private fun ShellCommandBar(onCommand: (String) -> Unit, onKey: (String) -> Unit, onControlC: () -> Unit) {
     var command by rememberSaveable { mutableStateOf("") }
-    Surface(color = MaterialTheme.colorScheme.surface, tonalElevation = 3.dp) {
+    Surface(
+        modifier = Modifier.windowInsetsPadding(WindowInsets.navigationBars),
+        color = MaterialTheme.colorScheme.surface,
+        tonalElevation = 3.dp
+    ) {
         Column(Modifier.fillMaxWidth().padding(horizontal = 10.dp, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(7.dp)) {
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
                 OutlinedTextField(
@@ -1424,11 +1482,12 @@ private fun ShellCommandBar(onCommand: (String) -> Unit, onKey: (String) -> Unit
 
 @Composable
 private fun MarkdownText(value: String) {
+    val density = LocalAgentFleetDisplayDensity.current
     val blocks = remember(value) { splitMarkdownBlocks(value) }
-    Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+    Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(5.dp)) {
         blocks.forEachIndexed { index, block ->
             when (block) {
-                is NativeMarkdownBlock.Prose -> MarkwonText(block.content)
+                is NativeMarkdownBlock.Prose -> MarkwonText(block.content, density.nativeBodySp)
                 is NativeMarkdownBlock.Code -> CopyableMarkdownCode(block, index)
             }
         }
@@ -1436,15 +1495,17 @@ private fun MarkdownText(value: String) {
 }
 
 @Composable
-private fun MarkwonText(value: String) {
+private fun MarkwonText(value: String, textSizeSp: Int) {
     val context = LocalContext.current
     val markwon = remember(context) { Markwon.create(context) }
     val color = MaterialTheme.colorScheme.onSurface
     AndroidView(
         modifier = Modifier.fillMaxWidth(),
-        factory = { TextView(it).apply { setTextIsSelectable(true); textSize = 16f; setBackgroundColor(AndroidColor.TRANSPARENT) } },
+        factory = { TextView(it).apply { setTextIsSelectable(true); setBackgroundColor(AndroidColor.TRANSPARENT) } },
         update = { view ->
             view.setTextColor(color.toArgbCompat())
+            view.setTextSize(TypedValue.COMPLEX_UNIT_SP, textSizeSp.toFloat())
+            view.includeFontPadding = false
             markwon.setMarkdown(view, value)
         }
     )
