@@ -55,7 +55,7 @@ if [[ "$sdk" == /mnt/* ]] && command -v cmd.exe >/dev/null; then
     [[ -x /init && -x "$native_cmd" ]] || { echo "Windows command runner is unavailable" >&2; exit 1; }
     windows_cmd=(/init "$native_cmd")
   fi
-  "${windows_cmd[@]}" /d /c "cd /d $windows_repo && set JAVA_HOME=$windows_java_home&& set ANDROID_SDK_ROOT=$windows_sdk&& set ANDROID_HOME=$windows_sdk&& set TERMUX_APP_VERSION_NAME=$version_name&& set TERMUX_APP_VERSION_CODE=$version_code&& set TERMUX_APK_VERSION_TAG=$version_name&& set TERMUX_SPLIT_APKS_FOR_RELEASE_BUILDS=1&& gradlew.bat app:assembleRelease --no-daemon --console=plain"
+  "${windows_cmd[@]}" /d /c "cd /d $windows_repo && set JAVA_HOME=$windows_java_home&& set ANDROID_SDK_ROOT=$windows_sdk&& set ANDROID_HOME=$windows_sdk&& set TERMUX_APP_VERSION_NAME=$version_name&& set TERMUX_APP_VERSION_CODE=$version_code&& set TERMUX_APK_VERSION_TAG=$version_name&& set TERMUX_SPLIT_APKS_FOR_RELEASE_BUILDS=1&& gradlew.bat app:assembleRelease --no-daemon --console=plain" </dev/null
 else
   (cd "$repo" && ./gradlew app:assembleRelease --no-daemon --console=plain)
 fi

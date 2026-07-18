@@ -36,6 +36,9 @@ would target a different application ID or release lane.
    that will host the APK:
    `scripts/release/build-signed-release.sh 0.118.4-agentfleet.56 1058 https://host.example/agent-fleet/fleet/latest`.
    The release contains an arm64 daily-driver APK plus a universal recovery APK.
+   Keep the Windows Gradle child non-interactive with a plain console and
+   redirected stdin; otherwise an automated ConPTY can pause on a cursor-position
+   query before Gradle starts.
 5. Verify with `scripts/release/verify-release.sh dist/0.118.4-agentfleet.56`.
 6. On the primary controller, set
    `AGENT_FLEET_PUBLISH_PRIMARY=local:/absolute/private/serve/path`. For a
