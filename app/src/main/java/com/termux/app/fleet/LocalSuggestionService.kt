@@ -82,7 +82,7 @@ class LocalSuggestionService : Service() {
     private fun generate(message: Message) {
         val requestId = message.data.getString(KEY_REQUEST_ID).orEmpty().take(128)
         val prompt = message.data.getString(KEY_PROMPT).orEmpty()
-        if (requestId.isBlank() || prompt.isBlank() || prompt.toByteArray(Charsets.UTF_8).size > 16 * 1024) {
+        if (requestId.isBlank() || prompt.isBlank() || prompt.toByteArray(Charsets.UTF_8).size > LOCAL_SUGGESTION_MAX_PROMPT_BYTES) {
             reply(message.replyTo, requestId, "", "Suggestion request is invalid.")
             return
         }

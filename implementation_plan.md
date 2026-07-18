@@ -1008,3 +1008,16 @@ manifest SHA-256 is
 and the arm64 APK SHA-256 is
 `453753d2acd7611561ac0af2c2fe3f49d5411e07f0135eac89db8936ed6a5185`.
 Automated tooling did not access the physical S23FE.
+
+## 42. Direct-Reply Suggestion Prompt
+
+1. Put the bounded transcript inside an explicit quoted context block and end
+   the Gemma prompt with a direct-reply task. Require verbatim human-user
+   messages, prohibit explanation/paraphrase, match recent user language, and
+   return fewer options instead of padding.
+2. Dynamically trim the oldest context after reserving the structured target
+   and task so the complete prompt cannot exceed the service's 16-KiB boundary.
+3. Add the reported `It means...` regression and maximum-size question coverage,
+   then run focused JVM tests, the full isolated API 36 suite, lint, signed
+   release/identity/runtime/checksum gates, and publish `.57`/1059 through
+   `fleet/latest` while retaining `.56` for rollback.

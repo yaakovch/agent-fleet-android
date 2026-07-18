@@ -606,8 +606,13 @@ trusted fleet.
   Suggestions are generated only on tap; choosing one fills but never submits.
 - Inference receives only the newest 12 visible user/assistant text messages,
   newest-first bounded to 12 KiB UTF-8, excluding tools, terminal output,
-  attachments, hidden details, approvals, and choices. It produces one to three
-  concise, conservative, distinct first-person reply drafts.
+  attachments, hidden details, approvals, and choices. The transcript is quoted
+  before a final task that requests one to three concise messages the human
+  user can send verbatim; the complete Binder prompt stays within 16 KiB.
+- Suggestions reply to the latest assistant message or structured text question
+  instead of explaining, interpreting, summarizing, or restating it. They match
+  the user's recent language, fall back to the assistant's language, and return
+  fewer options instead of padding an irrelevant set.
 - The first supported model is a release-pinned, checksum-verified Gemma 4 E2B
   Instruct LiteRT-LM artifact. Setup supports direct download and local import,
   warns before metered transfer, and exposes progress, cancellation, verification,

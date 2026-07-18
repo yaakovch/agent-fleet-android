@@ -43,10 +43,31 @@ class LocalSuggestionsTest {
         assertFalse(canSuggestForQuestion(question.copy(type = "single"), ""))
     }
 
-    @Test fun buildsConservativePromptAndParsesBoundedResults() {
-        val prompt = buildLocalSuggestionPrompt(listOf(item("assistant", text = "What name?")), LocalSuggestionTarget("question", "i", "q", "Pick a name"))
-        assertTrue(prompt.contains("Never claim"))
-        assertTrue(prompt.contains("Pick a name"))
+    @Test fun putsQuotedConversationBeforeTheDirectReplyTask() {
+        val prompt = buildLocalSuggestionPrompt(listOf(
+            item("user", role = "user", text = "What is a completed assistant reply?"),
+            item("assistant", text = "It is a response that has succeeded.")
+        ), LocalSuggestionTarget("composer"))
+        assertTrue(prompt.indexOf("ASSISTANT: It is a response that has succeeded.") < prompt.indexOf("TASK:"))
+        assertTrue(prompt.contains("ASSISTANT: It is a response that has succeeded.\n</conversation>\n\nTASK:"))
+        assertTrue(prompt.contains("send verbatim"))
+        assertTrue(prompt.contains("Do not explain, summarize, interpret, or restate"))
+        assertTrue(prompt.contains("Wrong: \"It means the assistant has finished.\""))
+        assertTrue(prompt.contains("Right: \"Got it, thanks.\""))
+        assertTrue(prompt.contains("language of the most recent USER messages"))
+        assertTrue(prompt.trimEnd().endsWith("Return JSON only: {\"suggestions\":[\"...\"]}"))
+    }
+
+    @Test fun makesStructuredQuestionExplicitAndKeepsTheWholePromptBounded() {
+        val items = (0 until 20).map { index ->
+            item("$index", role = if (index % 2 == 0) "user" else "assistant", text = "$index:${"é".repeat(2_000)}")
+        }
+        val prompt = buildLocalSuggestionPrompt(items, LocalSuggestionTarget("question", "i", "q", "Pick ${"名".repeat(4_096)}"))
+        assertTrue(prompt.contains("direct answer to this structured question: Pick"))
+        assertTrue(prompt.toByteArray(Charsets.UTF_8).size <= LOCAL_SUGGESTION_MAX_PROMPT_BYTES)
+    }
+
+    @Test fun parsesBoundedResults() {
         assertEquals(listOf("Yes", "No", "Maybe"), parseLocalSuggestions("{\"suggestions\":[\"Yes\",\"yes\",\"No\",\"Maybe\",\"Extra\"]}"))
         assertEquals(listOf("First", "Second"), parseLocalSuggestions("1. First\n2. Second"))
     }
