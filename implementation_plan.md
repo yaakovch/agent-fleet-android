@@ -919,6 +919,13 @@ implemented with the feature disabled by default. All 112 JVM tests and the
 complete managed Pixel 7/API 36 run passed with zero failures at
 `build/reports/agent-fleet/emulator/20260717T185147Z-full`; all 26
 instrumentation tests ran, with the one review-only golden intentionally
-skipped. Release lint passed with zero errors. Signed artifact verification,
-publication, and the manual physical S23FE model performance/quality smoke are
-recorded separately after release packaging.
+skipped. Release lint passed with zero errors. The minified signed arm64 and
+universal `.54`/1056 APKs, certificate, permanent app identity, checksums, and
+all 84 embedded runtime packages verified. `.54` is published to
+`fleet/latest`; the local and HTTPS-served manifest SHA-256 is
+`c4fd2f2bc1307bc7414a81885ea9bd19cc4b38df12d58ada942a3a7402b73d1f`
+and the arm64 APK SHA-256 is
+`d7419ca0a257b2a0732304a3f2a7818009b90c9349b3a788ed223589a8f17bc4`.
+`.53` remains available for rollback. The physical S23FE model download,
+latency, thermal, memory-reclamation, and suggestion-quality smoke remains
+manual; automated tooling did not access the phone.
