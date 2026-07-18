@@ -56,6 +56,42 @@ data class FleetRepositoryPage(
     val truncated: Boolean
 )
 
+data class FleetModelEffortOption(val id: String, val label: String)
+data class FleetModelOption(
+    val id: String,
+    val label: String,
+    val description: String,
+    val isDefault: Boolean,
+    val efforts: List<FleetModelEffortOption>,
+    val defaultEffort: String
+)
+data class FleetModelSelection(
+    val modelId: String,
+    val modelLabel: String,
+    val effortId: String,
+    val effortLabel: String
+)
+data class FleetPendingModelChange(
+    val operationId: String,
+    val modelId: String,
+    val effortId: String,
+    val custom: Boolean,
+    val requestedAt: String,
+    val expiresAt: String
+)
+data class FleetModelControlState(
+    val sessionId: String,
+    val configRevision: String,
+    val tool: String,
+    val status: String,
+    val selected: FleetModelSelection,
+    val effective: FleetModelSelection?,
+    val pending: FleetPendingModelChange?,
+    val catalog: List<FleetModelOption>?,
+    val customAllowed: Boolean,
+    val detail: String
+)
+
 data class FleetDownloadState(
     val name: String,
     val relativePath: String,

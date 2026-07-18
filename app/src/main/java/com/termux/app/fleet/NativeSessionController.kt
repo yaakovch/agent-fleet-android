@@ -32,7 +32,8 @@ interface NativeSessionHost {
 class NativeSessionController @JvmOverloads constructor(
     private val activity: NativeSessionHost,
     private val composeView: ComposeView,
-    private val showChrome: Boolean = true
+    private val showChrome: Boolean = true,
+    private val terminalChromeView: ComposeView? = null
 ) {
     private companion object {
         const val HISTORY_PAGE_SIZE = 20
@@ -61,6 +62,13 @@ class NativeSessionController @JvmOverloads constructor(
     private var lastFallbackText = ""
     private var pendingShellId: String? = null
     private var dismissedAttentionId: String? = null
+    @Volatile private var modelRequestActive = false
+    private val modelPoll = object : Runnable {
+        override fun run() {
+            if (visible && enabled && !localSession) refreshModelControl(includeCatalog = false, showLoading = false)
+            if (visible) main.postDelayed(this, 10_000)
+        }
+    }
 
     init {
         composeView.setViewCompositionStrategy(ViewCompositionStrategy.DisposeOnDetachedFromWindow)
@@ -86,7 +94,22 @@ class NativeSessionController @JvmOverloads constructor(
                     onComposerText = activity::sendAgentFleetComposerText,
                     onAttach = activity::pickAgentFleetImages,
                     inlineComposer = activity.nativeInlineComposer,
-                    showChrome = showChrome
+                    showChrome = showChrome,
+                    onRefreshModel = { refreshModelControl(includeCatalog = true, showLoading = true) },
+                    onSetModel = ::setModelControl,
+                    onCancelModel = ::cancelModelControl
+                )
+            }
+        }
+        terminalChromeView?.setViewCompositionStrategy(ViewCompositionStrategy.DisposeOnDetachedFromWindow)
+        terminalChromeView?.setContent {
+            AgentFleetTheme {
+                AgentFleetTerminalSessionChrome(
+                    state = uiState.value,
+                    onShowNative = ::showNative,
+                    onRefreshModel = { refreshModelControl(includeCatalog = true, showLoading = true) },
+                    onSetModel = ::setModelControl,
+                    onCancelModel = ::cancelModelControl
                 )
             }
         }
@@ -141,6 +164,8 @@ class NativeSessionController @JvmOverloads constructor(
         visible = true
         if (enabled) observeFleet()
         if (shouldRunStream() && streamProcess == null) startStream()
+        main.removeCallbacks(modelPoll)
+        main.post(modelPoll)
     }
 
     fun onStop() {
@@ -150,6 +175,7 @@ class NativeSessionController @JvmOverloads constructor(
         generation++
         main.removeCallbacksAndMessages(null)
         stopProcess()
+        modelRequestActive = false
     }
 
     fun close() {
@@ -158,6 +184,7 @@ class NativeSessionController @JvmOverloads constructor(
         generation++
         main.removeCallbacksAndMessages(null)
         stopProcess()
+        modelRequestActive = false
     }
 
     fun onTerminalScreenChanged(alternateScreen: Boolean) {
@@ -257,6 +284,7 @@ class NativeSessionController @JvmOverloads constructor(
         }
         val native = enabled && mode == NativeViewMode.Native
         composeView.visibility = if (native) View.VISIBLE else View.GONE
+        terminalChromeView?.visibility = if (enabled && !native) View.VISIBLE else View.GONE
         updateComposerState()
         if (enabled && !localSession) {
             if (mode == NativeViewMode.Native) {
@@ -301,6 +329,104 @@ class NativeSessionController @JvmOverloads constructor(
             attentionBusy = if (sameAttention) uiState.value.attentionBusy else false,
             attentionError = if (sameAttention) uiState.value.attentionError else null
         )
+        refreshModelControl(includeCatalog = false, showLoading = false)
+    }
+
+    private fun currentFleetSession(): FleetSession? = fleetSnapshot?.sessions?.firstOrNull {
+        it.hostId == uiState.value.hostId && it.internalName == uiState.value.internalSession
+    }
+
+    private fun refreshModelControl(includeCatalog: Boolean, showLoading: Boolean) {
+        val session = currentFleetSession() ?: return
+        if (session.tool !in setOf("codex", "claude", "copilot") || modelRequestActive) return
+        modelRequestActive = true
+        if (showLoading) uiState.value = uiState.value.copy(modelControlLoading = true, modelControlError = null)
+        val token = generation
+        thread(name = "native-session-model-get", isDaemon = true) {
+            val result = runCatching { fleetRuntime.getSessionModel(session, includeCatalog) }
+            main.post {
+                modelRequestActive = false
+                if (token != generation || !visible) return@post
+                result.onSuccess { next ->
+                    val previous = uiState.value.modelControl
+                    val merged = if (next.catalog == null && previous?.catalog != null) {
+                        next.copy(catalog = previous.catalog, customAllowed = previous.customAllowed)
+                    } else next
+                    uiState.value = uiState.value.copy(
+                        modelControl = merged, modelControlLoading = false, modelControlError = null
+                    )
+                }.onFailure { error ->
+                    if (showLoading) uiState.value = uiState.value.copy(
+                        modelControlLoading = false,
+                        modelControlError = error.message ?: "Model options could not be loaded."
+                    )
+                }
+            }
+        }
+    }
+
+    private fun setModelControl(modelId: String, effortId: String, custom: Boolean, acknowledged: Boolean) {
+        val session = currentFleetSession() ?: return
+        val current = uiState.value.modelControl ?: return
+        if (modelRequestActive) return
+        modelRequestActive = true
+        uiState.value = uiState.value.copy(modelControlLoading = true, modelControlError = null)
+        val token = generation
+        thread(name = "native-session-model-set", isDaemon = true) {
+            val result = runCatching {
+                fleetRuntime.setSessionModel(
+                    session, modelId, effortId, custom, current.configRevision, acknowledged
+                )
+            }
+            main.post {
+                modelRequestActive = false
+                if (token != generation || !visible) return@post
+                result.onSuccess { next ->
+                    uiState.value = uiState.value.copy(
+                        modelControl = next.copy(
+                            catalog = next.catalog ?: current.catalog,
+                            customAllowed = if (next.catalog == null) current.customAllowed else next.customAllowed
+                        ),
+                        modelControlLoading = false,
+                        modelControlError = null
+                    )
+                    main.postDelayed({ refreshModelControl(includeCatalog = false, showLoading = false) }, 1_000)
+                }.onFailure { error ->
+                    uiState.value = uiState.value.copy(
+                        modelControlLoading = false,
+                        modelControlError = error.message ?: "The model change could not be queued."
+                    )
+                }
+            }
+        }
+    }
+
+    private fun cancelModelControl() {
+        val session = currentFleetSession() ?: return
+        val current = uiState.value.modelControl?.takeIf { it.pending != null } ?: return
+        if (modelRequestActive) return
+        modelRequestActive = true
+        uiState.value = uiState.value.copy(modelControlLoading = true, modelControlError = null)
+        val token = generation
+        thread(name = "native-session-model-cancel", isDaemon = true) {
+            val result = runCatching { fleetRuntime.cancelSessionModel(session, current.configRevision) }
+            main.post {
+                modelRequestActive = false
+                if (token != generation || !visible) return@post
+                result.onSuccess { next ->
+                    uiState.value = uiState.value.copy(
+                        modelControl = next.copy(catalog = current.catalog, customAllowed = current.customAllowed),
+                        modelControlLoading = false,
+                        modelControlError = null
+                    )
+                }.onFailure { error ->
+                    uiState.value = uiState.value.copy(
+                        modelControlLoading = false,
+                        modelControlError = error.message ?: "The queued change could not be cancelled."
+                    )
+                }
+            }
+        }
     }
 
     private fun closeSession() {

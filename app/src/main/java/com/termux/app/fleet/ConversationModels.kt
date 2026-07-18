@@ -138,5 +138,8 @@ data class NativeSessionUiState(
     val attentionError: String? = null,
     val cwd: String = "",
     val directories: List<NativeDirectoryEntry> = emptyList(),
-    val directoryTruncated: Boolean = false
+    val directoryTruncated: Boolean = false,
+    val modelControl: FleetModelControlState? = null,
+    val modelControlLoading: Boolean = false,
+    val modelControlError: String? = null
 )

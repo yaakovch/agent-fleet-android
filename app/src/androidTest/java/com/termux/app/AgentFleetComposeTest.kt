@@ -32,12 +32,17 @@ import com.termux.app.fleet.FleetDownloadState
 import com.termux.app.fleet.FleetHost
 import com.termux.app.fleet.FleetUnavailableException
 import com.termux.app.fleet.FleetLoadState
+import com.termux.app.fleet.FleetModelControlState
+import com.termux.app.fleet.FleetModelEffortOption
+import com.termux.app.fleet.FleetModelOption
+import com.termux.app.fleet.FleetModelSelection
 import com.termux.app.fleet.FleetRepositoryEntry
 import com.termux.app.fleet.FleetRepositoryPage
 import com.termux.app.fleet.FleetSession
 import com.termux.app.fleet.FleetSnapshot
 import com.termux.app.fleet.NativeSessionScreen
 import com.termux.app.fleet.NativeSessionUiState
+import com.termux.app.fleet.AgentFleetTerminalSessionChrome
 import com.termux.app.fleet.ToolPresentation
 import com.termux.app.fleet.ToolPresentationBlock
 import com.termux.app.fleet.UpdateUiState
@@ -65,6 +70,39 @@ import org.junit.runner.RunWith
 @RunWith(AndroidJUnit4::class)
 class AgentFleetComposeTest {
     @get:Rule val compose = createComposeRule()
+
+    @Test
+    fun modelAndEffortPickerIsSharedByNativeAndTerminalChrome() {
+        val applied = AtomicInteger()
+        val modelState = FleetModelControlState(
+            sessionId = "gaming:wtmux-main", configRevision = "0123456789abcdef", tool = "codex", status = "ready",
+            selected = FleetModelSelection("auto", "Auto", "automatic", "Automatic"), effective = null, pending = null,
+            catalog = listOf(
+                FleetModelOption("auto", "Auto", "Provider default", true, listOf(FleetModelEffortOption("automatic", "Automatic")), "automatic"),
+                FleetModelOption("provider/model-2", "Provider Model 2", "Discovered on host", false,
+                    listOf(FleetModelEffortOption("low", "Low"), FleetModelEffortOption("high", "High")), "high")
+            ),
+            customAllowed = true, detail = ""
+        )
+        val state = NativeSessionUiState(
+            "Model fixture", "gaming", "wtmux-main", adapter = "codex", connection = "Live",
+            modelControl = modelState
+        )
+        compose.setContent {
+            AgentFleetTheme(darkTheme = true) {
+                AgentFleetTerminalSessionChrome(
+                    state, {}, {}, { _, _, _, acknowledged -> if (acknowledged) applied.incrementAndGet() }, {}
+                )
+            }
+        }
+        compose.onNodeWithTag("model-control-chip").assertIsDisplayed().performClick()
+        compose.onNodeWithTag("model-control-dialog").assertIsDisplayed()
+        compose.onNodeWithText("Auto").performClick()
+        compose.onNodeWithText("Provider Model 2").assertIsDisplayed()
+        compose.onNodeWithText("Apply").performClick()
+        compose.waitForIdle()
+        assertEquals(1, applied.get())
+    }
 
     @Test
     fun sessionsRepositoryErrorRetryAndDownloadAreUsable() {

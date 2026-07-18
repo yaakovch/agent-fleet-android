@@ -48,6 +48,13 @@
                         android:layout_width="match_parent"
                         android:layout_height="match_parent" />
 
+                    <androidx.compose.ui.platform.ComposeView
+                        android:id="@+id/agent_fleet_terminal_chrome"
+                        android:visibility="gone"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_gravity="top" />
+
                     <Button
                         android:id="@+id/agent_fleet_native_return"
                         android:visibility="gone"

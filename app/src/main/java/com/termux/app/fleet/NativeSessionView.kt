@@ -119,7 +119,10 @@ fun NativeSessionScreen(
     onAttach: () -> Unit = {},
     inlineComposer: Boolean = false,
     showChrome: Boolean = true,
-    localSuggestionsAvailableOverride: Boolean? = null
+    localSuggestionsAvailableOverride: Boolean? = null,
+    onRefreshModel: () -> Unit = {},
+    onSetModel: (String, String, Boolean, Boolean) -> Unit = { _, _, _, _ -> },
+    onCancelModel: () -> Unit = {}
 ) {
     val context = LocalContext.current
     val displayDensity by AgentFleetDisplayDensityStore.observe(context).collectAsState()
@@ -176,6 +179,12 @@ fun NativeSessionScreen(
                             maxLines = 1
                         )
                     }
+                    if (state.sourceMode == "ai") SessionModelControlChip(
+                        state = state,
+                        onRefreshModel = onRefreshModel,
+                        onSetModel = onSetModel,
+                        onCancelModel = onCancelModel
+                    )
                     OutlinedButton(onClick = onToggleTerminal, shape = RoundedCornerShape(14.dp), contentPadding = PaddingValues(horizontal = 12.dp, vertical = 7.dp)) {
                         Text("Terminal", fontSize = (AgentFleetDisplayDensity.DEFAULT_NATIVE_BODY_SP - 3).sp)
                     }
@@ -294,6 +303,203 @@ fun NativeSessionScreen(
         )
     }
     }
+}
+
+@Composable
+fun AgentFleetTerminalSessionChrome(
+    state: NativeSessionUiState,
+    onShowNative: () -> Unit,
+    onRefreshModel: () -> Unit,
+    onSetModel: (String, String, Boolean, Boolean) -> Unit,
+    onCancelModel: () -> Unit
+) {
+    Surface(color = MaterialTheme.colorScheme.background, tonalElevation = 2.dp) {
+        Row(
+            Modifier.fillMaxWidth().windowInsetsPadding(WindowInsets.statusBars).height(48.dp)
+                .padding(start = 12.dp, end = 5.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(5.dp)
+        ) {
+            Column(Modifier.weight(1f)) {
+                Text(state.sessionLabel, fontSize = 13.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Text("${prettyAdapter(state.adapter)} · Terminal", fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1)
+            }
+            if (state.sourceMode == "ai") SessionModelControlChip(state, onRefreshModel, onSetModel, onCancelModel)
+            OutlinedButton(
+                onClick = onShowNative,
+                shape = RoundedCornerShape(13.dp),
+                contentPadding = PaddingValues(horizontal = 11.dp, vertical = 6.dp)
+            ) { Text("Native", fontSize = 10.sp) }
+        }
+    }
+}
+
+@Composable
+private fun SessionModelControlChip(
+    state: NativeSessionUiState,
+    onRefreshModel: () -> Unit,
+    onSetModel: (String, String, Boolean, Boolean) -> Unit,
+    onCancelModel: () -> Unit
+) {
+    var open by rememberSaveable(state.hostId, state.internalSession) { mutableStateOf(false) }
+    val control = state.modelControl
+    val pending = control?.pending
+    val selection = control?.effective ?: control?.selected
+    val label = when {
+        pending != null -> "${pending.modelId} · ${pending.effortId} · queued"
+        selection != null -> "${selection.modelLabel} · ${selection.effortLabel}"
+        else -> "Model · Effort"
+    }
+    AssistChip(
+        onClick = { open = true; onRefreshModel() },
+        label = { Text(label, fontSize = 9.sp, maxLines = 1, overflow = TextOverflow.Ellipsis) },
+        modifier = Modifier.widthIn(max = 150.dp).testTag("model-control-chip")
+    )
+    if (open) ModelControlDialog(
+        state = state,
+        onDismiss = { open = false },
+        onRefresh = onRefreshModel,
+        onApply = onSetModel,
+        onCancelPending = onCancelModel
+    )
+}
+
+@Composable
+private fun ModelControlDialog(
+    state: NativeSessionUiState,
+    onDismiss: () -> Unit,
+    onRefresh: () -> Unit,
+    onApply: (String, String, Boolean, Boolean) -> Unit,
+    onCancelPending: () -> Unit
+) {
+    val control = state.modelControl
+    val catalog = control?.catalog.orEmpty()
+    var modelId by rememberSaveable(state.hostId, state.internalSession) { mutableStateOf("auto") }
+    var effortId by rememberSaveable(state.hostId, state.internalSession) { mutableStateOf("automatic") }
+    var custom by rememberSaveable(state.hostId, state.internalSession) { mutableStateOf(false) }
+    var modelMenu by remember { mutableStateOf(false) }
+    var effortMenu by remember { mutableStateOf(false) }
+    var confirmHistory by remember { mutableStateOf(false) }
+    val requestedModel = control?.pending?.modelId ?: control?.selected?.modelId
+    val requestedEffort = control?.pending?.effortId ?: control?.selected?.effortId
+    LaunchedEffect(control?.configRevision, catalog.size) {
+        if (requestedModel != null) {
+            modelId = requestedModel
+            effortId = requestedEffort ?: "automatic"
+            custom = catalog.none { it.id == requestedModel }
+        }
+    }
+    val selectedModel = catalog.firstOrNull { it.id == modelId }
+    val effortOptions = selectedModel?.efforts ?: buildList {
+        add(FleetModelEffortOption("automatic", "Automatic"))
+        catalog.flatMap { it.efforts }.forEach { option -> if (none { it.id == option.id }) add(option) }
+    }
+    val effortOptionIds = effortOptions.map { it.id }
+    val configurableEffort = effortOptions.any { it.id != "automatic" }
+    LaunchedEffect(modelId, effortOptionIds) {
+        if (effortId !in effortOptionIds) {
+            effortId = selectedModel?.defaultEffort ?: effortOptions.firstOrNull()?.id.orEmpty()
+        }
+    }
+    val hasHistory = state.items.any { item ->
+        item.role == "assistant" && (item.state == "complete" || item.completedAt.isNotBlank() || item.kind == "message") &&
+            (item.text.isNotBlank() || item.detail.isNotBlank())
+    } || state.viewMode != NativeViewMode.Native // Terminal mode does not fetch transcript content; warn conservatively.
+    val effective = control?.effective ?: control?.selected
+    Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false)) {
+        Surface(
+            Modifier.fillMaxWidth(.94f).widthIn(max = 560.dp).heightIn(max = 720.dp).testTag("model-control-dialog"),
+            shape = RoundedCornerShape(18.dp),
+            tonalElevation = 8.dp
+        ) {
+            Column(Modifier.verticalScroll(rememberScrollState()).padding(18.dp), verticalArrangement = Arrangement.spacedBy(13.dp)) {
+                Row(verticalAlignment = Alignment.Top) {
+                    Column(Modifier.weight(1f)) {
+                        Text("${prettyAdapter(state.adapter)} · current session only", color = MaterialTheme.colorScheme.primary, fontSize = 10.sp)
+                        Text(state.sessionLabel, fontWeight = FontWeight.Bold, fontSize = 20.sp)
+                        if (effective != null) Text(
+                            "Effective: ${effective.modelLabel} · ${effective.effortLabel}",
+                            color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 11.sp
+                        )
+                    }
+                    TextButton(onClick = onDismiss) { Text("Close") }
+                }
+                if (control?.pending != null) Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.secondaryContainer)) {
+                    Row(Modifier.fillMaxWidth().padding(11.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Column(Modifier.weight(1f)) {
+                            Text("Queued for idle", fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                            Text("${control.pending.modelId} · ${control.pending.effortId}", fontSize = 10.sp)
+                        }
+                        TextButton(onClick = onCancelPending, enabled = !state.modelControlLoading) { Text("Cancel") }
+                    }
+                }
+                if (catalog.isEmpty()) {
+                    Text(
+                        state.modelControlError ?: if (state.modelControlLoading) "Loading model options…" else "Model options are unavailable.",
+                        color = if (state.modelControlError != null) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Button(onClick = onRefresh, enabled = !state.modelControlLoading) { Text("Retry") }
+                } else {
+                    Text("Model", fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                    Box {
+                        OutlinedButton(onClick = { modelMenu = true }, modifier = Modifier.fillMaxWidth(), enabled = !custom) {
+                            Text(selectedModel?.label ?: "Choose model", maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        }
+                        DropdownMenu(expanded = modelMenu, onDismissRequest = { modelMenu = false }) {
+                            catalog.forEach { model -> DropdownMenuItem(
+                                text = { Column { Text(model.label); if (model.description.isNotBlank()) Text(model.description, fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurfaceVariant) } },
+                                onClick = { modelId = model.id; effortId = model.defaultEffort; custom = false; modelMenu = false }
+                            ) }
+                        }
+                    }
+                    if (control?.customAllowed == true) {
+                        TextButton(onClick = { custom = !custom; if (!custom) catalog.firstOrNull()?.let { modelId = it.id; effortId = it.defaultEffort } }) {
+                            Text(if (custom) "✓ Other model ID" else "Other model ID")
+                        }
+                        if (custom) OutlinedTextField(
+                            value = modelId, onValueChange = { modelId = it.trim().take(160) },
+                            label = { Text("Provider model ID") }, singleLine = true, modifier = Modifier.fillMaxWidth()
+                        )
+                    }
+                    Text("Reasoning effort", fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                    Box {
+                        OutlinedButton(onClick = { effortMenu = true }, modifier = Modifier.fillMaxWidth(), enabled = configurableEffort) {
+                            Text(effortOptions.firstOrNull { it.id == effortId }?.label ?: "Automatic")
+                        }
+                        DropdownMenu(expanded = effortMenu, onDismissRequest = { effortMenu = false }) {
+                            effortOptions.forEach { effort -> DropdownMenuItem(
+                                text = { Text(effort.label) }, onClick = { effortId = effort.id; effortMenu = false }
+                            ) }
+                        }
+                    }
+                    Text(
+                        if (hasHistory) "Changing model or effort can reduce prompt-cache reuse and change cost for the rest of this session."
+                        else "This changes only the running session; defaults are unchanged.",
+                        color = if (hasHistory) MaterialTheme.colorScheme.tertiary else MaterialTheme.colorScheme.onSurfaceVariant,
+                        fontSize = 11.sp
+                    )
+                    state.modelControlError?.let { Text(it, color = MaterialTheme.colorScheme.error, fontSize = 11.sp) }
+                    control?.detail?.takeIf(String::isNotBlank)?.let { Text(it, color = MaterialTheme.colorScheme.error, fontSize = 11.sp) }
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+                        Button(
+                            onClick = {
+                                if (hasHistory) confirmHistory = true else onApply(modelId, effortId, custom, true)
+                            },
+                            enabled = !state.modelControlLoading && modelId.matches(Regex("[A-Za-z0-9][A-Za-z0-9._:/@+\\-]{0,159}")) &&
+                                effortId.matches(Regex("[A-Za-z0-9][A-Za-z0-9._+\\-]{0,63}"))
+                        ) { Text(if (state.modelControlLoading) "Working…" else "Apply") }
+                    }
+                }
+            }
+        }
+    }
+    if (confirmHistory) AlertDialog(
+        onDismissRequest = { confirmHistory = false },
+        title = { Text("Change this running session?") },
+        text = { Text("The new selection can reduce prompt-cache reuse and change cost. The agent will not restart.") },
+        dismissButton = { TextButton(onClick = { confirmHistory = false }) { Text("Keep current") } },
+        confirmButton = { Button(onClick = { confirmHistory = false; onApply(modelId, effortId, custom, true) }) { Text("Apply") } }
+    )
 }
 
 @Composable

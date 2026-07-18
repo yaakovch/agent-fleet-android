@@ -252,7 +252,8 @@ public final class TermuxActivity extends ComponentActivity implements ServiceCo
         setTerminalToolbarView(savedInstanceState);
 
         mAgentFleetNativeSession = new NativeSessionController(this,
-            findViewById(R.id.agent_fleet_native_session));
+            findViewById(R.id.agent_fleet_native_session), true,
+            findViewById(R.id.agent_fleet_terminal_chrome));
         findViewById(R.id.agent_fleet_native_return).setOnClickListener(v -> {
             if (mAgentFleetNativeSession != null) mAgentFleetNativeSession.showNative();
         });
@@ -472,7 +473,22 @@ public final class TermuxActivity extends ComponentActivity implements ServiceCo
 
         View returnButton = findViewById(R.id.agent_fleet_native_return);
         if (returnButton != null)
-            returnButton.setVisibility(nativeAvailable && !nativeView ? View.VISIBLE : View.GONE);
+            returnButton.setVisibility(View.GONE);
+
+        View terminalChrome = findViewById(R.id.agent_fleet_terminal_chrome);
+        if (terminalChrome != null) {
+            terminalChrome.setVisibility(nativeAvailable && !nativeView ? View.VISIBLE : View.GONE);
+            terminalChrome.post(() -> {
+                if (mTerminalView == null) return;
+                int top = terminalChrome.getVisibility() == View.VISIBLE ? terminalChrome.getHeight() : 0;
+                if (mTerminalView.getPaddingTop() != top) {
+                    mTerminalView.setPadding(mTerminalView.getPaddingLeft(), top,
+                        mTerminalView.getPaddingRight(), mTerminalView.getPaddingBottom());
+                    mTerminalView.updateSize();
+                    if (!nativeView) mTerminalView.onScreenUpdated();
+                }
+            });
+        }
 
         if (mAgentFleetTerminalScrollback != null)
             mAgentFleetTerminalScrollback.setTerminalVisible(!nativeView);

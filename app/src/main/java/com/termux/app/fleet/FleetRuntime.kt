@@ -398,6 +398,56 @@ class FleetRuntime(private val context: Context) {
         return parseRepositoryPage(result)
     }
 
+    fun getSessionModel(session: FleetSession, includeCatalog: Boolean): FleetModelControlState = parseModelControl(
+        repositoryRequest(
+            "session.model.get",
+            JSONObject()
+                .put("hostId", session.hostId)
+                .put("sessionId", session.id)
+                .put("includeCatalog", includeCatalog)
+        ),
+        session.id
+    )
+
+    fun setSessionModel(
+        session: FleetSession,
+        modelId: String,
+        effortId: String,
+        custom: Boolean,
+        expectedConfigRevision: String,
+        historyImpactAcknowledged: Boolean
+    ): FleetModelControlState {
+        require(modelId.matches(Regex("[A-Za-z0-9][A-Za-z0-9._:/@+\\-]{0,159}"))) { "Model ID is invalid." }
+        require(effortId.matches(Regex("[A-Za-z0-9][A-Za-z0-9._+\\-]{0,63}"))) { "Effort ID is invalid." }
+        require(expectedConfigRevision.matches(Regex("[a-f0-9]{16}"))) { "Model state changed; refresh and try again." }
+        val result = repositoryRequest(
+            "session.model.set",
+            JSONObject()
+                .put("hostId", session.hostId)
+                .put("sessionId", session.id)
+                .put("modelId", modelId)
+                .put("effortId", effortId)
+                .put("custom", custom)
+                .put("expectedConfigRevision", expectedConfigRevision)
+                .put("idempotencyKey", UUID.randomUUID().toString())
+                .put("historyImpactAcknowledged", historyImpactAcknowledged)
+        )
+        return parseModelControl(result.requireObject("modelControl"), session.id)
+    }
+
+    fun cancelSessionModel(session: FleetSession, expectedConfigRevision: String): FleetModelControlState {
+        require(expectedConfigRevision.matches(Regex("[a-f0-9]{16}"))) { "Model state changed; refresh and try again." }
+        val result = repositoryRequest(
+            "session.model.cancel",
+            JSONObject()
+                .put("hostId", session.hostId)
+                .put("sessionId", session.id)
+                .put("expectedConfigRevision", expectedConfigRevision)
+                .put("idempotencyKey", UUID.randomUUID().toString())
+        )
+        return parseModelControl(result.requireObject("modelControl"), session.id)
+    }
+
     fun closeRepositoryBrowser() {
         repositoryBridge.close()
     }
@@ -759,6 +809,95 @@ class FleetRuntime(private val context: Context) {
     }
 
     private fun parseRepositoryPage(value: JSONObject): FleetRepositoryPage = FleetRepositoryProtocol.parsePage(value)
+
+    internal fun parseModelControl(value: JSONObject, expectedSessionId: String): FleetModelControlState {
+        value.requireFields(setOf("sessionId", "configRevision", "tool", "status", "selected", "effective", "pending", "catalog", "detail"))
+        val sessionId = value.requireSafeString("sessionId", 320).also { require(it == expectedSessionId) }
+        val revision = value.requireSafeString("configRevision", 16).also { require(it.matches(Regex("[a-f0-9]{16}"))) }
+        val tool = value.requireSafeString("tool", 16).also { require(it in setOf("codex", "claude", "copilot")) }
+        val status = value.requireSafeString("status", 32).also {
+            require(it in setOf("ready", "queued", "applying", "cancelled", "already-clear", "expired", "error", "unknown"))
+        }
+        val catalogObject = value.optJSONObject("catalog")
+        val catalog = catalogObject?.let { parseModelCatalog(it) }
+        return FleetModelControlState(
+            sessionId = sessionId,
+            configRevision = revision,
+            tool = tool,
+            status = status,
+            selected = parseModelSelection(value.requireObject("selected")),
+            effective = if (value.isNull("effective")) null else parseModelSelection(value.requireObject("effective")),
+            pending = if (value.isNull("pending")) null else parsePendingModel(value.requireObject("pending")),
+            catalog = catalog?.first,
+            customAllowed = catalog?.second ?: false,
+            detail = value.requireSafeString("detail", 240, allowEmpty = true)
+        )
+    }
+
+    private fun parseModelSelection(value: JSONObject): FleetModelSelection {
+        value.requireFields(setOf("modelId", "modelLabel", "effortId", "effortLabel"))
+        return FleetModelSelection(
+            value.requireModelId("modelId"),
+            value.requireSafeString("modelLabel", 120),
+            value.requireEffortId("effortId"),
+            value.requireSafeString("effortLabel", 120)
+        )
+    }
+
+    private fun parsePendingModel(value: JSONObject): FleetPendingModelChange {
+        value.requireFields(setOf("operationId", "modelId", "effortId", "custom", "requestedAt", "expiresAt"))
+        return FleetPendingModelChange(
+            value.requireSafeString("operationId", 160).also { require(it.matches(Regex("[A-Za-z0-9._:-]+"))) },
+            value.requireModelId("modelId"),
+            value.requireEffortId("effortId"),
+            value.getBoolean("custom"),
+            value.requireSafeString("requestedAt", 40),
+            value.requireSafeString("expiresAt", 40)
+        )
+    }
+
+    private fun parseModelCatalog(value: JSONObject): Pair<List<FleetModelOption>, Boolean> {
+        value.requireFields(setOf("models", "customAllowed"))
+        val models = value.getJSONArray("models")
+        require(models.length() in 1..128)
+        val parsed = List(models.length()) { index ->
+            val item = models.getJSONObject(index)
+            item.requireFields(setOf("id", "label", "description", "isDefault", "efforts", "defaultEffort"))
+            val efforts = item.getJSONArray("efforts")
+            require(efforts.length() in 1..16)
+            val parsedEfforts = List(efforts.length()) { effortIndex ->
+                val effort = efforts.getJSONObject(effortIndex)
+                effort.requireFields(setOf("id", "label"))
+                FleetModelEffortOption(effort.requireEffortId("id"), effort.requireSafeString("label", 80))
+            }
+            val defaultEffort = item.requireEffortId("defaultEffort")
+            require(parsedEfforts.any { it.id == defaultEffort })
+            FleetModelOption(
+                item.requireModelId("id"), item.requireSafeString("label", 120),
+                item.requireSafeString("description", 240, allowEmpty = true), item.getBoolean("isDefault"),
+                parsedEfforts, defaultEffort
+            )
+        }
+        return parsed to value.getBoolean("customAllowed")
+    }
+
+    private fun JSONObject.requireObject(name: String): JSONObject = optJSONObject(name)
+        ?: throw FleetUnavailableException("Model control response is invalid.", "invalid_response")
+
+    private fun JSONObject.requireFields(expected: Set<String>) {
+        require(keys().asSequence().toSet() == expected) { "Model control response fields are invalid." }
+    }
+
+    private fun JSONObject.requireSafeString(name: String, maximum: Int, allowEmpty: Boolean = false): String =
+        getString(name).also { require(it.length <= maximum && (allowEmpty || it.isNotBlank()) && it.none(Char::isISOControl)) }
+
+    private fun JSONObject.requireModelId(name: String): String = requireSafeString(name, 160).also {
+        require(it.matches(Regex("[A-Za-z0-9][A-Za-z0-9._:/@+\\-]{0,159}")))
+    }
+
+    private fun JSONObject.requireEffortId(name: String): String = requireSafeString(name, 64).also {
+        require(it.matches(Regex("[A-Za-z0-9][A-Za-z0-9._+\\-]{0,63}")))
+    }
 
     private fun String.safeDirectoryLabel(maximum: Int): String = also {
         require(isNotBlank() && length <= maximum && none(Char::isISOControl))
