@@ -954,3 +954,22 @@ drawer sessions fit at the default density, the drawer covers bottom input
 chrome, the one-row Terminal strip preserves every configured key, minimum and
 maximum settings do not clip essential actions, and automated tooling never
 accesses the physical S23FE.
+
+Implementation record (2026-07-18): the Reading-first Native transcript,
+full-height 46dp-row drawer, compact composer/actions, scrollable single-row
+Terminal keys, and three independently persisted density controls are
+implemented. Reviewed 393×852 candidates show all 11 fixture sessions with the
+search field and fixed footer visible. The focused store, migration, layout,
+and row-major key tests passed; the final fast emulator run passed at
+`build/reports/agent-fleet/emulator/20260718T030735Z-fast`. All 116 JVM tests
+and all 29 managed Pixel 7/API 36 tests passed at
+`build/reports/agent-fleet/emulator/20260718T031144Z-full`; release lint passed
+with zero errors. The minified signed arm64 and universal `.55`/1057 APKs,
+certificate, identity, checksums, and all 84 embedded runtime packages
+verified. `.55` is published to `fleet/latest`; the HTTPS-served manifest
+SHA-256 is `a144383c8d94ccce2b8a87385fd8597733fbdf967204adb27506b62cdd36efe0`
+and the arm64 APK SHA-256 is
+`cc8ec63f055cd3cca175128dd0159c89edc42724dc9f90a6d2635853d9d0c033`.
+`.54` remains available for rollback. Physical S23FE density, IME, and
+Terminal-strip interaction smoke remains manual; automated tooling did not
+access the phone.
