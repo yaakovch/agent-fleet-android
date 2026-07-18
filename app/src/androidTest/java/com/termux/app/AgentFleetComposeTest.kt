@@ -44,6 +44,8 @@ import com.termux.app.fleet.UpdateUiState
 import com.termux.app.fleet.LocalModelUiState
 import com.termux.app.fleet.LocalSuggestionClient
 import com.termux.app.fleet.LocalSuggestionRuntime
+import com.termux.app.fleet.AgentFleetComposerContent
+import com.termux.app.fleet.AgentFleetComposerNativeState
 import com.termux.app.fleet.AndroidWorkspaceState
 import com.termux.app.fleet.WorkspaceTerminalBroker
 import com.termux.app.fleet.WorkspacePreset
@@ -254,6 +256,58 @@ class AgentFleetComposeTest {
         compose.onNodeWithTag("local-suggest-composer").assertIsDisplayed()
         compose.onNodeWithTag("native-message-input").performTextInput("I will answer manually")
         compose.onAllNodes(hasTestTag("local-suggest-composer")).assertCountEquals(0)
+    }
+
+    @Test
+    fun fullScreenNativeComposerOffersLocalSuggestionsAndStacksActions() {
+        val assistant = ConversationItem(
+            id = "assistant", kind = "message", timestamp = "2026-07-18T00:00:00Z", role = "assistant",
+            title = "", text = "Which rollout should I use?", detail = "", state = "complete", tool = "",
+            attachments = emptyList(), choices = emptyList()
+        )
+        val submissions = mutableListOf<Pair<String, Boolean>>()
+        compose.setContent {
+            AgentFleetTheme(darkTheme = true) {
+                AgentFleetComposerContent(
+                    target = "gaming:project:wtmux-main",
+                    nativeState = AgentFleetComposerNativeState(
+                        target = "gaming:project:wtmux-main",
+                        visible = true,
+                        items = listOf(assistant),
+                        revision = "revision-1"
+                    ),
+                    attachments = emptyList(),
+                    uploading = false,
+                    uploadError = null,
+                    onShowPendingQuestion = {},
+                    onAttach = {},
+                    onRemoveAttachment = {},
+                    onComposerText = { text, appendEnter -> submissions += text to appendEnter; true },
+                    localSuggestionsAvailableOverride = true,
+                    localSuggestionDebugFakeOutput = """{"suggestions":["Use the safe rollout"]}"""
+                )
+            }
+        }
+
+        compose.onNodeWithTag("local-suggest-composer").assertIsDisplayed().performClick()
+        compose.waitUntil(10_000) {
+            compose.onAllNodes(hasTestTag("local-suggestion-0")).fetchSemanticsNodes().isNotEmpty()
+        }
+        compose.onNodeWithTag("local-suggestion-0").performClick()
+        compose.onNodeWithTag("agent-fleet-message-input").assertTextContains("Use the safe rollout")
+        compose.onAllNodes(hasTestTag("local-suggest-composer")).assertCountEquals(0)
+
+        val attach = compose.onNodeWithTag("agent-fleet-composer-attach").fetchSemanticsNode().boundsInRoot
+        val insert = compose.onNodeWithTag("agent-fleet-composer-insert").fetchSemanticsNode().boundsInRoot
+        val send = compose.onNodeWithTag("agent-fleet-composer-send").fetchSemanticsNode().boundsInRoot
+        val input = compose.onNodeWithTag("agent-fleet-message-input").fetchSemanticsNode().boundsInRoot
+        org.junit.Assert.assertTrue(attach.center.y < insert.center.y)
+        org.junit.Assert.assertTrue(insert.center.y < send.center.y)
+        org.junit.Assert.assertTrue(input.width > attach.width * 2)
+
+        compose.onNodeWithTag("agent-fleet-composer-send").performClick()
+        compose.runOnIdle { assertEquals(listOf("Use the safe rollout" to true), submissions) }
+        LocalSuggestionRuntime.shutdown(ApplicationProvider.getApplicationContext())
     }
 
     @Test

@@ -228,8 +228,16 @@ class NativeSessionController @JvmOverloads constructor(
     private fun updateComposerState() {
         val pendingAction = activePendingAction(uiState.value.items)
         val pendingQuestion = pendingAction?.takeIf { it.kind == "question" }?.id.orEmpty()
-        AgentFleetComposer.updateNativeState(composerTarget, uiState.value.interactionMode, pendingQuestion)
         val native = enabled && uiState.value.viewMode == NativeViewMode.Native
+        AgentFleetComposer.updateNativeState(
+            composerTarget,
+            uiState.value.interactionMode,
+            pendingQuestion,
+            native,
+            uiState.value.items,
+            uiState.value.revision,
+            uiState.value.liveEventSerial
+        )
         activity.setAgentFleetNativeView(
             enabled,
             native,
@@ -248,14 +256,8 @@ class NativeSessionController @JvmOverloads constructor(
             )
         }
         val native = enabled && mode == NativeViewMode.Native
-        val hasPendingAction = activePendingAction(uiState.value.items) != null
         composeView.visibility = if (native) View.VISIBLE else View.GONE
-        activity.setAgentFleetNativeView(
-            enabled,
-            native,
-            mode == NativeViewMode.AutomaticTerminal,
-            aiComposer && !hasPendingAction
-        )
+        updateComposerState()
         if (enabled && !localSession) {
             if (mode == NativeViewMode.Native) {
                 if (shouldRunStream()) startStream()

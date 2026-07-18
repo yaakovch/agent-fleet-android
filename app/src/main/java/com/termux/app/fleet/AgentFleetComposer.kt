@@ -7,17 +7,16 @@ import android.os.Handler
 import android.os.Looper
 import android.view.View
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Button
 import androidx.compose.material3.AssistChip
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
@@ -25,19 +24,24 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.darkColorScheme
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.ComposeView
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.ViewCompositionStrategy
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.termux.app.TermuxActivity
@@ -48,15 +52,27 @@ object AgentFleetComposer {
     private var uploading by mutableStateOf(false)
     private var uploadError by mutableStateOf<String?>(null)
     private var currentTarget = ""
-    private var nativeTarget by mutableStateOf("")
-    private var interactionMode by mutableStateOf("unknown")
-    private var pendingQuestion by mutableStateOf("")
+    private var nativeState by mutableStateOf(AgentFleetComposerNativeState())
 
     @JvmStatic
-    fun updateNativeState(target: String, mode: String, pendingQuestionId: String) {
-        nativeTarget = target
-        interactionMode = mode
-        pendingQuestion = pendingQuestionId
+    fun updateNativeState(
+        target: String,
+        mode: String,
+        pendingQuestionId: String,
+        visible: Boolean,
+        items: List<ConversationItem>,
+        revision: String,
+        liveEventSerial: Long
+    ) {
+        nativeState = AgentFleetComposerNativeState(
+            target = target,
+            interactionMode = mode,
+            pendingQuestionId = pendingQuestionId,
+            visible = visible,
+            items = items,
+            revision = revision,
+            liveEventSerial = liveEventSerial
+        )
     }
 
     @JvmStatic
@@ -85,113 +101,21 @@ object AgentFleetComposer {
         view.setViewCompositionStrategy(ViewCompositionStrategy.DisposeOnDetachedFromWindow)
         view.setContent {
             MaterialTheme(colorScheme = ComposerColors) {
-                val density by AgentFleetDisplayDensityStore.observe(activity).collectAsState()
-                var text by rememberSaveable { mutableStateOf("") }
-                var composerActions by rememberSaveable { mutableStateOf(false) }
-                Surface(color = MaterialTheme.colorScheme.surface) {
-                    Column(
-                        modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 5.dp),
-                        verticalArrangement = Arrangement.spacedBy(4.dp)
-                    ) {
-                        if (nativeTarget == target && pendingQuestion.isNotBlank()) {
-                            Button(
-                                onClick = activity::showAgentFleetPendingQuestion,
-                                modifier = Modifier.fillMaxWidth(),
-                                contentPadding = DenseButtonPadding,
-                                shape = RoundedCornerShape(14.dp)
-                            ) { Text("Answer needed · Tap to open", fontSize = density.nativeBodySp.sp) }
+                AgentFleetComposerContent(
+                    target = target,
+                    nativeState = nativeState,
+                    attachments = attachments,
+                    uploading = uploading,
+                    uploadError = uploadError,
+                    onShowPendingQuestion = activity::showAgentFleetPendingQuestion,
+                    onAttach = activity::pickAgentFleetImages,
+                    onRemoveAttachment = attachments::remove,
+                    onComposerText = { text, appendEnter ->
+                        activity.sendAgentFleetComposerText(text, appendEnter).also { sent ->
+                            if (sent) attachments.clear()
                         }
-                        val composed = buildAgentFleetComposerText(text, attachments)
-                        val hasContent = composed.isNotEmpty()
-                        val planMode = nativeTarget == target && interactionMode == "plan"
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(4.dp),
-                            verticalAlignment = androidx.compose.ui.Alignment.CenterVertically
-                        ) {
-                            TextButton(
-                                onClick = activity::pickAgentFleetImages,
-                                enabled = !uploading && attachments.size < MAX_ATTACHMENTS,
-                                contentPadding = DenseButtonPadding
-                            ) { Text(if (uploading) "Wait…" else "Attach", fontSize = density.nativeMetadataSp.sp) }
-                            OutlinedTextField(
-                                value = text,
-                                onValueChange = { if (it.length <= MAX_MESSAGE_CHARS && '\u0000' !in it) text = it },
-                                modifier = Modifier.weight(1f).semantics {
-                                    contentDescription = if (planMode) "Plan mode message input" else "Message input"
-                                },
-                                placeholder = { Text(if (planMode) "Plan message…" else "Message…", fontSize = density.nativeBodySp.sp) },
-                                minLines = 1,
-                                maxLines = 3,
-                                textStyle = MaterialTheme.typography.bodyMedium.copy(fontSize = density.nativeBodySp.sp),
-                                trailingIcon = {
-                                    Box {
-                                        TextButton(
-                                            onClick = { composerActions = true },
-                                            modifier = Modifier.semantics { contentDescription = "Composer actions" },
-                                            contentPadding = PaddingValues(0.dp)
-                                        ) { Text("⋮", fontSize = 18.sp) }
-                                        DropdownMenu(
-                                            expanded = composerActions,
-                                            onDismissRequest = { composerActions = false }
-                                        ) {
-                                            DropdownMenuItem(
-                                                text = { Text("Ctrl+C") },
-                                                onClick = {
-                                                    composerActions = false
-                                                    activity.sendAgentFleetControlC()
-                                                }
-                                            )
-                                            DropdownMenuItem(
-                                                text = { Text("Shift+Tab") },
-                                                onClick = {
-                                                    composerActions = false
-                                                    activity.sendAgentFleetKey("SHIFT_TAB")
-                                                }
-                                            )
-                                        }
-                                    }
-                                },
-                                shape = RoundedCornerShape(14.dp),
-                                colors = if (planMode) OutlinedTextFieldDefaults.colors(
-                                    focusedBorderColor = PlanAmber,
-                                    unfocusedBorderColor = PlanAmber,
-                                    focusedPlaceholderColor = PlanAmber,
-                                    unfocusedPlaceholderColor = PlanAmber
-                                ) else OutlinedTextFieldDefaults.colors()
-                            )
-                            TextButton(
-                                onClick = {
-                                    if (activity.sendAgentFleetComposerText(composed, false)) {
-                                        text = ""
-                                        attachments.clear()
-                                    }
-                                },
-                                enabled = !uploading && hasContent,
-                                contentPadding = DenseButtonPadding
-                            ) { Text("Insert", fontSize = density.nativeMetadataSp.sp, textAlign = TextAlign.Center) }
-                            Button(
-                                onClick = {
-                                    if (activity.sendAgentFleetComposerText(composed, true)) {
-                                        text = ""
-                                        attachments.clear()
-                                    }
-                                },
-                                enabled = !uploading,
-                                contentPadding = DenseButtonPadding,
-                                shape = RoundedCornerShape(12.dp)
-                            ) { Text(agentFleetPrimaryActionLabel(hasContent), fontSize = density.nativeMetadataSp.sp, textAlign = TextAlign.Center) }
-                        }
-                        if (attachments.isNotEmpty()) {
-                            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                                attachments.take(3).forEach { path ->
-                                    AssistChip(onClick = { attachments.remove(path) }, label = { Text("✓ ${path.substringAfterLast('/')}") })
-                                }
-                            }
-                        }
-                        uploadError?.let { Text(it, color = Color(0xFFFFB86B), fontSize = 14.sp) }
                     }
-                }
+                )
             }
         }
     }
@@ -330,16 +254,169 @@ object AgentFleetComposer {
         )
     }
 
-    private const val MAX_MESSAGE_CHARS = 32_768
-    private const val MAX_ATTACHMENTS = 8
-    private val DenseButtonPadding = PaddingValues(horizontal = 8.dp, vertical = 6.dp)
+}
+
+internal data class AgentFleetComposerNativeState(
+    val target: String = "",
+    val interactionMode: String = "unknown",
+    val pendingQuestionId: String = "",
+    val visible: Boolean = false,
+    val items: List<ConversationItem> = emptyList(),
+    val revision: String = "",
+    val liveEventSerial: Long = 0
+)
+
+@Composable
+internal fun AgentFleetComposerContent(
+    target: String,
+    nativeState: AgentFleetComposerNativeState,
+    attachments: List<String>,
+    uploading: Boolean,
+    uploadError: String?,
+    onShowPendingQuestion: () -> Unit,
+    onAttach: () -> Unit,
+    onRemoveAttachment: (String) -> Unit,
+    onComposerText: (String, Boolean) -> Boolean,
+    localSuggestionsAvailableOverride: Boolean? = null,
+    localSuggestionDebugFakeOutput: String? = null
+) {
+    val context = LocalContext.current
+    val density by AgentFleetDisplayDensityStore.observe(context).collectAsState()
+    var text by rememberSaveable(target) { mutableStateOf("") }
+    val localSuggestions = remember(target, localSuggestionsAvailableOverride, localSuggestionDebugFakeOutput) {
+        NativeLocalSuggestionState(context, localSuggestionsAvailableOverride, localSuggestionDebugFakeOutput)
+    }
+    DisposableEffect(localSuggestions) { onDispose { localSuggestions.close() } }
+    LaunchedEffect(
+        nativeState.target,
+        nativeState.visible,
+        nativeState.revision,
+        nativeState.liveEventSerial
+    ) {
+        localSuggestions.clear()
+    }
+
+    val nativeForTarget = nativeState.target == target && nativeState.visible
+    val planMode = nativeState.target == target && nativeState.interactionMode == "plan"
+    Surface(color = MaterialTheme.colorScheme.surface) {
+        Column(
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 5.dp),
+            verticalArrangement = Arrangement.spacedBy(4.dp)
+        ) {
+            if (nativeState.target == target && nativeState.pendingQuestionId.isNotBlank()) {
+                Button(
+                    onClick = onShowPendingQuestion,
+                    modifier = Modifier.fillMaxWidth(),
+                    contentPadding = DenseButtonPadding,
+                    shape = RoundedCornerShape(14.dp)
+                ) { Text("Answer needed · Tap to open", fontSize = density.nativeBodySp.sp) }
+            }
+            val composed = buildAgentFleetComposerText(text, attachments)
+            val hasContent = composed.isNotEmpty()
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                verticalAlignment = androidx.compose.ui.Alignment.Top
+            ) {
+                OutlinedTextField(
+                    value = text,
+                    onValueChange = {
+                        if (it.length <= MAX_MESSAGE_CHARS && '\u0000' !in it) {
+                            text = it
+                            if (it.isNotBlank()) localSuggestions.clear()
+                        }
+                    },
+                    modifier = Modifier
+                        .weight(1f)
+                        .heightIn(min = 148.dp)
+                        .testTag("agent-fleet-message-input")
+                        .semantics {
+                            contentDescription = if (planMode) "Plan mode message input" else "Message input"
+                        },
+                    placeholder = { Text(if (planMode) "Plan message…" else "Message…", fontSize = density.nativeBodySp.sp) },
+                    minLines = 4,
+                    maxLines = 7,
+                    textStyle = MaterialTheme.typography.bodyMedium.copy(fontSize = density.nativeBodySp.sp),
+                    shape = RoundedCornerShape(14.dp),
+                    colors = if (planMode) OutlinedTextFieldDefaults.colors(
+                        focusedBorderColor = PlanAmber,
+                        unfocusedBorderColor = PlanAmber,
+                        focusedPlaceholderColor = PlanAmber,
+                        unfocusedPlaceholderColor = PlanAmber
+                    ) else OutlinedTextFieldDefaults.colors()
+                )
+                Column(
+                    modifier = Modifier.widthIn(min = 70.dp, max = 82.dp).testTag("agent-fleet-composer-action-stack"),
+                    verticalArrangement = Arrangement.spacedBy(2.dp)
+                ) {
+                    TextButton(
+                        onClick = onAttach,
+                        enabled = !uploading && attachments.size < MAX_ATTACHMENTS,
+                        modifier = Modifier.fillMaxWidth().testTag("agent-fleet-composer-attach"),
+                        contentPadding = DenseButtonPadding
+                    ) { Text(if (uploading) "Wait…" else "Attach", fontSize = density.nativeMetadataSp.sp) }
+                    TextButton(
+                        onClick = {
+                            if (onComposerText(composed, false)) {
+                                text = ""
+                                localSuggestions.clear()
+                            }
+                        },
+                        enabled = !uploading && hasContent,
+                        modifier = Modifier.fillMaxWidth().testTag("agent-fleet-composer-insert"),
+                        contentPadding = DenseButtonPadding
+                    ) { Text("Insert", fontSize = density.nativeMetadataSp.sp) }
+                    Button(
+                        onClick = {
+                            if (onComposerText(composed, true)) {
+                                text = ""
+                                localSuggestions.clear()
+                            }
+                        },
+                        enabled = !uploading,
+                        modifier = Modifier.fillMaxWidth().testTag("agent-fleet-composer-send"),
+                        contentPadding = DenseButtonPadding,
+                        shape = RoundedCornerShape(12.dp)
+                    ) { Text(agentFleetPrimaryActionLabel(hasContent), fontSize = density.nativeMetadataSp.sp) }
+                }
+            }
+            if (nativeForTarget && localSuggestions.targetKey == "composer") {
+                LocalSuggestionChoices(localSuggestions, onUse = { suggestion ->
+                    text = suggestion
+                    localSuggestions.clear()
+                })
+            } else if (
+                nativeForTarget &&
+                localSuggestions.available &&
+                canSuggestForComposer(nativeState.items, text)
+            ) {
+                TextButton(
+                    onClick = { localSuggestions.request(nativeState.items, LocalSuggestionTarget("composer")) },
+                    modifier = Modifier.align(androidx.compose.ui.Alignment.End).testTag("local-suggest-composer"),
+                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp)
+                ) { Text("Suggest locally", fontSize = density.nativeMetadataSp.sp) }
+            }
+            if (attachments.isNotEmpty()) {
+                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    attachments.take(3).forEach { path ->
+                        AssistChip(onClick = { onRemoveAttachment(path) }, label = { Text("✓ ${path.substringAfterLast('/')}") })
+                    }
+                }
+            }
+            uploadError?.let { Text(it, color = Color(0xFFFFB86B), fontSize = 14.sp) }
+        }
+    }
+}
+
+private const val MAX_MESSAGE_CHARS = 32_768
+private const val MAX_ATTACHMENTS = 8
+private val DenseButtonPadding = PaddingValues(horizontal = 8.dp, vertical = 6.dp)
 private val ComposerColors = darkColorScheme(
-        primary = Color(0xFFAFC6FF),
-        surface = Color(0xFF111318),
-        onSurface = Color(0xFFE6E8EE)
+    primary = Color(0xFFAFC6FF),
+    surface = Color(0xFF111318),
+    onSurface = Color(0xFFE6E8EE)
 )
 private val PlanAmber = Color(0xFFFFB74D)
-}
 
 internal fun buildAgentFleetComposerText(text: String, attachments: List<String>): String = buildString {
     append(text.trimEnd())

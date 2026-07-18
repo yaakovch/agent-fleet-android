@@ -599,7 +599,8 @@ trusted fleet.
 
 ## Local Reply Suggestions
 
-- Native conversations expose an opt-in Suggest action after completed
+- Both phone-fullscreen and desktop-pane Native conversations expose an opt-in
+  Suggest action after completed
   assistant messages and in structured free-text answer fields. It is hidden
   while a draft exists and is unavailable for approvals and choice questions.
   Suggestions are generated only on tap; choosing one fills but never submits.
@@ -626,8 +627,9 @@ trusted fleet.
   render as a nearly flat transcript with hairline separation, while user,
   approval, question, tool, task, error, and other interactive content retains
   compact visual grouping. The default 15sp body, reduced chrome, 6dp feed
-  rhythm, and one-row composer target 30–40% more visible conversation without
-  changing message, draft, attachment, suggestion, action, or paging behavior.
+  rhythm, and compact desktop-pane composer target 30–40% more visible
+  conversation without changing message, draft, attachment, suggestion,
+  action, or paging behavior.
 - The Terminal session drawer is a full-height overlay above Native/Terminal
   content, the composer, and extra keys. It dismisses the visible IME on open,
   uses 46dp visual session rows with at least 48dp tap regions, and moves Agent
@@ -644,3 +646,8 @@ trusted fleet.
 - These preferences are Android-local presentation state. They do not change
   wtmux protocol, workspace schema, Terminal font/margins, Windows UI, exported
   diagnostics, session behavior, or host runtime.
+- The phone-fullscreen composer uses a four-to-seven-line editor beside a narrow
+  vertical Attach, Insert, and Send stack. Its redundant overflow menu is
+  removed because Ctrl+C and Shift+Tab remain in the Native header Actions menu.
+  Local suggestion results temporarily expand below the editor and selecting a
+  suggestion only fills the draft.

@@ -973,3 +973,19 @@ and the arm64 APK SHA-256 is
 `.54` remains available for rollback. Physical S23FE density, IME, and
 Terminal-strip interaction smoke remains manual; automated tooling did not
 access the phone.
+
+## 41. Phone Native Suggestions and Composer Refit
+
+1. Pass the active phone Native conversation state into the standalone composer
+   and reuse the existing local suggestion client, eligibility rules, bounded
+   prompt builder, results UI, and cancellation lifecycle.
+2. Keep suggestions hidden in Terminal, while a draft exists, and outside a
+   completed assistant turn. Selecting a result fills but never submits.
+3. Replace the narrow one-line phone editor and redundant overflow menu with a
+   four-to-seven-line field beside a vertical Attach, Insert, and Send stack;
+   retain Ctrl+C and Shift+Tab in the Native header Actions menu.
+4. Add a deterministic API 36 regression that invokes the debug fake model
+   through the Binder service, chooses a suggestion, verifies no automatic
+   submission, and asserts the action stack geometry.
+5. Run the full JVM/API 36/lint/release verification and publish permanent-ID
+   `.56`/1058 through `fleet/latest`, retaining `.55` for rollback.

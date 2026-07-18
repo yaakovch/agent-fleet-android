@@ -350,12 +350,13 @@ private fun NativeAiComposer(
     }
 }
 
-private class NativeLocalSuggestionState(
+internal class NativeLocalSuggestionState(
     context: android.content.Context,
-    private val availableOverride: Boolean? = null
+    private val availableOverride: Boolean? = null,
+    debugFakeOutput: String? = null
 ) : AutoCloseable {
     private val app = context.applicationContext
-    private val client = LocalSuggestionClient(app)
+    private val client = LocalSuggestionClient(app, debugFakeOutput)
     private var serial = 0L
     var targetKey by mutableStateOf("")
         private set
@@ -393,7 +394,7 @@ private class NativeLocalSuggestionState(
 }
 
 @Composable
-private fun LocalSuggestionChoices(state: NativeLocalSuggestionState, onUse: (String) -> Unit) {
+internal fun LocalSuggestionChoices(state: NativeLocalSuggestionState, onUse: (String) -> Unit) {
     Card(
         modifier = Modifier.fillMaxWidth().testTag("local-suggestion-results"),
         shape = RoundedCornerShape(12.dp),
