@@ -1021,3 +1021,18 @@ Automated tooling did not access the physical S23FE.
    then run focused JVM tests, the full isolated API 36 suite, lint, signed
    release/identity/runtime/checksum gates, and publish `.57`/1059 through
    `fleet/latest` while retaining `.56` for rollback.
+
+Implementation record (2026-07-18): commit `e22bed34` adds the task-last prompt,
+quoted transcript boundary, and total byte budget. All 118 JVM tests and all 30
+managed API 36 scenarios passed at
+`build/reports/agent-fleet/emulator/20260718T192426Z-full`; release lint passed
+with zero errors. Signed/minified arm64 and universal `.57`/1059 APKs passed
+certificate, permanent identity, checksum, and 84-package embedded-runtime
+verification. `.57` is published through `fleet/latest`; the HTTPS-served
+manifest SHA-256 is
+`621d5d4430be9fcab46a527dfb58c15f0d864d45d3831ba6ebea6e4b59deab0a`
+and arm64 APK SHA-256 is
+`bf7892cafd98b4f03204b627e99771dbcb801c74858eaa980c4ac3f05f189d05`.
+`.56` remains available for rollback. The exact Gemma regression and 30-prompt
+quality benchmark remain a manual S23FE acceptance step; automated tooling did
+not access the phone.
