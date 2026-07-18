@@ -70,6 +70,9 @@ class DrawerSessionStore(context: Context) {
         loadState().records[sessionId]?.surface ?: DrawerSessionSurface.Native
 
     @Synchronized
+    fun sessionFor(sessionId: String): FleetSession? = loadState().records[sessionId]?.session
+
+    @Synchronized
     fun remove(sessionId: String) {
         val state = loadState()
         if (state.records.remove(sessionId) != null) saveState(state)

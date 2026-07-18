@@ -307,7 +307,8 @@ class UnifiedTerminalDrawerController(
     }
 
     private fun closeRemote(row: DrawerRemoteSession) {
-        service?.finishAgentFleetWorkspaceSession(row.session.id)
+        if (service?.currentAgentFleetSessionId == row.session.id) activity.closeAgentFleetSessionTab()
+        else service?.finishAgentFleetWorkspaceSession(row.session.id)
         rebuild()
     }
 

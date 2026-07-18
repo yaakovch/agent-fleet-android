@@ -10,6 +10,8 @@ import androidx.test.platform.app.InstrumentationRegistry
 import androidx.test.rule.ServiceTestRule
 import com.termux.app.fleet.AgentFleetAttachmentPolicy
 import com.termux.app.fleet.AgentFleetContract
+import com.termux.app.fleet.AgentFleetSessionResumeController
+import com.termux.app.fleet.FleetSession
 import com.termux.shared.models.ExecutionCommand
 import com.termux.shared.settings.preferences.TermuxAppSharedPreferences
 import com.termux.shared.shell.TermuxSession
@@ -74,6 +76,45 @@ class TermuxAttachmentServiceTest {
         check(sessionId in service.agentFleetWorkspaceSessionIds) { "The reused attachment was not retained" }
     }
 
+    @Test
+    fun foregroundResumeReplacesAnExitedManagedAttachment() {
+        val descriptor = fleetSession("emulator:resume")
+        val expired = createSession(descriptor.id, "Expired")
+        onMain { service.onTermuxSessionExited(expired) }
+        waitUntil { service.getAgentFleetWorkspaceSession(descriptor.id) == null }
+        var starts = 0
+        var selected = ""
+        val controller = AgentFleetSessionResumeController(
+            { id -> descriptor.takeIf { it.id == id } },
+            object : AgentFleetSessionResumeController.AttachmentHost {
+                override fun hasRunningAttachment(sessionId: String): Boolean =
+                    service.getAgentFleetWorkspaceSession(sessionId) != null
+
+                override fun startAttachment(session: FleetSession) {
+                    starts++
+                    createSession(session.id, session.name)
+                }
+
+                override fun selectAttachment(sessionId: String): Boolean =
+                    service.selectAgentFleetWorkspaceSession(sessionId)
+            },
+            object : AgentFleetSessionResumeController.Scheduler {
+                override fun postDelayed(runnable: Runnable, delayMillis: Long) = runnable.run()
+                override fun cancelAll() = Unit
+            },
+            object : AgentFleetSessionResumeController.Listener {
+                override fun onSelected(sessionId: String) { selected = sessionId }
+                override fun onError(message: String) { error(message) }
+            }
+        )
+
+        controller.onForeground(descriptor.id)
+
+        assertEquals(1, starts)
+        assertEquals(descriptor.id, selected)
+        assertEquals(1, managedCount(descriptor.id))
+    }
+
     private fun createSession(sessionId: String?, name: String): TermuxSession {
         val created = AtomicReference<TermuxSession>()
         onMain {
@@ -115,6 +156,21 @@ class TermuxAttachmentServiceTest {
     private fun managedCount(sessionId: String): Int = service.termuxSessions.count {
         AgentFleetAttachmentPolicy.sessionId(it.executionCommand?.commandDescription) == sessionId
     }
+
+    private fun fleetSession(id: String) = FleetSession(
+        id = id,
+        hostId = "emulator",
+        internalName = "resume",
+        name = "Resume",
+        title = "Codex",
+        project = "wtmux",
+        tool = "codex",
+        backend = "linux",
+        activity = "active",
+        attached = false,
+        updatedAt = null,
+        pendingScheduleCount = 0
+    )
 
     private fun onMain(block: () -> Unit) {
         InstrumentationRegistry.getInstrumentation().runOnMainSync(block)

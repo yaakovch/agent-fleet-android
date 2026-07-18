@@ -52,6 +52,9 @@ class DrawerSessionStoreTest {
         assertTrue(rows.first().pinned)
         assertEquals(DrawerSessionSurface.Terminal, rows.last().surface)
         assertEquals(DrawerSessionSurface.Terminal, store.surfaceFor(second.id))
+        assertEquals(second.id, store.sessionFor(second.id)?.id)
+        assertEquals(second.hostId, store.sessionFor(second.id)?.hostId)
+        assertEquals(second.internalName, store.sessionFor(second.id)?.internalName)
     }
 
     @Test

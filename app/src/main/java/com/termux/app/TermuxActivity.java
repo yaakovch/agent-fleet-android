@@ -13,7 +13,9 @@ import android.content.ServiceConnection;
 import android.content.pm.PackageManager;
 import android.net.Uri;
 import android.os.Bundle;
+import android.os.Handler;
 import android.os.IBinder;
+import android.os.Looper;
 import android.view.ContextMenu;
 import android.view.ContextMenu.ContextMenuInfo;
 import android.view.Gravity;
@@ -36,7 +38,10 @@ import com.termux.app.fleet.NativeSessionController;
 import com.termux.app.fleet.NativeSessionHost;
 import com.termux.app.fleet.TerminalScrollbackController;
 import com.termux.app.fleet.DrawerSessionSurface;
+import com.termux.app.fleet.DrawerSessionStore;
 import com.termux.app.fleet.FleetSession;
+import com.termux.app.fleet.FleetRuntime;
+import com.termux.app.fleet.AgentFleetSessionResumeController;
 import com.termux.app.fleet.UnifiedTerminalDrawerController;
 import com.termux.shared.activities.ReportActivity;
 import com.termux.shared.packages.PermissionUtils;
@@ -182,6 +187,9 @@ public final class TermuxActivity extends ComponentActivity implements ServiceCo
     private Uri mAgentFleetCameraUri;
     private NativeSessionController mAgentFleetNativeSession;
     private TerminalScrollbackController mAgentFleetTerminalScrollback;
+    private AgentFleetSessionResumeController mAgentFleetSessionResume;
+    private FleetRuntime mAgentFleetResumeRuntime;
+    private boolean mShouldRestoreAgentFleetSession;
 
     private static final String LOG_TAG = "TermuxActivity";
 
@@ -204,6 +212,8 @@ public final class TermuxActivity extends ComponentActivity implements ServiceCo
         setActivityTheme();
 
         super.onCreate(savedInstanceState);
+
+        mShouldRestoreAgentFleetSession = savedInstanceState != null && managedSessionId(getIntent()) != null;
 
         setContentView(R.layout.activity_termux);
 
@@ -248,6 +258,7 @@ public final class TermuxActivity extends ComponentActivity implements ServiceCo
         });
         mAgentFleetTerminalScrollback = new TerminalScrollbackController(this);
         mAgentFleetTerminalScrollback.setTerminalView(mTerminalView);
+        configureAgentFleetSessionResume();
         updateAgentFleetInputMode(getIntent());
 
         registerForContextMenu(mTerminalView);
@@ -295,11 +306,15 @@ public final class TermuxActivity extends ComponentActivity implements ServiceCo
 
         if (mUnifiedDrawerController != null)
             mUnifiedDrawerController.onStart();
+
+        restoreAgentFleetSessionIfNeeded();
     }
 
     @Override
     protected void onNewIntent(Intent intent) {
         super.onNewIntent(intent);
+        if (mAgentFleetSessionResume != null) mAgentFleetSessionResume.onBackground();
+        mShouldRestoreAgentFleetSession = false;
         setIntent(intent);
         updateAgentFleetInputMode(intent);
         selectAgentFleetTarget(intent, 0);
@@ -358,7 +373,10 @@ public final class TermuxActivity extends ComponentActivity implements ServiceCo
         if (session == null || service == null) return;
         String sessionId = getIntent() == null ? null :
             getIntent().getStringExtra(AgentFleetContract.EXTRA_WORKSPACE_SESSION_ID);
-        if (sessionId != null) service.finishAgentFleetWorkspaceSession(sessionId);
+        if (sessionId != null) {
+            service.finishAgentFleetWorkspaceSession(sessionId);
+            clearManagedSessionTarget();
+        }
         else session.finishIfRunning();
     }
 
@@ -566,6 +584,9 @@ public final class TermuxActivity extends ComponentActivity implements ServiceCo
 
         mIsVisible = false;
 
+        mShouldRestoreAgentFleetSession = managedSessionId(getIntent()) != null;
+        if (mAgentFleetSessionResume != null) mAgentFleetSessionResume.onBackground();
+
         if (mTermuxTerminalSessionClient != null)
             mTermuxTerminalSessionClient.onStop();
 
@@ -603,6 +624,15 @@ public final class TermuxActivity extends ComponentActivity implements ServiceCo
         if (mAgentFleetTerminalScrollback != null) {
             mAgentFleetTerminalScrollback.close();
             mAgentFleetTerminalScrollback = null;
+        }
+
+        if (mAgentFleetSessionResume != null) {
+            mAgentFleetSessionResume.close();
+            mAgentFleetSessionResume = null;
+        }
+        if (mAgentFleetResumeRuntime != null) {
+            mAgentFleetResumeRuntime.shutdown();
+            mAgentFleetResumeRuntime = null;
         }
 
         if (mUnifiedDrawerController != null) {
@@ -650,7 +680,7 @@ public final class TermuxActivity extends ComponentActivity implements ServiceCo
         if (mUnifiedDrawerController != null)
             mUnifiedDrawerController.attachService(mTermuxService);
 
-        if (mTermuxService.isTermuxSessionsEmpty()) {
+        if (mTermuxService.isTermuxSessionsEmpty() && !mShouldRestoreAgentFleetSession) {
             if (mIsVisible) {
                 TermuxInstaller.setupBootstrapIfNeeded(TermuxActivity.this, () -> {
                     if (mTermuxService == null) return; // Activity might have been destroyed.
@@ -683,6 +713,87 @@ public final class TermuxActivity extends ComponentActivity implements ServiceCo
         // Update the {@link TerminalSession} and {@link TerminalEmulator} clients.
         mTermuxService.setTermuxTerminalSessionClient(mTermuxTerminalSessionClient);
         selectAgentFleetTarget(getIntent(), 0);
+        restoreAgentFleetSessionIfNeeded();
+    }
+
+    private void configureAgentFleetSessionResume() {
+        final Handler handler = new Handler(Looper.getMainLooper());
+        final DrawerSessionStore sessions = new DrawerSessionStore(getApplicationContext());
+        mAgentFleetResumeRuntime = new FleetRuntime(getApplicationContext());
+        mAgentFleetSessionResume = new AgentFleetSessionResumeController(
+            sessions::sessionFor,
+            new AgentFleetSessionResumeController.AttachmentHost() {
+                @Override
+                public boolean hasRunningAttachment(String sessionId) {
+                    return mTermuxService != null && mTermuxService.getAgentFleetWorkspaceSession(sessionId) != null;
+                }
+
+                @Override
+                public void startAttachment(FleetSession session) {
+                    mAgentFleetResumeRuntime.startWorkspaceSession(session);
+                }
+
+                @Override
+                public boolean selectAttachment(String sessionId) {
+                    return mTermuxService != null && mTermuxService.selectAgentFleetWorkspaceSession(sessionId);
+                }
+            },
+            new AgentFleetSessionResumeController.Scheduler() {
+                @Override
+                public void postDelayed(Runnable runnable, long delayMillis) {
+                    handler.postDelayed(runnable, delayMillis);
+                }
+
+                @Override
+                public void cancelAll() {
+                    handler.removeCallbacksAndMessages(null);
+                }
+            },
+            new AgentFleetSessionResumeController.Listener() {
+                @Override
+                public void onSelected(String sessionId) {
+                    Intent current = getIntent();
+                    if (!sessionId.equals(managedSessionId(current))) return;
+                    mShouldRestoreAgentFleetSession = false;
+                    selectAgentFleetTarget(current, 0);
+                    if (mTerminalView != null) mTerminalView.post(() -> {
+                        mTerminalView.updateSize();
+                        mTerminalView.onScreenUpdated();
+                    });
+                }
+
+                @Override
+                public void onError(String message) {
+                    if (mIsVisible) showToast(message, true);
+                }
+            }
+        );
+    }
+
+    private void restoreAgentFleetSessionIfNeeded() {
+        if (!mIsVisible || !mShouldRestoreAgentFleetSession || mTermuxService == null || mAgentFleetSessionResume == null)
+            return;
+        mAgentFleetSessionResume.onForeground(managedSessionId(getIntent()));
+    }
+
+    @Nullable
+    private static String managedSessionId(@Nullable Intent intent) {
+        if (intent == null) return null;
+        String value = intent.getStringExtra(AgentFleetContract.EXTRA_WORKSPACE_SESSION_ID);
+        return value != null && value.matches("[A-Za-z0-9._: -]{1,180}") ? value : null;
+    }
+
+    private void clearManagedSessionTarget() {
+        Intent current = getIntent();
+        if (current != null) {
+            current.removeExtra(AgentFleetContract.EXTRA_WORKSPACE_SESSION_ID);
+            current.removeExtra(AgentFleetContract.EXTRA_HOST_ID);
+            current.removeExtra(AgentFleetContract.EXTRA_PROJECT);
+            current.removeExtra(AgentFleetContract.EXTRA_INTERNAL_SESSION);
+            current.removeExtra(AgentFleetContract.EXTRA_SESSION_NAME);
+        }
+        mShouldRestoreAgentFleetSession = false;
+        if (mAgentFleetSessionResume != null) mAgentFleetSessionResume.onBackground();
     }
 
     @Override

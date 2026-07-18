@@ -1036,3 +1036,17 @@ and arm64 APK SHA-256 is
 `.56` remains available for rollback. The exact Gemma regression and 30-prompt
 quality benchmark remain a manual S23FE acceptance step; automated tooling did
 not access the phone.
+
+## 43. Foreground Terminal Attachment Recovery
+
+1. Reproduce the reported return-from-another-app path as a managed attachment
+   that exits while `TermuxActivity` is stopped but leaves its renderer visible.
+2. Add a foreground-only coordinator that reselects a live attachment or starts
+   exactly one replacement from the remembered descriptor, then refits and
+   redraws the existing terminal view. Do not create a classic shell during
+   managed process restoration or resurrect an explicitly closed local tab.
+3. Cover live selection, dead replacement, duplicate foreground callbacks,
+   background cancellation, missing descriptors, and the real terminal-service
+   replacement handoff. Run focused JVM tests and the isolated API 36 fast/full
+   suites, lint, signed release/identity/runtime/checksum gates, then publish
+   `.58`/1060 through `fleet/latest` while retaining `.57` for rollback.

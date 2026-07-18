@@ -460,6 +460,20 @@ trusted fleet.
   official Termux because both own `com.termux`. Automated tools never operate
   the physical phone.
 
+## Foreground Terminal Attachment Recovery
+
+- Returning to a compact managed session after Agent Fleet was backgrounded
+  must show that same session, not a completed local SSH transport. If the
+  service-owned attachment ended while backgrounded, Android recreates it once
+  from the bounded remembered session descriptor and reselects the replacement.
+- A still-running attachment is only reselected. Recovery never polls or loops
+  while the activity is backgrounded, never creates a classic local shell, and
+  never runs after an explicit local tab close. A failed reconnect stays
+  bounded and directs the user back to Sessions.
+- This is Android-local lifecycle recovery. It does not restart or duplicate
+  the remote tmux session and changes no wtmux protocol, registry, workspace,
+  history, Native conversation, Windows, or persisted Fleet schema behavior.
+
 ## Instant Local Terminal History
 
 - In compact and Desktop Terminal views, alternate-screen Codex, Claude, and
