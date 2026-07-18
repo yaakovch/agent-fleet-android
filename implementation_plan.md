@@ -1050,3 +1050,20 @@ not access the phone.
    replacement handoff. Run focused JVM tests and the isolated API 36 fast/full
    suites, lint, signed release/identity/runtime/checksum gates, then publish
    `.58`/1060 through `fleet/latest` while retaining `.57` for rollback.
+
+Implementation record (2026-07-18): source commit `64005c28` adds bounded,
+foreground-only managed attachment recovery and prevents managed process
+restoration from creating a classic shell. The focused resume/store suite and
+the API 36 fast run passed; all 122 JVM tests and 31 managed Pixel 7/API 36
+scenarios passed at
+`build/reports/agent-fleet/emulator/20260718T202212Z-full`, with two review-only
+goldens skipped. Release lint completed with zero errors, and embedded runtime
+`git-bdc19c0` verified all 84 packages. Signed/minified arm64 and universal
+`.58`/1060 APKs passed certificate, permanent identity, checksum, and runtime
+verification. `.58` is published through `fleet/latest`; the HTTPS-served
+manifest SHA-256 is
+`c92a0cc18459d4c66200ba314374a853c083dab9a254ad9f2cd6042c0a257b21`
+and arm64 APK SHA-256 is
+`8777aa1c455e5a954ea888807d89578992b71a87e7d2124ec20f27c8eae5c9ce`.
+`.57` remains available for rollback. Automated tooling did not access the
+physical S23FE.
