@@ -1067,3 +1067,40 @@ and arm64 APK SHA-256 is
 `8777aa1c455e5a954ea888807d89578992b71a87e7d2124ec20f27c8eae5c9ce`.
 `.57` remains available for rollback. Automated tooling did not access the
 physical S23FE.
+
+## 44. Terminal Chrome, Visible Reconnect, And Native Activity Hotfix
+
+1. Give the fullscreen Terminal model/session chrome one fixed 48dp host and
+   content height, and derive Terminal padding from the same resource instead
+   of a Compose view's transient measured height.
+2. Extend managed attachment recovery to unexpected nonzero exits while the
+   session remains visible. Use bounded 1/2/5/10/30-second retries, reset the
+   budget after 30 seconds of stability, and suppress recovery after explicit
+   close, normal exit, backgrounding, or target changes.
+3. Put App updates first in More and render provider work activity in Native's
+   top row as `Working (elapsed)`. Prefer Codex/Copilot lifecycle events and
+   infer Claude activity from its user, tool, reply, question, and completion
+   sequence without changing the shared conversation protocol.
+4. Cover chrome height, visible/background reconnect decisions, menu order,
+   timestamp parsing, provider activity, and elapsed formatting. Run focused
+   tests, fast/full isolated API 36 suites, release lint, signing, embedded
+   runtime/identity/checksum verification, and publish `.60`/1062 while
+   retaining `.59` for rollback.
+
+Implementation record (2026-07-19): source commit `5ac82644` fixes the
+full-height Terminal chrome regression, adds bounded visible recovery for SSH
+exit 255 and other nonzero transport failures, moves App updates first, and
+shows live Native work duration for Codex, Claude Code, and Copilot. The
+focused 27-test run and all 25 fast emulator scenarios passed. All 128 JVM
+tests and the complete managed Pixel 7/API 36 suite passed at
+`build/reports/agent-fleet/emulator/20260719T001055Z-full`; two review-only
+golden generators were skipped. Windows-hosted release lint passed with zero
+errors, and embedded runtime `git-c8772e3` verified all 84 packages. Signed,
+minified arm64 and universal `.60`/1062 APKs passed certificate, permanent
+identity, checksum, and runtime verification. `.60` is published through
+`fleet/latest`; the HTTPS-served manifest SHA-256 is
+`468e80651a6105a963dc1d3cac9ebe0c7ba176075572a30510b9c23c9942677f`
+and arm64 APK SHA-256 is
+`b6864376bd26676cb00e6df352068345ea61c8619b737e6cabd603036ebdb2b9`.
+`.59` remains available for rollback. Automated tooling did not access the
+physical S23FE.
