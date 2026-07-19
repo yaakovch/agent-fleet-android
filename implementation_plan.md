@@ -1167,3 +1167,41 @@ and arm64 APK SHA-256 is
 `b626528fc01705acccc92123a250fff444f530a653c02b46255f6298e1e567ca`.
 `.61` remains available for rollback. Automated tooling did not access the
 physical S23FE.
+
+## 47. Exact Codex Completed Work Duration Hotfix
+
+1. Read Codex's authoritative `duration_ms` and `completed_at` values from its
+   completion event in wtmux and carry them through the existing optional
+   conversation-item start/completion timestamps; do not scrape or transport
+   terminal output.
+2. Prefer that provider interval for Native's completed `Worked for …` value,
+   retaining lifecycle inference as a compatibility fallback for older hosts
+   and other providers.
+3. Give Windows the same exact completed-duration presentation and cover the
+   shared normalizer plus both clients with exact millisecond-to-display
+   regressions.
+4. Run the full isolated API 36 and release gates, publish permanent-ID
+   `.63`/1065 through `fleet/latest`, retain `.62` for rollback, and leave the
+   physical-phone update and Native smoke to the user.
+
+Implementation record (2026-07-19): wtmux commit `20f1bae` maps Codex's
+authoritative completion duration onto existing conversation timestamps, and
+Android source commit `bf860719` prefers that exact interval while preserving
+the prior inferred fallback. Windows commit `be0913f` adds the same presentation.
+The shared 37-test conversation suite, all 165 root Python tests plus four
+subtests, all 74 Bats tests, root smoke, Windows lint, all 140 Windows tests,
+and the Windows production build passed. All 131 Android JVM tests and the
+complete managed Pixel 7/API 36 suite passed at
+`build/reports/agent-fleet/emulator/20260719T044321Z-full`; 38 instrumentation
+cases completed with two review-only golden generators skipped. Release lint
+completed with zero errors, and the signed/minified arm64 and universal APKs
+passed certificate, permanent identity, checksum, and embedded runtime
+`git-c8772e3` verification across all 84 packages. `.63`/1065 is published
+through `fleet/latest`; the HTTPS-served manifest SHA-256 is
+`a7010e4f74c02e41935f45e2b14271d69e5241610ed909414165bf65d22c0e03`,
+the arm64 APK SHA-256 is
+`4bb5307c4995ed6cfbea897dcb611cbfde96d694b053d14827f8cc0b94f28814`,
+and the universal APK SHA-256 is
+`5981fec815751fd9873f7bf2473829e83352c4dcdd6217d252b4f2e9bdeaec5b`.
+`.62` remains available for rollback. Automated tooling did not access the
+physical S23FE.
