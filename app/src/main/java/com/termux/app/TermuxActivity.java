@@ -490,7 +490,7 @@ public final class TermuxActivity extends ComponentActivity implements ServiceCo
             terminalChrome.post(() -> {
                 if (mTerminalView == null) return;
                 int top = terminalChrome.getVisibility() == View.VISIBLE
-                    ? getResources().getDimensionPixelSize(R.dimen.agent_fleet_terminal_chrome_height) : 0;
+                    ? getResources().getDimensionPixelSize(R.dimen.agent_fleet_compact_session_header_height) : 0;
                 if (mTerminalView.getPaddingTop() != top) {
                     mTerminalView.setPadding(mTerminalView.getPaddingLeft(), top,
                         mTerminalView.getPaddingRight(), mTerminalView.getPaddingBottom());

@@ -52,7 +52,7 @@
                         android:id="@+id/agent_fleet_terminal_chrome"
                         android:visibility="gone"
                         android:layout_width="match_parent"
-                        android:layout_height="@dimen/agent_fleet_terminal_chrome_height"
+                        android:layout_height="@dimen/agent_fleet_compact_session_header_height"
                         android:layout_gravity="top" />
 
                     <Button

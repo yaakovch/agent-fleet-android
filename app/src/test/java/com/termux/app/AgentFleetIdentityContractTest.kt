@@ -31,8 +31,8 @@ class AgentFleetIdentityContractTest {
             PackageManager.GET_ACTIVITIES or PackageManager.GET_PROVIDERS or PackageManager.GET_SERVICES or
                 PackageManager.GET_PERMISSIONS or PackageManager.GET_META_DATA
         )
-        assertEquals(1067, info.longVersionCode)
-        assertEquals("0.118.4-agentfleet.65", info.versionName)
+        assertEquals(1068, info.longVersionCode)
+        assertEquals("0.118.4-agentfleet.66", info.versionName)
         assertNull(info.sharedUserId)
         val exportedActivities = info.activities.orEmpty().filter { it.exported && it.name.startsWith("com.termux.") }.associateBy { it.name }
         assertEquals(
@@ -80,7 +80,7 @@ class AgentFleetIdentityContractTest {
         assertEquals(View.VISIBLE, terminal.visibility)
         assertEquals(1f, terminal.alpha)
         assertEquals(
-            context.resources.getDimensionPixelSize(R.dimen.agent_fleet_terminal_chrome_height),
+            context.resources.getDimensionPixelSize(R.dimen.agent_fleet_compact_session_header_height),
             terminalChrome.layoutParams.height
         )
         assertTrue(TerminalView::class.java.methods.any { it.name == "setLocalScrollback" })

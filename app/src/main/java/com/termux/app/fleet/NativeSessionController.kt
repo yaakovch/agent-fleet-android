@@ -109,7 +109,12 @@ class NativeSessionController @JvmOverloads constructor(
                     onShowNative = ::showNative,
                     onRefreshModel = { refreshModelControl(includeCatalog = true, showLoading = true) },
                     onSetModel = ::setModelControl,
-                    onCancelModel = ::cancelModelControl
+                    onCancelModel = ::cancelModelControl,
+                    aiComposer = aiComposer,
+                    onControlC = { activity.sendAgentFleetControlC() },
+                    onShellKey = activity::sendAgentFleetKey,
+                    onCloseSession = ::closeSession,
+                    onKillSession = ::killSession
                 )
             }
         }

@@ -69,6 +69,7 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.res.dimensionResource
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
@@ -139,8 +140,6 @@ fun NativeSessionScreen(
     }
     DisposableEffect(localSuggestions) { onDispose { localSuggestions.close() } }
     LaunchedEffect(state.revision, state.liveEventSerial) { localSuggestions.clear() }
-    var actionMenu by rememberSaveable { mutableStateOf(false) }
-    var confirmKill by rememberSaveable { mutableStateOf(false) }
     var actionSheetId by rememberSaveable { mutableStateOf("") }
     var dismissedActionId by rememberSaveable { mutableStateOf("") }
     var feedNearBottom by remember { mutableStateOf(true) }
@@ -165,52 +164,22 @@ fun NativeSessionScreen(
         modifier = Modifier.fillMaxSize().testTag("native-session-screen"),
         containerColor = MaterialTheme.colorScheme.background,
         topBar = {
-            if (showChrome) Surface(color = MaterialTheme.colorScheme.background, tonalElevation = 1.dp) {
-                Row(
-                    Modifier.fillMaxWidth().windowInsetsPadding(WindowInsets.statusBars).height(48.dp).padding(start = 12.dp, end = 4.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(4.dp)
-                ) {
-                    Column(Modifier.weight(1f)) {
-                        Text(state.sessionLabel, fontSize = AgentFleetDisplayDensity.DEFAULT_NATIVE_BODY_SP.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                        NativeSessionStatusLine(state)
-                    }
-                    if (state.sourceMode == "ai") SessionModelControlChip(
-                        state = state,
-                        onRefreshModel = onRefreshModel,
-                        onSetModel = onSetModel,
-                        onCancelModel = onCancelModel
-                    )
-                    OutlinedButton(onClick = onToggleTerminal, shape = RoundedCornerShape(14.dp), contentPadding = PaddingValues(horizontal = 12.dp, vertical = 7.dp)) {
-                        Text("Terminal", fontSize = (AgentFleetDisplayDensity.DEFAULT_NATIVE_BODY_SP - 3).sp)
-                    }
-                    Box {
-                        TextButton(onClick = { actionMenu = true }, contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp)) {
-                            Text("Actions", fontSize = (AgentFleetDisplayDensity.DEFAULT_NATIVE_BODY_SP - 3).sp)
-                        }
-                        DropdownMenu(expanded = actionMenu, onDismissRequest = { actionMenu = false }) {
-                            if (aiComposer) {
-                                DropdownMenuItem(
-                                    text = { Text("Ctrl+C") },
-                                    onClick = { actionMenu = false; onControlC() }
-                                )
-                                DropdownMenuItem(
-                                    text = { Text("Shift+Tab") },
-                                    onClick = { actionMenu = false; onShellKey("SHIFT_TAB") }
-                                )
-                            }
-                            DropdownMenuItem(
-                                text = { Text("Close this view") },
-                                onClick = { actionMenu = false; onCloseSession() }
-                            )
-                            DropdownMenuItem(
-                                text = { Text("Kill session", color = MaterialTheme.colorScheme.error) },
-                                enabled = !state.attentionBusy,
-                                onClick = { actionMenu = false; confirmKill = true }
-                            )
-                        }
-                    }
-                }
+            if (showChrome) CompositionLocalProvider(LocalDensity provides systemDensity) {
+                CompactSessionHeader(
+                    state = state,
+                    destinationLabel = "Terminal",
+                    headerTag = "native-session-header",
+                    modifier = Modifier.windowInsetsPadding(WindowInsets.statusBars),
+                    aiComposer = aiComposer,
+                    onToggleView = onToggleTerminal,
+                    onControlC = onControlC,
+                    onShellKey = onShellKey,
+                    onCloseSession = onCloseSession,
+                    onKillSession = onKillSession,
+                    onRefreshModel = onRefreshModel,
+                    onSetModel = onSetModel,
+                    onCancelModel = onCancelModel
+                )
             }
         },
         bottomBar = {
@@ -287,6 +256,134 @@ fun NativeSessionScreen(
             }
         }
     }
+    }
+}
+
+@Composable
+fun AgentFleetTerminalSessionChrome(
+    state: NativeSessionUiState,
+    onShowNative: () -> Unit,
+    onRefreshModel: () -> Unit,
+    onSetModel: (String, String, Boolean, Boolean) -> Unit,
+    onCancelModel: () -> Unit,
+    aiComposer: Boolean = state.sourceMode == "ai",
+    onControlC: () -> Unit = {},
+    onShellKey: (String) -> Unit = {},
+    onCloseSession: () -> Unit = {},
+    onKillSession: () -> Unit = {}
+) {
+    CompactSessionHeader(
+        state = state,
+        destinationLabel = "Native",
+        headerTag = "terminal-session-chrome",
+        aiComposer = aiComposer,
+        onToggleView = onShowNative,
+        onControlC = onControlC,
+        onShellKey = onShellKey,
+        onCloseSession = onCloseSession,
+        onKillSession = onKillSession,
+        onRefreshModel = onRefreshModel,
+        onSetModel = onSetModel,
+        onCancelModel = onCancelModel
+    )
+}
+
+@Composable
+private fun CompactSessionHeader(
+    state: NativeSessionUiState,
+    destinationLabel: String,
+    headerTag: String,
+    aiComposer: Boolean,
+    onToggleView: () -> Unit,
+    onControlC: () -> Unit,
+    onShellKey: (String) -> Unit,
+    onCloseSession: () -> Unit,
+    onKillSession: () -> Unit,
+    onRefreshModel: () -> Unit,
+    onSetModel: (String, String, Boolean, Boolean) -> Unit,
+    onCancelModel: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    var actionMenu by rememberSaveable(state.hostId, state.internalSession, destinationLabel) { mutableStateOf(false) }
+    var confirmKill by rememberSaveable(state.hostId, state.internalSession, destinationLabel) { mutableStateOf(false) }
+    Surface(
+        modifier = modifier
+            .fillMaxWidth()
+            .height(dimensionResource(com.termux.R.dimen.agent_fleet_compact_session_header_height))
+            .testTag(headerTag),
+        color = MaterialTheme.colorScheme.background,
+        tonalElevation = 2.dp
+    ) {
+        Column(Modifier.fillMaxSize().padding(start = 12.dp, end = 5.dp)) {
+            Row(
+                Modifier.fillMaxWidth().height(40.dp).testTag("compact-session-identity-row"),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(4.dp)
+            ) {
+                Column(Modifier.weight(1f)) {
+                    Text(
+                        state.sessionLabel,
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.Bold,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                    NativeSessionStatusLine(state)
+                }
+                Box {
+                    TextButton(
+                        onClick = { actionMenu = true },
+                        modifier = Modifier.height(40.dp).testTag("compact-session-actions"),
+                        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp)
+                    ) { Text("Actions", fontSize = 11.sp) }
+                    DropdownMenu(expanded = actionMenu, onDismissRequest = { actionMenu = false }) {
+                        if (aiComposer) {
+                            DropdownMenuItem(
+                                text = { Text("Ctrl+C") },
+                                onClick = { actionMenu = false; onControlC() }
+                            )
+                            DropdownMenuItem(
+                                text = { Text("Shift+Tab") },
+                                onClick = { actionMenu = false; onShellKey("SHIFT_TAB") }
+                            )
+                        }
+                        DropdownMenuItem(
+                            text = { Text("Close this view") },
+                            onClick = { actionMenu = false; onCloseSession() }
+                        )
+                        DropdownMenuItem(
+                            text = { Text("Kill session", color = MaterialTheme.colorScheme.error) },
+                            enabled = !state.attentionBusy,
+                            onClick = { actionMenu = false; confirmKill = true }
+                        )
+                    }
+                }
+            }
+            Row(
+                Modifier.fillMaxWidth().height(48.dp).testTag("compact-session-control-row"),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
+                if (state.sourceMode == "ai") {
+                    SessionModelControlChip(
+                        state = state,
+                        onRefreshModel = onRefreshModel,
+                        onSetModel = onSetModel,
+                        onCancelModel = onCancelModel,
+                        modifier = Modifier.weight(1f)
+                    )
+                } else {
+                    Spacer(Modifier.weight(1f))
+                }
+                OutlinedButton(
+                    onClick = onToggleView,
+                    modifier = Modifier.height(40.dp).testTag("compact-session-view-switch"),
+                    shape = RoundedCornerShape(13.dp),
+                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 5.dp)
+                ) { Text(destinationLabel, fontSize = 11.sp) }
+            }
+        }
+    }
     if (confirmKill) {
         AlertDialog(
             onDismissRequest = { confirmKill = false },
@@ -297,39 +394,6 @@ fun NativeSessionScreen(
             },
             dismissButton = { TextButton(onClick = { confirmKill = false }) { Text("Cancel") } }
         )
-    }
-    }
-}
-
-@Composable
-fun AgentFleetTerminalSessionChrome(
-    state: NativeSessionUiState,
-    onShowNative: () -> Unit,
-    onRefreshModel: () -> Unit,
-    onSetModel: (String, String, Boolean, Boolean) -> Unit,
-    onCancelModel: () -> Unit
-) {
-    Surface(
-        modifier = Modifier.fillMaxWidth().height(48.dp).testTag("terminal-session-chrome"),
-        color = MaterialTheme.colorScheme.background,
-        tonalElevation = 2.dp
-    ) {
-        Row(
-            Modifier.fillMaxSize().padding(start = 12.dp, end = 5.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(5.dp)
-        ) {
-            Column(Modifier.weight(1f)) {
-                Text(state.sessionLabel, fontSize = 13.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                Text("${prettyAdapter(state.adapter)} · Terminal", fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1)
-            }
-            if (state.sourceMode == "ai") SessionModelControlChip(state, onRefreshModel, onSetModel, onCancelModel)
-            OutlinedButton(
-                onClick = onShowNative,
-                shape = RoundedCornerShape(13.dp),
-                contentPadding = PaddingValues(horizontal = 11.dp, vertical = 6.dp)
-            ) { Text("Native", fontSize = 10.sp) }
-        }
     }
 }
 
@@ -356,7 +420,7 @@ private fun NativeSessionStatusLine(state: NativeSessionUiState) {
     }
     Text(
         "${prettyAdapter(state.adapter)} · $detail",
-        fontSize = (AgentFleetDisplayDensity.DEFAULT_NATIVE_BODY_SP - 3).sp,
+        fontSize = 10.sp,
         color = if (workingStartedAt != null || completedDuration != null || state.connection == "Live") ReadyGreen else MaterialTheme.colorScheme.onSurfaceVariant,
         maxLines = 1,
         overflow = TextOverflow.Ellipsis,
@@ -369,7 +433,8 @@ private fun SessionModelControlChip(
     state: NativeSessionUiState,
     onRefreshModel: () -> Unit,
     onSetModel: (String, String, Boolean, Boolean) -> Unit,
-    onCancelModel: () -> Unit
+    onCancelModel: () -> Unit,
+    modifier: Modifier = Modifier
 ) {
     var open by rememberSaveable(state.hostId, state.internalSession) { mutableStateOf(false) }
     val control = state.modelControl
@@ -382,8 +447,8 @@ private fun SessionModelControlChip(
     }
     AssistChip(
         onClick = { open = true; onRefreshModel() },
-        label = { Text(label, fontSize = 9.sp, maxLines = 1, overflow = TextOverflow.Ellipsis) },
-        modifier = Modifier.widthIn(max = 150.dp).testTag("model-control-chip")
+        label = { Text(label, fontSize = 10.sp, maxLines = 1, overflow = TextOverflow.Ellipsis) },
+        modifier = modifier.testTag("model-control-chip")
     )
     if (open) ModelControlDialog(
         state = state,

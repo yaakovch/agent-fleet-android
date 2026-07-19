@@ -22,6 +22,8 @@ import androidx.compose.ui.test.performTouchInput
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.termux.app.fleet.AgentFleetDiagnosticCheck
 import com.termux.app.fleet.AgentFleetDiagnosticReport
+import com.termux.app.fleet.AgentFleetDisplayDensity
+import com.termux.app.fleet.AgentFleetDisplayDensityStore
 import com.termux.app.fleet.ConversationAnswer
 import com.termux.app.fleet.ConversationItem
 import com.termux.app.fleet.ConversationQuestion
@@ -112,18 +114,77 @@ class AgentFleetComposeTest {
     }
 
     @Test
-    fun terminalChromeIsCompact() {
+    fun terminalChromeUsesTwoReadableRowsAndActions() {
         val state = NativeSessionUiState(
             "Working fixture", "gaming", "wtmux-main", adapter = "codex", connection = "Live"
         )
+        var controlC = 0
         compose.setContent {
             AgentFleetTheme(darkTheme = true) {
-                Box(Modifier.fillMaxWidth().height(96.dp)) {
-                    AgentFleetTerminalSessionChrome(state, {}, {}, { _, _, _, _ -> }, {})
+                Box(Modifier.fillMaxWidth().height(176.dp)) {
+                    AgentFleetTerminalSessionChrome(
+                        state, {}, {}, { _, _, _, _ -> }, {}, onControlC = { controlC++ }
+                    )
                 }
             }
         }
-        compose.onNodeWithTag("terminal-session-chrome").assertIsDisplayed().assertHeightIsEqualTo(48.dp)
+        compose.onNodeWithTag("terminal-session-chrome").assertIsDisplayed().assertHeightIsEqualTo(88.dp)
+        compose.onNodeWithTag("compact-session-identity-row").assertHeightIsEqualTo(40.dp)
+        compose.onNodeWithTag("compact-session-control-row").assertHeightIsEqualTo(48.dp)
+        val identity = compose.onNodeWithTag("compact-session-identity-row").fetchSemanticsNode().boundsInRoot
+        val controls = compose.onNodeWithTag("compact-session-control-row").fetchSemanticsNode().boundsInRoot
+        assertTrue(identity.bottom <= controls.top)
+        compose.onNodeWithText("Working fixture").assertIsDisplayed()
+        compose.onNodeWithText("Codex · Live").assertIsDisplayed()
+        compose.onNodeWithText("Native").assertIsDisplayed()
+        compose.onNodeWithText("Actions").performClick()
+        compose.onNodeWithText("Ctrl+C").performClick()
+        compose.runOnIdle { assertEquals(1, controlC) }
+    }
+
+    @Test
+    fun nativeHeaderProtectsLongIdentityAndModelAtMaximumBodyDensity() {
+        val context = ApplicationProvider.getApplicationContext<android.content.Context>()
+        val originalDensity = AgentFleetDisplayDensityStore.load(context)
+        val title = "Gaming desktop · long implementation conversation"
+        val modelLabel = "gpt-5.6-solo · Extra high"
+        val modelState = FleetModelControlState(
+            sessionId = "gaming:wtmux-main", configRevision = "0123456789abcdef", tool = "codex", status = "ready",
+            selected = FleetModelSelection("gpt-5.6-solo", "gpt-5.6-solo", "xhigh", "Extra high"),
+            effective = null, pending = null, catalog = emptyList(), customAllowed = true, detail = ""
+        )
+        try {
+            AgentFleetDisplayDensityStore.save(
+                context,
+                originalDensity.copy(nativeBodySp = AgentFleetDisplayDensity.MAX_NATIVE_BODY_SP)
+            )
+            compose.setContent {
+                NativeStateFixture(
+                    NativeSessionUiState(
+                        title, "gaming", "wtmux-main", adapter = "codex", connection = "Live",
+                        modelControl = modelState
+                    )
+                )
+            }
+
+            compose.onNodeWithTag("native-session-header").assertIsDisplayed().assertHeightIsEqualTo(88.dp)
+            compose.onNodeWithTag("compact-session-identity-row").assertHeightIsEqualTo(40.dp)
+            compose.onNodeWithTag("compact-session-control-row").assertHeightIsEqualTo(48.dp)
+            compose.onNodeWithText(title).assertIsDisplayed()
+            compose.onNodeWithText("Codex · Live").assertIsDisplayed()
+            compose.onNodeWithText(modelLabel).assertIsDisplayed()
+            compose.onNodeWithText("Actions").assertIsDisplayed()
+            compose.onNodeWithText("Terminal").assertIsDisplayed()
+
+            val identity = compose.onNodeWithTag("compact-session-identity-row").fetchSemanticsNode().boundsInRoot
+            val controls = compose.onNodeWithTag("compact-session-control-row").fetchSemanticsNode().boundsInRoot
+            val model = compose.onNodeWithTag("model-control-chip").fetchSemanticsNode().boundsInRoot
+            val viewSwitch = compose.onNodeWithTag("compact-session-view-switch").fetchSemanticsNode().boundsInRoot
+            assertTrue(identity.bottom <= controls.top)
+            assertTrue(model.right <= viewSwitch.left)
+        } finally {
+            AgentFleetDisplayDensityStore.save(context, originalDensity)
+        }
     }
 
     @Test
