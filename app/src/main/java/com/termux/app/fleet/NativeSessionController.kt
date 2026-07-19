@@ -62,7 +62,7 @@ class NativeSessionController @JvmOverloads constructor(
     private var lastFallbackText = ""
     private var pendingShellId: String? = null
     private var dismissedAttentionId: String? = null
-    @Volatile private var modelRequestActive = false
+    private val modelRequestGate = ModelControlRequestGate()
     private val modelPoll = object : Runnable {
         override fun run() {
             if (visible && enabled && !localSession) refreshModelControl(includeCatalog = false, showLoading = false)
@@ -117,6 +117,7 @@ class NativeSessionController @JvmOverloads constructor(
 
     fun bind(intent: Intent?) {
         generation++
+        modelRequestGate.reset()
         stopProcess()
         FleetSnapshotStore.removeObserver(this)
         fleetSnapshot = null
@@ -175,7 +176,7 @@ class NativeSessionController @JvmOverloads constructor(
         generation++
         main.removeCallbacksAndMessages(null)
         stopProcess()
-        modelRequestActive = false
+        modelRequestGate.reset()
     }
 
     fun close() {
@@ -184,7 +185,7 @@ class NativeSessionController @JvmOverloads constructor(
         generation++
         main.removeCallbacksAndMessages(null)
         stopProcess()
-        modelRequestActive = false
+        modelRequestGate.reset()
     }
 
     fun onTerminalScreenChanged(alternateScreen: Boolean) {
@@ -338,14 +339,21 @@ class NativeSessionController @JvmOverloads constructor(
 
     private fun refreshModelControl(includeCatalog: Boolean, showLoading: Boolean) {
         val session = currentFleetSession() ?: return
-        if (session.tool !in setOf("codex", "claude", "copilot") || modelRequestActive) return
-        modelRequestActive = true
+        if (session.tool !in setOf("codex", "claude", "copilot")) return
+        val decision = modelRequestGate.beginRefresh(includeCatalog)
+        if (decision.disposition != ModelControlRefreshDisposition.STARTED) {
+            if (decision.disposition == ModelControlRefreshDisposition.QUEUED && showLoading) {
+                uiState.value = uiState.value.copy(modelControlLoading = true, modelControlError = null)
+            }
+            return
+        }
+        val ticket = requireNotNull(decision.ticket)
         if (showLoading) uiState.value = uiState.value.copy(modelControlLoading = true, modelControlError = null)
         val token = generation
         thread(name = "native-session-model-get", isDaemon = true) {
             val result = runCatching { fleetRuntime.getSessionModel(session, includeCatalog) }
             main.post {
-                modelRequestActive = false
+                val catalogPending = modelRequestGate.complete(ticket)
                 if (token != generation || !visible) return@post
                 result.onSuccess { next ->
                     val previous = uiState.value.modelControl
@@ -361,6 +369,7 @@ class NativeSessionController @JvmOverloads constructor(
                         modelControlError = error.message ?: "Model options could not be loaded."
                     )
                 }
+                if (catalogPending) refreshModelControl(includeCatalog = true, showLoading = true)
             }
         }
     }
@@ -368,8 +377,7 @@ class NativeSessionController @JvmOverloads constructor(
     private fun setModelControl(modelId: String, effortId: String, custom: Boolean, acknowledged: Boolean) {
         val session = currentFleetSession() ?: return
         val current = uiState.value.modelControl ?: return
-        if (modelRequestActive) return
-        modelRequestActive = true
+        val ticket = modelRequestGate.beginExclusive() ?: return
         uiState.value = uiState.value.copy(modelControlLoading = true, modelControlError = null)
         val token = generation
         thread(name = "native-session-model-set", isDaemon = true) {
@@ -379,7 +387,7 @@ class NativeSessionController @JvmOverloads constructor(
                 )
             }
             main.post {
-                modelRequestActive = false
+                val catalogPending = modelRequestGate.complete(ticket)
                 if (token != generation || !visible) return@post
                 result.onSuccess { next ->
                     uiState.value = uiState.value.copy(
@@ -397,6 +405,7 @@ class NativeSessionController @JvmOverloads constructor(
                         modelControlError = error.message ?: "The model change could not be queued."
                     )
                 }
+                if (catalogPending) refreshModelControl(includeCatalog = true, showLoading = true)
             }
         }
     }
@@ -404,14 +413,13 @@ class NativeSessionController @JvmOverloads constructor(
     private fun cancelModelControl() {
         val session = currentFleetSession() ?: return
         val current = uiState.value.modelControl?.takeIf { it.pending != null } ?: return
-        if (modelRequestActive) return
-        modelRequestActive = true
+        val ticket = modelRequestGate.beginExclusive() ?: return
         uiState.value = uiState.value.copy(modelControlLoading = true, modelControlError = null)
         val token = generation
         thread(name = "native-session-model-cancel", isDaemon = true) {
             val result = runCatching { fleetRuntime.cancelSessionModel(session, current.configRevision) }
             main.post {
-                modelRequestActive = false
+                val catalogPending = modelRequestGate.complete(ticket)
                 if (token != generation || !visible) return@post
                 result.onSuccess { next ->
                     uiState.value = uiState.value.copy(
@@ -425,6 +433,7 @@ class NativeSessionController @JvmOverloads constructor(
                         modelControlError = error.message ?: "The queued change could not be cancelled."
                     )
                 }
+                if (catalogPending) refreshModelControl(includeCatalog = true, showLoading = true)
             }
         }
     }
