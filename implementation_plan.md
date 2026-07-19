@@ -1457,3 +1457,24 @@ physical S23FE.
    screenshot candidates manually, then run fast/full API 36 and release gates.
 5. Publish `.70`/1072 through `fleet/latest`, retain `.69` for rollback, and
    leave the final physical S23FE interaction to the user.
+
+Implementation record (2026-07-19): Android source commit `edd92686` measures
+the activity's real status-bar inset for Terminal, restores Native's Compose
+inset, expands the two-row header body to 96dp, and survives the service-first
+exit callback ordering when the visible managed attachment exits 255. All 139
+Android JVM tests and the complete managed Pixel 7/API 36 suite passed; 45
+instrumentation cases finished with zero failures and two review-only golden
+generators skipped. The changed Native goldens were reviewed with separate
+48dp identity/status and control rows. Release lint completed with zero errors
+and three existing PendingIntent warnings. The signed/minified arm64 and
+universal APKs passed certificate, v2/v3 signature, checksum,
+permanent-identity, and embedded runtime `git-c8772e3` verification across all
+84 packages. `.70`/1072 is published through `fleet/latest`; the HTTPS-served
+manifest SHA-256 is
+`e5ea56b9d5339dabf6e38f06a5f565366b7f5cee3ad2c9c32a087aa2b797d661`,
+the arm64 APK SHA-256 is
+`2cfdae34e6c26603b6e53e618ea29342990ecf34e78702399a936f6dbc896408`,
+and the universal APK SHA-256 is
+`ade9ff9ab1e3c26b381be82c156c9312f16574c68bc3d111c67168d6dd2debad`.
+`.69` remains available for rollback. Automated tooling did not access the
+physical S23FE.
