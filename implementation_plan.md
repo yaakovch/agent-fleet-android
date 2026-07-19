@@ -1205,3 +1205,44 @@ and the universal APK SHA-256 is
 `5981fec815751fd9873f7bf2473829e83352c4dcdd6217d252b4f2e9bdeaec5b`.
 `.62` remains available for rollback. Automated tooling did not access the
 physical S23FE.
+
+## 48. Live Native Working Visibility Hotfix
+
+1. Preserve the active provider lifecycle marker in every newest conversation
+   snapshot even when recent tool output consumes the bounded page budget.
+   Keep history cursors contiguous and leave older-page behavior unchanged.
+2. Start an Android-local optimistic work timer immediately after a non-empty
+   Native message is successfully submitted. Replace it with the provider's
+   authoritative `Working` event, and clear it on completion, error, question,
+   or approval lifecycle boundaries.
+3. Cover page-budget eviction and completion on the host, optimistic send/event
+   reconciliation in JVM tests, and visible `Working (…)` rendering from the
+   optimistic state in the API 36 Compose suite.
+4. Publish permanent-ID `.64`/1066 through `fleet/latest`, retain `.63` for
+   rollback, and leave the physical-phone update and live Native smoke to the
+   user.
+
+Implementation record (2026-07-19): wtmux commit `a68611f` retains an active
+provider lifecycle marker outside the bounded visible page, and Android source
+commit `5fcd1882` starts the live timer as soon as the Native composer accepts a
+message while reconciling it with authoritative stream state. The real current
+Codex transcript reproduced the page-budget eviction and confirmed the repaired
+snapshot ends with `Working`. The shared 38-test conversation suite, all 166
+root Python tests plus four subtests, all 74 Bats tests, root smoke, Windows
+lint, all 140 Windows tests, and the Windows production build passed. All 131
+Android JVM tests, all fast emulator scenarios at
+`build/reports/agent-fleet/emulator/20260719T051414Z-fast`, and the complete
+managed Pixel 7/API 36 suite at
+`build/reports/agent-fleet/emulator/20260719T052120Z-full` passed; 38
+instrumentation cases completed with two review-only golden generators skipped.
+Release lint completed with zero errors, and the signed/minified arm64 and
+universal APKs passed certificate, permanent identity, checksum, and embedded
+runtime `git-c8772e3` verification across all 84 packages. `.64`/1066 is
+published through `fleet/latest`; the HTTPS-served manifest SHA-256 is
+`67b246acbbc5162796909c5522c589f57734ea3daf937a004bb592aa9d23d3a6`,
+the arm64 APK SHA-256 is
+`fa6bf1b717fbc078ed3fc1b614ba52f9dc43d92a1b25c81c77c107ce825deefd`,
+and the universal APK SHA-256 is
+`fe8a49ff854bf3cc6dc8c58805ced1e77ee415ce4df330ae11b1daaab95df554`.
+`.63` remains available for rollback. Automated tooling did not access the
+physical S23FE.
