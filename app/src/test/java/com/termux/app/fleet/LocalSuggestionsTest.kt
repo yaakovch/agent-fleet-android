@@ -43,6 +43,18 @@ class LocalSuggestionsTest {
         assertFalse(canSuggestForQuestion(question.copy(type = "single"), ""))
     }
 
+    @Test fun automaticTriggerRequiresANewActiveNonHistoricalRevision() {
+        val pending = item("assistant", text = "Working", state = "streaming")
+        val complete = item("assistant", text = "Would you like me to continue?", state = "complete")
+        val target = LocalSuggestionTarget("composer")
+        val previous = localSuggestionRevision(listOf(pending), target)
+        val current = localSuggestionRevision(listOf(complete), target)
+        assertTrue(shouldStartAutomaticSuggestion(previous, current, active = true, historicalFrame = false))
+        assertFalse(shouldStartAutomaticSuggestion(current, current, active = true, historicalFrame = false))
+        assertFalse(shouldStartAutomaticSuggestion(previous, current, active = false, historicalFrame = false))
+        assertFalse(shouldStartAutomaticSuggestion(previous, current, active = true, historicalFrame = true))
+    }
+
     @Test fun putsQuotedConversationBeforeTheDirectReplyTask() {
         val prompt = buildLocalSuggestionPrompt(listOf(
             item("user", role = "user", text = "What is a completed assistant reply?"),

@@ -613,11 +613,16 @@ trusted fleet.
 
 ## Local Reply Suggestions
 
-- Both phone-fullscreen and desktop-pane Native conversations expose an opt-in
-  Suggest action after completed
-  assistant messages and in structured free-text answer fields. It is hidden
-  while a draft exists and is unavailable for approvals and choice questions.
-  Suggestions are generated only on tap; choosing one fills but never submits.
+- Both phone-fullscreen and desktop-pane Native conversations expose an
+  app-local Off, Manual, or Automatic mode. Manual retains Suggest after
+  completed assistant messages and in structured free-text answer fields.
+  Automatic prepares one to three selectable replies for each newly completed
+  eligible response or active text question in the focused Native session.
+  Choosing fills but never submits; the app never writes or sends automatically.
+- Automatic mode baselines initial snapshots, reconnects, session opening, and
+  focus changes so historical replies never run inference. Stable target and
+  conversation revisions suppress duplicates. Typing, attachments, newer
+  context, navigation, backgrounding, and mode changes cancel stale work.
 - Inference receives only the newest 12 visible user/assistant text messages,
   newest-first bounded to 12 KiB UTF-8, excluding tools, terminal output,
   attachments, hidden details, approvals, and choices. The transcript is quoted
@@ -632,7 +637,7 @@ trusted fleet.
   warns before metered transfer, and exposes progress, cancellation, verification,
   retry, and removal. The feature and model are off by default.
 - Inference runs in a non-exported `:local_llm` process with GPU then CPU
-  fallback. Backgrounding or disabling the feature terminates that process;
+  fallback. Backgrounding or selecting Off terminates that process;
   60 seconds without a request also exits it. The app does not retain prompts or
   results and excludes model state/content from diagnostics and exports.
 - API 36 tests use a fake engine and small fixtures; the large model is not

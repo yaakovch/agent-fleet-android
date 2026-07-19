@@ -29,7 +29,7 @@ object LocalSuggestionModel {
 }
 
 data class LocalModelUiState(
-    val enabled: Boolean = false,
+    val mode: LocalSuggestionMode = LocalSuggestionMode.OFF,
     val ready: Boolean = false,
     val busy: Boolean = false,
     val progressBytes: Long = 0L,
@@ -41,14 +41,28 @@ data class LocalModelUiState(
 
 object LocalSuggestionPreferences {
     private const val NAME = "agent_fleet_local_suggestions"
-    private const val ENABLED = "enabled"
+    internal const val LEGACY_ENABLED = "enabled"
+    internal const val MODE = "mode"
 
-    fun enabled(context: Context): Boolean = context.getSharedPreferences(NAME, Context.MODE_PRIVATE)
-        .getBoolean(ENABLED, false) && LocalSuggestionModel.isReady(context)
+    fun configuredMode(context: Context): LocalSuggestionMode {
+        val preferences = context.getSharedPreferences(NAME, Context.MODE_PRIVATE)
+        if (!preferences.contains(MODE)) {
+            return if (preferences.getBoolean(LEGACY_ENABLED, false)) LocalSuggestionMode.MANUAL else LocalSuggestionMode.OFF
+        }
+        return LocalSuggestionMode.fromPreference(preferences.getString(MODE, null))
+    }
 
-    fun setEnabled(context: Context, enabled: Boolean) {
-        context.getSharedPreferences(NAME, Context.MODE_PRIVATE).edit().putBoolean(ENABLED, enabled).apply()
-        if (!enabled) LocalSuggestionRuntime.shutdown(context)
+    fun mode(context: Context): LocalSuggestionMode = configuredMode(context)
+        .takeIf { LocalSuggestionModel.isReady(context) } ?: LocalSuggestionMode.OFF
+
+    fun enabled(context: Context): Boolean = mode(context) != LocalSuggestionMode.OFF
+
+    fun setMode(context: Context, mode: LocalSuggestionMode) {
+        context.getSharedPreferences(NAME, Context.MODE_PRIVATE).edit()
+            .putString(MODE, mode.preferenceValue)
+            .remove(LEGACY_ENABLED)
+            .apply()
+        if (mode == LocalSuggestionMode.OFF) LocalSuggestionRuntime.shutdown(context)
     }
 }
 
@@ -74,13 +88,17 @@ class LocalSuggestionModelManager(
 
     fun current(): LocalModelUiState = state
 
-    fun setEnabled(enabled: Boolean) {
-        if (enabled && !LocalSuggestionModel.isReady(app)) {
+    fun setMode(mode: LocalSuggestionMode) {
+        if (mode != LocalSuggestionMode.OFF && !LocalSuggestionModel.isReady(app)) {
             publish(inspect().copy(error = "Download or import the verified model first."))
             return
         }
-        LocalSuggestionPreferences.setEnabled(app, enabled)
-        publish(inspect().copy(detail = if (enabled) "Ready for on-device suggestions" else "Off · no model RAM in use"))
+        LocalSuggestionPreferences.setMode(app, mode)
+        publish(inspect().copy(detail = when (mode) {
+            LocalSuggestionMode.OFF -> "Off · no model RAM in use"
+            LocalSuggestionMode.MANUAL -> "Manual suggestions ready"
+            LocalSuggestionMode.AUTOMATIC -> "Automatic suggestions ready"
+        }))
     }
 
     fun download() = start("Preparing download…") { token -> downloadModel(token) }
@@ -94,7 +112,7 @@ class LocalSuggestionModelManager(
 
     fun remove() {
         cancel()
-        LocalSuggestionPreferences.setEnabled(app, false)
+        LocalSuggestionPreferences.setMode(app, LocalSuggestionMode.OFF)
         executor.submit {
             LocalSuggestionModel.file(app).delete()
             LocalSuggestionModel.partial(app).delete()
@@ -228,7 +246,7 @@ class LocalSuggestionModelManager(
         val ready = LocalSuggestionModel.isReady(app)
         val partial = LocalSuggestionModel.partial(app).length().coerceAtMost(LocalSuggestionModel.SIZE)
         return LocalModelUiState(
-            enabled = ready && LocalSuggestionPreferences.enabled(app),
+            mode = if (ready) LocalSuggestionPreferences.configuredMode(app) else LocalSuggestionMode.OFF,
             ready = ready,
             progressBytes = if (ready) LocalSuggestionModel.SIZE else partial,
             detail = if (ready) "Verified model ready" else if (partial > 0L) "Download can resume from ${formatModelBytes(partial)}" else "Model not installed"

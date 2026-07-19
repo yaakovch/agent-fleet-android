@@ -56,6 +56,7 @@ import com.termux.app.fleet.UpdateUiState
 import com.termux.app.fleet.LocalModelUiState
 import com.termux.app.fleet.LocalSuggestionClient
 import com.termux.app.fleet.LocalSuggestionRuntime
+import com.termux.app.fleet.LocalSuggestionMode
 import com.termux.app.fleet.AgentFleetComposerContent
 import com.termux.app.fleet.AgentFleetComposerNativeState
 import com.termux.app.fleet.AndroidWorkspaceState
@@ -405,7 +406,9 @@ class AgentFleetComposeTest {
         compose.onNodeWithTag("more-screen").performScrollToNode(hasTestTag("local-suggestions-settings"))
         compose.onNodeWithTag("local-suggestions-settings").assertIsDisplayed()
         compose.onNodeWithText("Gemma 4 E2B Instruct", substring = true).assertIsDisplayed()
-        compose.onNodeWithTag("local-suggestions-toggle").assertIsNotEnabled()
+        compose.onNodeWithTag("local-suggestions-mode-off").assertIsDisplayed()
+        compose.onNodeWithTag("local-suggestions-mode-manual").assertIsNotEnabled()
+        compose.onNodeWithTag("local-suggestions-mode-automatic").assertIsNotEnabled()
         compose.onNodeWithTag("local-model-download").assertIsDisplayed()
         compose.onNodeWithTag("local-model-import").assertIsDisplayed()
     }
@@ -482,6 +485,75 @@ class AgentFleetComposeTest {
         compose.onNodeWithTag("agent-fleet-composer-send").performClick()
         compose.runOnIdle { assertEquals(listOf("Use the safe rollout" to true), submissions) }
         LocalSuggestionRuntime.shutdown(ApplicationProvider.getApplicationContext())
+    }
+
+    @Test
+    fun automaticModePreparesChoicesOnlyForANewLiveReply() {
+        val streaming = ConversationItem(
+            id = "assistant", kind = "message", timestamp = "2026-07-19T00:00:00Z", role = "assistant",
+            title = "", text = "Working", detail = "", state = "streaming", tool = "",
+            attachments = emptyList(), choices = emptyList()
+        )
+        val native = mutableStateOf(
+            AgentFleetComposerNativeState(
+                target = "gaming:project:wtmux-main", visible = true, items = listOf(streaming),
+                revision = "snapshot-1", liveEventSerial = 0
+            )
+        )
+        compose.setContent {
+            AgentFleetTheme(darkTheme = true) {
+                AgentFleetComposerContent(
+                    target = "gaming:project:wtmux-main",
+                    nativeState = native.value,
+                    attachments = emptyList(), uploading = false, uploadError = null,
+                    onShowPendingQuestion = {}, onAttach = {}, onRemoveAttachment = {},
+                    onComposerText = { _, _ -> true },
+                    localSuggestionModeOverride = LocalSuggestionMode.AUTOMATIC,
+                    localSuggestionDebugFakeOutput = """{"suggestions":["Continue with the safe option"]}"""
+                )
+            }
+        }
+        compose.onAllNodes(hasTestTag("local-suggestion-results")).assertCountEquals(0)
+        compose.runOnIdle {
+            native.value = native.value.copy(
+                items = listOf(streaming.copy(text = "Should I continue?", state = "complete")),
+                liveEventSerial = 1
+            )
+        }
+        compose.waitUntil(10_000) {
+            compose.onAllNodes(hasTestTag("local-suggestion-0")).fetchSemanticsNodes().isNotEmpty()
+        }
+        compose.onNodeWithTag("local-suggestion-0").assertTextContains("Continue with the safe option")
+        compose.onNodeWithTag("local-suggestion-regenerate").assertIsDisplayed()
+    }
+
+    @Test
+    fun automaticModePreparesAnActiveFreeTextQuestion() {
+        val question = ConversationItem(
+            id = "question", kind = "question", timestamp = "2026-07-19T00:00:00Z", role = "assistant",
+            title = "Answer needed", text = "", detail = "", state = "pending", tool = "codex",
+            attachments = emptyList(), choices = emptyList(), revision = "question-revision",
+            questions = listOf(ConversationQuestion("scope", "Scope", "What should I change?", "text", true, false, emptyList()))
+        )
+        val native = mutableStateOf(
+            NativeSessionUiState(
+                "Fixture", "gaming", "wtmux-main", adapter = "codex", connection = "Live",
+                items = emptyList(), revision = "snapshot-1", liveEventSerial = 0
+            )
+        )
+        compose.setContent {
+            NativeStateFixture(
+                state = native.value,
+                localSuggestionModeOverride = LocalSuggestionMode.AUTOMATIC,
+                localSuggestionDebugFakeOutput = """{"suggestions":["Change only the active session"]}"""
+            )
+        }
+        compose.onAllNodes(hasTestTag("local-suggestion-results")).assertCountEquals(0)
+        compose.runOnIdle { native.value = native.value.copy(items = listOf(question), liveEventSerial = 1) }
+        compose.waitUntil(10_000) {
+            compose.onAllNodes(hasTestTag("local-suggestion-0")).fetchSemanticsNodes().isNotEmpty()
+        }
+        compose.onNodeWithTag("local-suggestion-0").assertTextContains("Change only the active session")
     }
 
     @Test
@@ -647,7 +719,9 @@ class AgentFleetComposeTest {
         onShellKey: (String) -> Unit = {},
         onControlC: () -> Unit = {},
         inlineComposer: Boolean = false,
-        localSuggestionsAvailableOverride: Boolean? = null
+        localSuggestionsAvailableOverride: Boolean? = null,
+        localSuggestionModeOverride: LocalSuggestionMode? = null,
+        localSuggestionDebugFakeOutput: String? = null
     ) {
         AgentFleetTheme(darkTheme = true) {
             NativeSessionScreen(
@@ -668,7 +742,9 @@ class AgentFleetComposeTest {
                 onScheduleContinue = {},
                 onDismissAttention = {},
                 inlineComposer = inlineComposer,
-                localSuggestionsAvailableOverride = localSuggestionsAvailableOverride
+                localSuggestionsAvailableOverride = localSuggestionsAvailableOverride,
+                localSuggestionModeOverride = localSuggestionModeOverride,
+                localSuggestionDebugFakeOutput = localSuggestionDebugFakeOutput
             )
         }
     }

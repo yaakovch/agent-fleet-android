@@ -10,6 +10,13 @@ const val LOCAL_SUGGESTION_MAX_PROMPT_BYTES = 16 * 1024
 private const val LOCAL_SUGGESTION_MAX_TARGET_BYTES = 4 * 1024
 
 data class LocalSuggestionMessage(val role: String, val text: String)
+enum class LocalSuggestionMode(val preferenceValue: String) {
+    OFF("off"), MANUAL("manual"), AUTOMATIC("automatic");
+
+    companion object {
+        fun fromPreference(value: String?): LocalSuggestionMode = entries.firstOrNull { it.preferenceValue == value } ?: OFF
+    }
+}
 data class LocalSuggestionTarget(
     val kind: String,
     val itemId: String = "",
@@ -54,6 +61,16 @@ fun canSuggestForComposer(items: List<ConversationItem>, draft: String): Boolean
 
 fun canSuggestForQuestion(question: ConversationQuestion?, draft: String): Boolean =
     question != null && question.type == "text" && !question.allowOther && draft.isBlank()
+
+fun localSuggestionRevision(items: List<ConversationItem>, target: LocalSuggestionTarget): String {
+    val messages = items.filter { it.kind == "message" && it.role in setOf("user", "assistant") }.takeLast(12)
+    return target.key + "|" + messages.joinToString("|") { item ->
+        "${item.id}:${item.state}:${item.text.length}:${item.text.takeLast(32)}"
+    }
+}
+
+fun shouldStartAutomaticSuggestion(previousKey: String, currentKey: String, active: Boolean, historicalFrame: Boolean): Boolean =
+    active && !historicalFrame && currentKey.isNotBlank() && currentKey != previousKey
 
 fun buildLocalSuggestionPrompt(items: List<ConversationItem>, target: LocalSuggestionTarget): String {
     val messages = conversationSuggestionContext(items).toMutableList()

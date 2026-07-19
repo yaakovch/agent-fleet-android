@@ -1363,3 +1363,19 @@ and the universal APK SHA-256 is
 `60c19b6c434337cab404eef8939d91a9f4fa596d44083901cad0346eb1f4f585`.
 `.66` remains available for rollback. Automated tooling did not access the
 physical S23FE.
+
+## 52. Automatic Local Reply Drafts
+
+1. Replace the local enabled flag with Off, Manual, and Automatic modes;
+   migrate enabled preferences to Manual and disabled preferences to Off.
+2. Use snapshot revisions and live-event serials to baseline session opening,
+   reconnect, and focus while starting one request for each later completed
+   assistant reply or active structured free-text question.
+3. Integrate cancelable preparation, selectable drafts, Regenerate, and quiet
+   inline Retry into fullscreen and normal Native composers. Cancel on typing,
+   attachments, navigation, backgrounding, newer context, or mode change.
+4. Cover migration and automatic state transitions with JVM tests and fake-
+   engine Compose tests on both Native surfaces. Run focused, fast/full API 36,
+   lint, signing, identity/runtime, and served-checksum gates.
+5. Publish `.68`/1070 through `fleet/latest`, retain `.67` for rollback, and
+   leave the physical S23FE smoke to the user through the in-app update flow.

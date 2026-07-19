@@ -97,6 +97,7 @@ import com.termux.app.fleet.NativeSessionSettings
 import com.termux.app.fleet.LocalModelUiState
 import com.termux.app.fleet.LocalSuggestionModel
 import com.termux.app.fleet.LocalSuggestionModelManager
+import com.termux.app.fleet.LocalSuggestionMode
 import com.termux.app.fleet.LocalSuggestionRuntime
 import com.termux.app.fleet.formatModelBytes
 import com.termux.app.fleet.RecentSessionStore
@@ -272,7 +273,7 @@ class AgentFleetActivity : ComponentActivity() {
                         startActivity(Intent(this, TerminalAppearanceActivity::class.java))
                     },
                     onMigrateFleetState = ::migrateFleetState,
-                    onSetLocalSuggestions = localSuggestionModelManager::setEnabled,
+                    onSetLocalSuggestions = localSuggestionModelManager::setMode,
                     onDownloadLocalModel = localSuggestionModelManager::download,
                     onImportLocalModel = { localModelImportLauncher.launch(arrayOf("application/octet-stream", "application/zip", "*/*")) },
                     onCancelLocalModel = localSuggestionModelManager::cancel,
@@ -862,7 +863,7 @@ fun AgentFleetApp(
     onRestoreBaseline: () -> Unit,
     onOpenAppearance: () -> Unit,
     onMigrateFleetState: () -> Unit,
-    onSetLocalSuggestions: (Boolean) -> Unit,
+    onSetLocalSuggestions: (LocalSuggestionMode) -> Unit,
     onDownloadLocalModel: () -> Unit,
     onImportLocalModel: () -> Unit,
     onCancelLocalModel: () -> Unit,
@@ -1977,7 +1978,7 @@ private fun MoreScreen(
     onRestoreBaseline: () -> Unit,
     onOpenAppearance: () -> Unit,
     onMigrateFleetState: () -> Unit,
-    onSetLocalSuggestions: (Boolean) -> Unit,
+    onSetLocalSuggestions: (LocalSuggestionMode) -> Unit,
     onDownloadLocalModel: () -> Unit,
     onImportLocalModel: () -> Unit,
     onCancelLocalModel: () -> Unit,
@@ -2062,22 +2063,42 @@ private fun MoreScreen(
                 colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
             ) {
                 Column(Modifier.fillMaxWidth().padding(18.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                        Column(Modifier.weight(1f)) {
-                            Text("Local reply suggestions", fontSize = 18.sp, fontWeight = FontWeight.Bold)
-                            Text(
-                                "${LocalSuggestionModel.DISPLAY_NAME} · on-device · Native view only",
-                                fontSize = 15.sp,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                        }
-                        Switch(
-                            checked = localModelUi.enabled,
-                            enabled = localModelUi.ready && !localModelUi.busy,
-                            onCheckedChange = onSetLocalSuggestions,
-                            modifier = Modifier.testTag("local-suggestions-toggle")
+                    Column(Modifier.fillMaxWidth()) {
+                        Text("Local reply suggestions", fontSize = 18.sp, fontWeight = FontWeight.Bold)
+                        Text(
+                            "${LocalSuggestionModel.DISPLAY_NAME} · on-device · Native view only",
+                            fontSize = 15.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     }
+                    Row(
+                        Modifier.fillMaxWidth().testTag("local-suggestions-mode"),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        LocalSuggestionMode.entries.forEach { mode ->
+                            val selected = localModelUi.mode == mode
+                            val enabled = mode == LocalSuggestionMode.OFF || localModelUi.ready && !localModelUi.busy
+                            if (selected) Button(
+                                onClick = { onSetLocalSuggestions(mode) }, enabled = enabled,
+                                modifier = Modifier.weight(1f).testTag("local-suggestions-mode-${mode.preferenceValue}"),
+                                contentPadding = PaddingValues(horizontal = 6.dp, vertical = 7.dp)
+                            ) { Text(mode.displayLabel(), fontSize = 13.sp) }
+                            else OutlinedButton(
+                                onClick = { onSetLocalSuggestions(mode) }, enabled = enabled,
+                                modifier = Modifier.weight(1f).testTag("local-suggestions-mode-${mode.preferenceValue}"),
+                                contentPadding = PaddingValues(horizontal = 6.dp, vertical = 7.dp)
+                            ) { Text(mode.displayLabel(), fontSize = 13.sp) }
+                        }
+                    }
+                    Text(
+                        when (localModelUi.mode) {
+                            LocalSuggestionMode.OFF -> "No requests run and model RAM is released."
+                            LocalSuggestionMode.MANUAL -> "Tap Suggest when you want local reply choices."
+                            LocalSuggestionMode.AUTOMATIC -> "Prepares selectable replies for each new response in the active Native session; it never sends automatically."
+                        },
+                        fontSize = 13.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
                     Text(
                         localModelUi.error.ifBlank { localModelUi.detail },
                         fontSize = 14.sp,
@@ -2226,6 +2247,12 @@ private fun MoreScreen(
             dismissButton = { TextButton(onClick = { confirmMeteredModelDownload = false }) { Text("Cancel") } }
         )
     }
+}
+
+private fun LocalSuggestionMode.displayLabel(): String = when (this) {
+    LocalSuggestionMode.OFF -> "Off"
+    LocalSuggestionMode.MANUAL -> "Manual"
+    LocalSuggestionMode.AUTOMATIC -> "Automatic"
 }
 
 @Composable

@@ -278,13 +278,14 @@ internal fun AgentFleetComposerContent(
     onRemoveAttachment: (String) -> Unit,
     onComposerText: (String, Boolean) -> Boolean,
     localSuggestionsAvailableOverride: Boolean? = null,
+    localSuggestionModeOverride: LocalSuggestionMode? = null,
     localSuggestionDebugFakeOutput: String? = null
 ) {
     val context = LocalContext.current
     val density by AgentFleetDisplayDensityStore.observe(context).collectAsState()
     var text by rememberSaveable(target) { mutableStateOf("") }
-    val localSuggestions = remember(target, localSuggestionsAvailableOverride, localSuggestionDebugFakeOutput) {
-        NativeLocalSuggestionState(context, localSuggestionsAvailableOverride, localSuggestionDebugFakeOutput)
+    val localSuggestions = remember(target, localSuggestionsAvailableOverride, localSuggestionModeOverride, localSuggestionDebugFakeOutput) {
+        NativeLocalSuggestionState(context, localSuggestionsAvailableOverride, localSuggestionDebugFakeOutput, localSuggestionModeOverride)
     }
     DisposableEffect(localSuggestions) { onDispose { localSuggestions.close() } }
     LaunchedEffect(
@@ -298,6 +299,27 @@ internal fun AgentFleetComposerContent(
 
     val nativeForTarget = nativeState.target == target && nativeState.visible
     val planMode = nativeState.target == target && nativeState.interactionMode == "plan"
+    var observedLiveSerial by remember(target) { mutableStateOf(nativeState.liveEventSerial) }
+    var observedSuggestionKey by remember(target) { mutableStateOf("") }
+    val automaticTarget = LocalSuggestionTarget("composer")
+    val automaticKey = if (nativeForTarget && attachments.isEmpty() && canSuggestForComposer(nativeState.items, text)) {
+        localSuggestionRevision(nativeState.items, automaticTarget)
+    } else ""
+    LaunchedEffect(nativeState.revision) {
+        observedLiveSerial = nativeState.liveEventSerial
+        observedSuggestionKey = automaticKey
+    }
+    LaunchedEffect(nativeState.liveEventSerial) {
+        val start = shouldStartAutomaticSuggestion(
+            observedSuggestionKey, automaticKey,
+            nativeForTarget && localSuggestions.mode == LocalSuggestionMode.AUTOMATIC && nativeState.liveEventSerial > observedLiveSerial,
+            historicalFrame = false
+        )
+        observedLiveSerial = nativeState.liveEventSerial
+        observedSuggestionKey = automaticKey
+        if (start) localSuggestions.request(nativeState.items, automaticTarget, automatic = true)
+    }
+    LaunchedEffect(attachments) { if (attachments.isNotEmpty()) localSuggestions.clear() }
     Surface(color = MaterialTheme.colorScheme.surface) {
         Column(
             modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 5.dp),
@@ -381,20 +403,21 @@ internal fun AgentFleetComposerContent(
                 }
             }
             if (nativeForTarget && localSuggestions.targetKey == "composer") {
-                LocalSuggestionChoices(localSuggestions, onUse = { suggestion ->
-                    text = suggestion
-                    localSuggestions.clear()
-                })
+                LocalSuggestionChoices(
+                    localSuggestions,
+                    onUse = { suggestion -> text = suggestion; localSuggestions.clear() },
+                    onRegenerate = { localSuggestions.request(nativeState.items, automaticTarget, automatic = localSuggestions.automatic) }
+                )
             } else if (
                 nativeForTarget &&
                 localSuggestions.available &&
                 canSuggestForComposer(nativeState.items, text)
             ) {
                 TextButton(
-                    onClick = { localSuggestions.request(nativeState.items, LocalSuggestionTarget("composer")) },
+                    onClick = { localSuggestions.request(nativeState.items, automaticTarget) },
                     modifier = Modifier.align(androidx.compose.ui.Alignment.End).testTag("local-suggest-composer"),
                     contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp)
-                ) { Text("Suggest locally", fontSize = density.nativeMetadataSp.sp) }
+                ) { Text(if (localSuggestions.mode == LocalSuggestionMode.AUTOMATIC) "Regenerate" else "Suggest locally", fontSize = density.nativeMetadataSp.sp) }
             }
             if (attachments.isNotEmpty()) {
                 Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {

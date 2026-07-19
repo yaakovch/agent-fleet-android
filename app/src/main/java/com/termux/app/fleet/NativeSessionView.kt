@@ -122,6 +122,8 @@ fun NativeSessionScreen(
     inlineComposer: Boolean = false,
     showChrome: Boolean = true,
     localSuggestionsAvailableOverride: Boolean? = null,
+    localSuggestionModeOverride: LocalSuggestionMode? = null,
+    localSuggestionDebugFakeOutput: String? = null,
     onRefreshModel: () -> Unit = {},
     onSetModel: (String, String, Boolean, Boolean) -> Unit = { _, _, _, _ -> },
     onCancelModel: () -> Unit = {}
@@ -135,8 +137,14 @@ fun NativeSessionScreen(
             fontScale = systemDensity.fontScale * displayDensity.nativeBodySp / AgentFleetDisplayDensity.DEFAULT_NATIVE_BODY_SP
         )
     }
-    val localSuggestions = remember(state.hostId, state.internalSession, localSuggestionsAvailableOverride) {
-        NativeLocalSuggestionState(context, localSuggestionsAvailableOverride)
+    val localSuggestions = remember(
+        state.hostId, state.internalSession, localSuggestionsAvailableOverride,
+        localSuggestionModeOverride, localSuggestionDebugFakeOutput
+    ) {
+        NativeLocalSuggestionState(
+            context, localSuggestionsAvailableOverride, localSuggestionDebugFakeOutput,
+            modeOverride = localSuggestionModeOverride
+        )
     }
     DisposableEffect(localSuggestions) { onDispose { localSuggestions.close() } }
     LaunchedEffect(state.revision, state.liveEventSerial) { localSuggestions.clear() }
@@ -145,6 +153,30 @@ fun NativeSessionScreen(
     var feedNearBottom by remember { mutableStateOf(true) }
     var viewerOpen by remember { mutableStateOf(false) }
     val pendingAction = activePendingAction(state.items)
+    val automaticQuestion = pendingAction?.takeIf { it.kind == "question" }
+        ?.questions?.firstOrNull()?.takeIf { canSuggestForQuestion(it, "") }
+    val automaticQuestionTarget = automaticQuestion?.let {
+        LocalSuggestionTarget("question", pendingAction.id, it.id, it.prompt)
+    }
+    val automaticQuestionKey = automaticQuestionTarget?.let { localSuggestionRevision(state.items, it) } ?: ""
+    var observedQuestionSerial by remember(state.hostId, state.internalSession) { mutableStateOf(state.liveEventSerial) }
+    var observedQuestionKey by remember(state.hostId, state.internalSession) { mutableStateOf(automaticQuestionKey) }
+    LaunchedEffect(state.revision) {
+        observedQuestionSerial = state.liveEventSerial
+        observedQuestionKey = automaticQuestionKey
+    }
+    LaunchedEffect(state.liveEventSerial) {
+        val start = shouldStartAutomaticSuggestion(
+            observedQuestionKey, automaticQuestionKey,
+            localSuggestions.mode == LocalSuggestionMode.AUTOMATIC && state.liveEventSerial > observedQuestionSerial,
+            historicalFrame = false
+        )
+        observedQuestionSerial = state.liveEventSerial
+        observedQuestionKey = automaticQuestionKey
+        if (start && automaticQuestionTarget != null) {
+            localSuggestions.request(state.items, automaticQuestionTarget, automatic = true)
+        }
+    }
     LaunchedEffect(pendingAction?.id, feedNearBottom, viewerOpen, state.focusQuestionSerial) {
         if (pendingAction == null) {
             actionSheetId = ""
@@ -203,7 +235,10 @@ fun NativeSessionScreen(
             } else if (state.sourceMode == "shell" && !aiComposer) {
                 ShellCommandBar(onShellCommand, onShellKey, onControlC)
             } else if (aiComposer && inlineComposer) {
-                NativeAiComposer(state.interactionMode, state.items, localSuggestions, onComposerText, onAttach)
+                NativeAiComposer(
+                    state.interactionMode, state.items, state.revision, state.liveEventSerial,
+                    localSuggestions, onComposerText, onAttach
+                )
             }
         }
     ) { padding ->
@@ -601,11 +636,33 @@ private fun ModelControlDialog(
 private fun NativeAiComposer(
     interactionMode: String,
     conversationItems: List<ConversationItem>,
+    conversationRevision: String,
+    liveEventSerial: Long,
     localSuggestions: NativeLocalSuggestionState,
     onComposerText: (String, Boolean) -> Boolean,
     onAttach: () -> Unit
 ) {
     var value by rememberSaveable { mutableStateOf("") }
+    var observedLiveSerial by remember { mutableStateOf(liveEventSerial) }
+    var observedSuggestionKey by remember { mutableStateOf("") }
+    val automaticTarget = LocalSuggestionTarget("composer")
+    val automaticKey = if (canSuggestForComposer(conversationItems, value)) {
+        localSuggestionRevision(conversationItems, automaticTarget)
+    } else ""
+    LaunchedEffect(conversationRevision) {
+        observedLiveSerial = liveEventSerial
+        observedSuggestionKey = automaticKey
+    }
+    LaunchedEffect(liveEventSerial) {
+        val start = shouldStartAutomaticSuggestion(
+            observedSuggestionKey, automaticKey,
+            localSuggestions.mode == LocalSuggestionMode.AUTOMATIC && liveEventSerial > observedLiveSerial,
+            historicalFrame = false
+        )
+        observedLiveSerial = liveEventSerial
+        observedSuggestionKey = automaticKey
+        if (start) localSuggestions.request(conversationItems, automaticTarget, automatic = true)
+    }
     Surface(
         modifier = Modifier.windowInsetsPadding(WindowInsets.navigationBars),
         color = MaterialTheme.colorScheme.surface,
@@ -638,14 +695,18 @@ private fun NativeAiComposer(
                 }) { Text(if (value.isEmpty()) "Enter" else "Send", fontSize = 12.sp) }
             }
             if (localSuggestions.targetKey == "composer") {
-                LocalSuggestionChoices(localSuggestions, onUse = { value = it; localSuggestions.clear() })
+                LocalSuggestionChoices(
+                    localSuggestions,
+                    onUse = { value = it; localSuggestions.clear() },
+                    onRegenerate = { localSuggestions.request(conversationItems, automaticTarget, automatic = localSuggestions.automatic) }
+                )
             }
             if (localSuggestions.available && canSuggestForComposer(conversationItems, value)) {
                 TextButton(
-                    onClick = { localSuggestions.request(conversationItems, LocalSuggestionTarget("composer")) },
+                    onClick = { localSuggestions.request(conversationItems, automaticTarget) },
                     modifier = Modifier.align(Alignment.End).testTag("local-suggest-composer"),
                     contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp)
-                ) { Text("Suggest locally", fontSize = 12.sp) }
+                ) { Text(if (localSuggestions.mode == LocalSuggestionMode.AUTOMATIC) "Regenerate" else "Suggest locally", fontSize = 12.sp) }
             }
         }
     }
@@ -654,7 +715,8 @@ private fun NativeAiComposer(
 internal class NativeLocalSuggestionState(
     context: android.content.Context,
     private val availableOverride: Boolean? = null,
-    debugFakeOutput: String? = null
+    debugFakeOutput: String? = null,
+    private val modeOverride: LocalSuggestionMode? = null
 ) : AutoCloseable {
     private val app = context.applicationContext
     private val client = LocalSuggestionClient(app, debugFakeOutput)
@@ -667,18 +729,26 @@ internal class NativeLocalSuggestionState(
         private set
     var error by mutableStateOf("")
         private set
-    val available: Boolean get() = availableOverride ?: LocalSuggestionPreferences.enabled(app)
+    var automatic by mutableStateOf(false)
+        private set
+    val mode: LocalSuggestionMode get() = modeOverride ?: when (availableOverride) {
+        true -> LocalSuggestionMode.MANUAL
+        false -> LocalSuggestionMode.OFF
+        null -> LocalSuggestionPreferences.mode(app)
+    }
+    val available: Boolean get() = mode != LocalSuggestionMode.OFF
 
-    fun request(items: List<ConversationItem>, target: LocalSuggestionTarget) {
+    fun request(items: List<ConversationItem>, target: LocalSuggestionTarget, automatic: Boolean = false) {
         clear()
         val requestSerial = ++serial
         targetKey = target.key
         loading = true
+        this.automatic = automatic
         client.generate(buildLocalSuggestionPrompt(items, target)) { result ->
             if (requestSerial != serial) return@generate
             loading = false
             result.onSuccess { values = it }
-                .onFailure { error = it.message ?: "Local suggestion failed." }
+                .onFailure { error = if (automatic) "Couldn’t prepare replies locally." else it.message ?: "Local suggestion failed." }
         }
     }
 
@@ -689,13 +759,18 @@ internal class NativeLocalSuggestionState(
         loading = false
         values = emptyList()
         error = ""
+        automatic = false
     }
 
     override fun close() { clear(); client.close() }
 }
 
 @Composable
-internal fun LocalSuggestionChoices(state: NativeLocalSuggestionState, onUse: (String) -> Unit) {
+internal fun LocalSuggestionChoices(
+    state: NativeLocalSuggestionState,
+    onUse: (String) -> Unit,
+    onRegenerate: () -> Unit
+) {
     Card(
         modifier = Modifier.fillMaxWidth().testTag("local-suggestion-results"),
         shape = RoundedCornerShape(12.dp),
@@ -703,8 +778,11 @@ internal fun LocalSuggestionChoices(state: NativeLocalSuggestionState, onUse: (S
     ) {
         Column(Modifier.fillMaxWidth().padding(10.dp), verticalArrangement = Arrangement.spacedBy(7.dp)) {
             when {
-                state.loading -> Text("Thinking locally…", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 14.sp)
-                state.error.isNotBlank() -> Text(state.error, color = MaterialTheme.colorScheme.error, fontSize = 14.sp)
+                state.loading -> Text(if (state.automatic) "Preparing replies locally…" else "Thinking locally…", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 14.sp)
+                state.error.isNotBlank() -> {
+                    Text(state.error, color = MaterialTheme.colorScheme.error, fontSize = 14.sp)
+                    TextButton(onClick = onRegenerate, modifier = Modifier.testTag("local-suggestion-retry")) { Text("Retry") }
+                }
                 else -> {
                     Text("Local suggestions · tap to edit", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 13.sp)
                     state.values.forEachIndexed { index, value ->
@@ -713,6 +791,7 @@ internal fun LocalSuggestionChoices(state: NativeLocalSuggestionState, onUse: (S
                             modifier = Modifier.fillMaxWidth().testTag("local-suggestion-$index")
                         ) { Text(value, modifier = Modifier.fillMaxWidth()) }
                     }
+                    TextButton(onClick = onRegenerate, modifier = Modifier.testTag("local-suggestion-regenerate")) { Text("Regenerate") }
                 }
             }
             TextButton(onClick = state::clear, modifier = Modifier.align(Alignment.End)) {
@@ -1652,6 +1731,15 @@ private fun QuestionForm(
     var draft by rememberSaveable(value.id) { mutableStateOf(answersToDraft(value.answers)) }
     val question = value.questions[page.coerceIn(0, value.questions.lastIndex)]
     val current = questionDraft(draft, question.id)
+    val suggestionTarget = LocalSuggestionTarget("question", value.id, question.id, question.prompt)
+    var observedPage by remember(value.id) { mutableStateOf(page) }
+    LaunchedEffect(page) {
+        val changed = page != observedPage
+        observedPage = page
+        if (changed && localSuggestions.mode == LocalSuggestionMode.AUTOMATIC && canSuggestForQuestion(question, current.text)) {
+            localSuggestions.request(conversationItems, suggestionTarget, automatic = true)
+        }
+    }
     val options = if (question.type == "boolean" && question.options.isEmpty()) listOf(
         ConversationQuestionOption("true", "Yes", ""), ConversationQuestionOption("false", "No", "")
     ) else question.options
@@ -1746,17 +1834,19 @@ private fun QuestionForm(
                         unfocusedPlaceholderColor = Color(0xFF6C5B00)
                     )
                 )
-                val target = LocalSuggestionTarget("question", value.id, question.id, question.prompt)
-                if (localSuggestions.targetKey == target.key) {
-                    LocalSuggestionChoices(localSuggestions, onUse = { suggestion ->
-                        draft = updateQuestionDraft(draft, current.copy(text = suggestion))
-                        localSuggestions.clear()
-                    })
+                if (localSuggestions.targetKey == suggestionTarget.key) {
+                    LocalSuggestionChoices(
+                        localSuggestions,
+                        onUse = { suggestion -> draft = updateQuestionDraft(draft, current.copy(text = suggestion)); localSuggestions.clear() },
+                        onRegenerate = {
+                            localSuggestions.request(conversationItems, suggestionTarget, automatic = localSuggestions.automatic)
+                        }
+                    )
                 } else if (localSuggestions.available && canSuggestForQuestion(question, current.text)) {
                     OutlinedButton(
-                        onClick = { localSuggestions.request(conversationItems, target) },
+                        onClick = { localSuggestions.request(conversationItems, suggestionTarget) },
                         modifier = Modifier.testTag("local-suggest-question-${question.id}")
-                    ) { Text("Suggest") }
+                    ) { Text(if (localSuggestions.mode == LocalSuggestionMode.AUTOMATIC) "Regenerate" else "Suggest") }
                 }
             }
         }
