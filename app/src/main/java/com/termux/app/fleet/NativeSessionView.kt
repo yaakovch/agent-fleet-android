@@ -1432,6 +1432,11 @@ internal fun completedWorkDurationEndingAt(endId: String, items: List<Conversati
 
     val endIndex = items.indexOfLast { it.id == endId && lifecycleEnd(it) }
     if (endIndex < 0) return null
+    val providerStarted = parseConversationTimestamp(items[endIndex].startedAt)
+    val providerCompleted = parseConversationTimestamp(items[endIndex].completedAt)
+    if (providerStarted != null && providerCompleted != null && providerCompleted >= providerStarted) {
+        return providerCompleted - providerStarted
+    }
     val previousEnd = (endIndex - 1 downTo 0).firstOrNull { lifecycleEnd(items[it]) } ?: -1
     val lastWorking = (endIndex - 1 downTo previousEnd + 1).firstOrNull { index ->
         items[index].kind == "status" && items[index].title == "Working"

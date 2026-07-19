@@ -275,6 +275,11 @@ class ConversationStreamParserTest {
             assertEquals(null, activeWorkStartedAt(adapter, listOf(user, working, done)))
             assertEquals(30L * 60L * 1_000L + 56_000L, latestCompletedWorkDuration(adapter, listOf(user, working, done)))
         }
+        val providerTimedDone = done.copy(
+            startedAt = "2026-07-19T00:23:15.862Z",
+            completedAt = "2026-07-19T00:30:56.000Z"
+        )
+        assertEquals(460_138L, latestCompletedWorkDuration("codex", listOf(user, working, providerTimedDone)))
         assertEquals(parseConversationTimestamp(user.timestamp), activeWorkStartedAt("claude", listOf(user)))
         assertEquals(null, activeWorkStartedAt("claude", listOf(user, user.copy(id = "reply", role = "assistant"))))
         assertEquals("30m 55s", formatWorkingDuration(1_000L, 1_856_000L))

@@ -158,9 +158,10 @@ class AgentFleetComposeTest {
             attachments = emptyList(), choices = emptyList()
         )
         val done = ConversationItem(
-            id = "done", kind = "status", timestamp = "2026-07-19T00:07:40Z", role = "",
+            id = "done", kind = "status", timestamp = "2026-07-19T00:08:41Z", role = "",
             title = "Done", text = "", detail = "", state = "complete", tool = "codex",
-            attachments = emptyList(), choices = emptyList()
+            attachments = emptyList(), choices = emptyList(),
+            startedAt = "2026-07-19T00:01:00Z", completedAt = "2026-07-19T00:08:40Z"
         )
         val state = NativeSessionUiState(
             "Completed fixture", "gaming", "wtmux-main", adapter = "codex", connection = "Live",
