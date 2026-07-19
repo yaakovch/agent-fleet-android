@@ -1246,3 +1246,43 @@ and the universal APK SHA-256 is
 `fe8a49ff854bf3cc6dc8c58805ced1e77ee415ce4df330ae11b1daaab95df554`.
 `.63` remains available for rollback. Automated tooling did not access the
 physical S23FE.
+
+## 49. Managed Session Resume Presentation Hotfix
+
+1. Reapply the managed Native/Terminal presentation after Android restores the
+   activity view hierarchy so a resumed Terminal cannot retain the layout's
+   default hidden composer and session chrome.
+2. Persist the active fullscreen Fleet session independently of the local PTY.
+   If the activity target is lost while an exited attachment remains selected,
+   reconstruct the managed target, surface, composer policy, and bounded
+   reconnect instead of leaving a detached exit-255 screen.
+3. Preserve an existing managed target when Android delivers a bare main intent,
+   and translate checked runtime-start failures into visible recovery errors
+   rather than letting them escape on the activity main thread.
+4. Cover presentation reapplication, target persistence/recovery, service PTY
+   identity, and checked reconnect failures. Run focused JVM tests, a direct
+   activity lifecycle reproduction, the complete isolated API 36 suite, release
+   lint, signing, identity/runtime/checksum verification, and publish `.65`/1067
+   while retaining `.64` for rollback.
+
+Implementation record (2026-07-19): Android source commit `d4948bdc` restores
+the managed UI after framework state restoration, remembers the active
+fullscreen session separately from its SSH process, and safely reports runtime
+restart failures. This is Android activity/process lifecycle behavior only; it
+does not alter the shared protocol or require a Windows change. The focused JVM
+regressions and direct API 36 lifecycle reproduction passed. All 134 Android JVM
+tests and the complete managed Pixel 7/API 36 suite passed at
+`build/reports/agent-fleet/emulator/20260719T060346Z-full`; all 37
+instrumentation cases completed with two review-only golden generators skipped,
+including the new composer/chrome resume regression. Release lint completed
+with zero errors, and the signed/minified arm64 and universal APKs passed
+certificate, permanent identity, checksum, and embedded runtime `git-c8772e3`
+verification across all 84 packages. `.65`/1067 is published through
+`fleet/latest`; the HTTPS-served manifest SHA-256 is
+`de9bfa9ff7efd0c93d75a55f21fe57fa3b3fade5b3369184265c3840683f808f`,
+the arm64 APK SHA-256 is
+`abf977141d45dfaef45f44848c81a8d59bbd2a6cbce96639da6bb9c590d1739a`,
+and the universal APK SHA-256 is
+`b47c4588c27eb38bdfed87ec0b576e16a8e7c928246f61e1f93ca27346dc145a`.
+`.64` remains available for rollback. Automated tooling did not access the
+physical S23FE.
