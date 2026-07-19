@@ -53,7 +53,7 @@ jobs:
           fi
 
           echo "Validating APKs"
-          for abi in universal arm64-v8a armeabi-v7a x86_64 x86; do
+          for abi in universal arm64-v8a x86_64; do
             if ! test -f "$APK_DIR_PATH/${APK_BASENAME_PREFIX}_$abi.apk"; then
               files_found="$(ls "$APK_DIR_PATH")"
               exit_on_error "Failed to find built APK at '$APK_DIR_PATH/${APK_BASENAME_PREFIX}_$abi.apk'. Files found: "$'\n'"$files_found"
@@ -64,9 +64,7 @@ jobs:
           if ! (cd "$APK_DIR_PATH"; sha256sum \
             "${APK_BASENAME_PREFIX}_universal.apk" \
             "${APK_BASENAME_PREFIX}_arm64-v8a.apk" \
-            "${APK_BASENAME_PREFIX}_armeabi-v7a.apk" \
             "${APK_BASENAME_PREFIX}_x86_64.apk" \
-            "${APK_BASENAME_PREFIX}_x86.apk" \
             > sha256sums); then
             exit_on_error "Generate sha25sums failed for '$RELEASE_VERSION_NAME' release."
           fi
@@ -87,28 +85,12 @@ jobs:
             ${{ env.APK_DIR_PATH }}/${{ env.APK_BASENAME_PREFIX }}_arm64-v8a.apk
             ${{ env.APK_DIR_PATH }}/output-metadata.json
 
-      - name: Attach armeabi-v7a APK file
-        uses: actions/upload-artifact@v4
-        with:
-          name: ${{ env.APK_BASENAME_PREFIX }}_armeabi-v7a
-          path: |
-            ${{ env.APK_DIR_PATH }}/${{ env.APK_BASENAME_PREFIX }}_armeabi-v7a.apk
-            ${{ env.APK_DIR_PATH }}/output-metadata.json
-
       - name: Attach x86_64 APK file
         uses: actions/upload-artifact@v4
         with:
           name: ${{ env.APK_BASENAME_PREFIX }}_x86_64
           path: |
             ${{ env.APK_DIR_PATH }}/${{ env.APK_BASENAME_PREFIX }}_x86_64.apk
-            ${{ env.APK_DIR_PATH }}/output-metadata.json
-
-      - name: Attach x86 APK file
-        uses: actions/upload-artifact@v4
-        with:
-          name: ${{ env.APK_BASENAME_PREFIX }}_x86
-          path: |
-            ${{ env.APK_DIR_PATH }}/${{ env.APK_BASENAME_PREFIX }}_x86.apk
             ${{ env.APK_DIR_PATH }}/output-metadata.json
 
       - name: Attach sha256sums file
