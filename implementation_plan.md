@@ -1379,3 +1379,25 @@ physical S23FE.
    lint, signing, identity/runtime, and served-checksum gates.
 5. Publish `.68`/1070 through `fleet/latest`, retain `.67` for rollback, and
    leave the physical S23FE smoke to the user through the in-app update flow.
+
+Implementation record (2026-07-19): Android source commit `dbd8a823` adds
+Off, Manual, and Automatic local-suggestion modes, migrates the legacy enabled
+preference to Manual, and prepares cancelable local drafts only for new live
+assistant replies or active free-text questions. Drafts remain opt-in at the
+final step: selecting one fills the composer or answer field without sending.
+The focused JVM and Compose regressions passed. The complete managed Pixel
+7/API 36 suite passed at
+`build/reports/agent-fleet/emulator/20260719T103541Z-full`; all 42
+instrumentation tests finished with zero failures and two review-only golden
+generators skipped. Release lint completed with zero errors and three existing
+PendingIntent warnings. The signed/minified arm64 and universal APKs passed
+certificate, checksum, permanent-identity, and embedded runtime `git-c8772e3`
+verification across all 84 packages. `.68`/1070 is published through
+`fleet/latest`; the HTTPS-served manifest SHA-256 is
+`a54183f268060131c186c58c5ef24f7ebcdd2bfc0d4c246087e17c84b6e3023b`,
+the arm64 APK SHA-256 is
+`164017203a398eead1bed051bc8fe80f8d4477b29db74a742d48090d5e2cd6a9`,
+and the universal APK SHA-256 is
+`f11c1b04aeaf84413582cec67a738bffc9970dc10ea62b028e0c73136da9f99d`.
+`.67` remains available for rollback. Automated tooling did not access the
+physical S23FE.
