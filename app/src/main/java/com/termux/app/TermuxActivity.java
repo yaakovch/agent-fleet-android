@@ -487,17 +487,23 @@ public final class TermuxActivity extends ComponentActivity implements ServiceCo
         View terminalChrome = findViewById(R.id.agent_fleet_terminal_chrome);
         if (terminalChrome != null) {
             terminalChrome.setVisibility(nativeAvailable && !nativeView ? View.VISIBLE : View.GONE);
-            terminalChrome.post(() -> {
-                if (mTerminalView == null) return;
+            if (mTerminalView != null) {
                 int top = terminalChrome.getVisibility() == View.VISIBLE
                     ? getResources().getDimensionPixelSize(R.dimen.agent_fleet_compact_session_header_height) : 0;
-                if (mTerminalView.getPaddingTop() != top) {
-                    mTerminalView.setPadding(mTerminalView.getPaddingLeft(), top,
-                        mTerminalView.getPaddingRight(), mTerminalView.getPaddingBottom());
-                    mTerminalView.updateSize();
-                    if (!nativeView) mTerminalView.onScreenUpdated();
+                ViewGroup.LayoutParams rawParams = mTerminalView.getLayoutParams();
+                if (rawParams instanceof ViewGroup.MarginLayoutParams) {
+                    ViewGroup.MarginLayoutParams marginParams = (ViewGroup.MarginLayoutParams) rawParams;
+                    if (marginParams.topMargin != top) {
+                        marginParams.topMargin = top;
+                        mTerminalView.setLayoutParams(marginParams);
+                    }
                 }
-            });
+                // Older builds attempted to reserve this space with padding, but TerminalView's
+                // custom renderer does not offset its canvas for view padding.
+                if (mTerminalView.getPaddingTop() != 0)
+                    mTerminalView.setPadding(mTerminalView.getPaddingLeft(), 0,
+                        mTerminalView.getPaddingRight(), mTerminalView.getPaddingBottom());
+            }
         }
 
         if (mAgentFleetTerminalScrollback != null)
@@ -511,12 +517,24 @@ public final class TermuxActivity extends ComponentActivity implements ServiceCo
 
     /** Reconnect an unexpectedly failed visible fleet transport without reviving an explicitly closed tab. */
     public void onAgentFleetManagedSessionFinished(TerminalSession finishedSession) {
-        if (!mIsVisible || finishedSession == null || finishedSession != getCurrentSession()) return;
+        if (finishedSession == null) return;
         int exitStatus = finishedSession.getExitStatus();
-        if (exitStatus == 0 || exitStatus == 130) return;
         String sessionId = managedSessionId(getIntent());
-        if (sessionId != null && mAgentFleetSessionResume != null)
+        String finishedSessionId = mTermuxService == null ? null :
+            mTermuxService.getAgentFleetWorkspaceSessionId(finishedSession);
+        if (shouldReconnectFinishedManagedSession(mIsVisible, sessionId, finishedSessionId, exitStatus) &&
+            mAgentFleetSessionResume != null)
             mAgentFleetSessionResume.onAttachmentEnded(sessionId);
+    }
+
+    static boolean shouldReconnectFinishedManagedSession(
+        boolean visible,
+        @Nullable String targetSessionId,
+        @Nullable String finishedSessionId,
+        int exitStatus
+    ) {
+        return visible && exitStatus != 0 && exitStatus != 130 && targetSessionId != null &&
+            targetSessionId.equals(finishedSessionId);
     }
 
     public void onAgentFleetTerminalScreenChanged(TerminalSession changedSession) {

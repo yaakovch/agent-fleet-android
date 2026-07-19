@@ -4,6 +4,7 @@ import android.content.Context
 import android.content.Intent
 import android.net.Uri
 import android.os.SystemClock
+import android.view.ViewGroup
 import androidx.test.core.app.ActivityScenario
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
@@ -20,6 +21,7 @@ import com.termux.shared.models.ExecutionCommand
 import com.termux.shared.settings.preferences.TermuxAppSharedPreferences
 import com.termux.shared.shell.TermuxSession
 import com.termux.shared.termux.TermuxConstants.TERMUX_APP.TERMUX_SERVICE
+import com.termux.view.TerminalView
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
@@ -105,6 +107,10 @@ class TermuxAttachmentServiceTest {
             scenario.onActivity { activity ->
                 assertEquals(android.view.View.VISIBLE, activity.findViewById<android.view.View>(R.id.agent_fleet_terminal_chrome).visibility)
                 assertEquals(android.view.View.VISIBLE, activity.findViewById<android.view.View>(R.id.agent_fleet_composer).visibility)
+                assertEquals(
+                    context.resources.getDimensionPixelSize(R.dimen.agent_fleet_compact_session_header_height),
+                    (activity.findViewById<TerminalView>(R.id.terminal_view).layoutParams as ViewGroup.MarginLayoutParams).topMargin
+                )
                 activity.findViewById<android.view.View>(R.id.agent_fleet_terminal_chrome).visibility = android.view.View.GONE
                 activity.findViewById<android.view.View>(R.id.agent_fleet_composer).visibility = android.view.View.GONE
             }
@@ -113,6 +119,10 @@ class TermuxAttachmentServiceTest {
             scenario.onActivity { activity ->
                 assertEquals(android.view.View.VISIBLE, activity.findViewById<android.view.View>(R.id.agent_fleet_terminal_chrome).visibility)
                 assertEquals(android.view.View.VISIBLE, activity.findViewById<android.view.View>(R.id.agent_fleet_composer).visibility)
+                assertEquals(
+                    context.resources.getDimensionPixelSize(R.dimen.agent_fleet_compact_session_header_height),
+                    (activity.findViewById<TerminalView>(R.id.terminal_view).layoutParams as ViewGroup.MarginLayoutParams).topMargin
+                )
             }
         }
     }

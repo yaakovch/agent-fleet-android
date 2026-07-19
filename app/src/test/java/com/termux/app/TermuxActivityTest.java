@@ -47,4 +47,18 @@ public class TermuxActivityTest {
         Assert.assertFalse(TermuxActivity.shouldRestoreAgentFleetPresentation(false, false, false, false));
     }
 
+    @Test
+    public void testManagedReconnectUsesTheIntentTargetDuringDirectEntry() {
+        Assert.assertTrue(TermuxActivity.shouldReconnectFinishedManagedSession(
+            true, "gaming:wtmux", "gaming:wtmux", 255));
+        Assert.assertFalse(TermuxActivity.shouldReconnectFinishedManagedSession(
+            false, "gaming:wtmux", "gaming:wtmux", 255));
+        Assert.assertFalse(TermuxActivity.shouldReconnectFinishedManagedSession(
+            true, "gaming:wtmux", "work:other", 255));
+        Assert.assertFalse(TermuxActivity.shouldReconnectFinishedManagedSession(
+            true, "gaming:wtmux", "gaming:wtmux", 0));
+        Assert.assertFalse(TermuxActivity.shouldReconnectFinishedManagedSession(
+            true, "gaming:wtmux", "gaming:wtmux", 130));
+    }
+
 }
