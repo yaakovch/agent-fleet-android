@@ -21,8 +21,11 @@ object AutomaticSessionTitleSettings {
     }
 }
 
-internal fun snapshotBridgeArguments(enabled: Boolean): List<String> =
-    listOf("--snapshot") + if (enabled) listOf("--session-titles") else emptyList()
+internal fun bridgeHelpSupportsSessionTitles(exitCode: Int, output: String): Boolean =
+    exitCode == 0 && output.lineSequence().any { line -> "--session-titles" in line }
 
-internal fun stdioBridgeArguments(enabled: Boolean): List<String> =
-    listOf("--stdio") + if (enabled) listOf("--session-titles") else emptyList()
+internal fun snapshotBridgeArguments(enabled: Boolean, supported: Boolean = true): List<String> =
+    listOf("--snapshot") + if (enabled && supported) listOf("--session-titles") else emptyList()
+
+internal fun stdioBridgeArguments(enabled: Boolean, supported: Boolean = true): List<String> =
+    listOf("--stdio") + if (enabled && supported) listOf("--session-titles") else emptyList()

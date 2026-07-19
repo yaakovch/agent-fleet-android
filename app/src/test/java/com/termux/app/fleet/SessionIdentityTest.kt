@@ -26,4 +26,18 @@ class SessionIdentityTest {
         assertEquals(listOf("--snapshot", "--session-titles"), snapshotBridgeArguments(true))
         assertEquals(listOf("--snapshot"), snapshotBridgeArguments(false))
     }
+
+    @Test fun oldBridgeFallsBackWithoutBreakingFleetConnection() {
+        val oldHelp = "usage: wtmux-bridge [-h] [--snapshot] [--stdio]"
+        assertEquals(false, bridgeHelpSupportsSessionTitles(0, oldHelp))
+        assertEquals(listOf("--snapshot"), snapshotBridgeArguments(enabled = true, supported = false))
+        assertEquals(listOf("--stdio"), stdioBridgeArguments(enabled = true, supported = false))
+    }
+
+    @Test fun compatibleBridgeKeepsAutomaticTitlesEnabled() {
+        val currentHelp = "usage: wtmux-bridge [--snapshot] [--stdio] [--session-titles]"
+        assertEquals(true, bridgeHelpSupportsSessionTitles(0, currentHelp))
+        assertEquals(listOf("--snapshot", "--session-titles"), snapshotBridgeArguments(true, true))
+        assertEquals(listOf("--stdio", "--session-titles"), stdioBridgeArguments(true, true))
+    }
 }
