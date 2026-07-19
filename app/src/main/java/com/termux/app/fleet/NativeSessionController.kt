@@ -95,6 +95,10 @@ class NativeSessionController @JvmOverloads constructor(
                     onAttach = activity::pickAgentFleetImages,
                     inlineComposer = activity.nativeInlineComposer,
                     showChrome = showChrome,
+                    // TermuxActivity's fitsSystemWindows root already positions this
+                    // ComposeView below the status bar. A second Compose inset was the
+                    // unused strip that Terminal mode did not have.
+                    applyStatusBarInset = false,
                     onRefreshModel = { refreshModelControl(includeCatalog = true, showLoading = true) },
                     onSetModel = ::setModelControl,
                     onCancelModel = ::cancelModelControl
@@ -676,6 +680,8 @@ class NativeSessionController @JvmOverloads constructor(
             olderLoadError = null,
             loadingOlder = false,
             historyLimitReached = false,
+            providerActivity = null,
+            providerActivityAuthoritative = false,
             connection = "Connecting…"
         )
         if (shouldRunStream()) startStream()
@@ -714,6 +720,8 @@ class NativeSessionController @JvmOverloads constructor(
                     olderLoadError = null,
                     historyLimitReached = false,
                     optimisticWorkStartedAt = optimisticWorkStartedAt,
+                    providerActivity = frame.providerActivity,
+                    providerActivityAuthoritative = frame.hasProviderActivity,
                     error = null
                 )
                 if (frame.mode == "shell") refreshDirectories()
@@ -738,6 +746,13 @@ class NativeSessionController @JvmOverloads constructor(
             }
             is ConversationFrame.Status -> {
                 if (frame.session != uiState.value.internalSession) return
+                if (frame.hasProviderActivity) {
+                    uiState.value = uiState.value.copy(
+                        providerActivity = frame.providerActivity,
+                        providerActivityAuthoritative = true,
+                        optimisticWorkStartedAt = null
+                    )
+                }
                 if (frame.status == "reload_required") restartNow()
                 else {
                     val update = conversationStatusUpdate(
@@ -745,8 +760,8 @@ class NativeSessionController @JvmOverloads constructor(
                         uiState.value.interactionMode,
                         frame.status,
                         frame.interactionMode
-                    ) ?: return
-                    uiState.value = uiState.value.copy(connection = update.first, interactionMode = update.second)
+                    )
+                    if (update != null) uiState.value = uiState.value.copy(connection = update.first, interactionMode = update.second)
                 }
                 updateComposerState()
             }

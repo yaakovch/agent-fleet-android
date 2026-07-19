@@ -49,6 +49,7 @@ import com.termux.app.fleet.FleetSession
 import com.termux.app.fleet.FleetSnapshot
 import com.termux.app.fleet.NativeSessionScreen
 import com.termux.app.fleet.NativeSessionUiState
+import com.termux.app.fleet.ProviderActivity
 import com.termux.app.fleet.AgentFleetTerminalSessionChrome
 import com.termux.app.fleet.ToolPresentation
 import com.termux.app.fleet.ToolPresentationBlock
@@ -224,6 +225,20 @@ class AgentFleetComposeTest {
     }
 
     @Test
+    fun nativeHeaderUsesTheTopOfItsInsetAwareActivityWindow() {
+        compose.setContent {
+            NativeStateFixture(
+                NativeSessionUiState(
+                    "wtmux:1", "gaming", "wtmux-main", adapter = "codex", connection = "Live"
+                ),
+                applyStatusBarInset = false
+            )
+        }
+        val header = compose.onNodeWithTag("native-session-header").fetchSemanticsNode().boundsInRoot
+        assertEquals(0f, header.top, 0.5f)
+    }
+
+    @Test
     fun terminalHeaderTransitionsFromAProviderWorkingEventToCompletedDuration() {
         val state = mutableStateOf(
             NativeSessionUiState("wtmux:1", "gaming", "wtmux-main", adapter = "codex", connection = "Live")
@@ -261,6 +276,20 @@ class AgentFleetComposeTest {
         )
         compose.setContent { NativeStateFixture(state) }
         compose.onNodeWithText("Codex · Working (", substring = true).assertIsDisplayed()
+    }
+
+    @Test
+    fun nativeShowsTheExactCodexPhaseAndHostCounter() {
+        val state = NativeSessionUiState(
+            "Working fixture", "gaming", "wtmux-main", adapter = "codex", connection = "Live",
+            providerActivity = ProviderActivity(
+                "Waiting for background terminal", 617,
+                "2026-07-19T17:00:00Z", System.currentTimeMillis()
+            ),
+            providerActivityAuthoritative = true
+        )
+        compose.setContent { NativeStateFixture(state) }
+        compose.onNodeWithText("Codex · Waiting for background terminal (10m 17s)").assertIsDisplayed()
     }
 
     @Test

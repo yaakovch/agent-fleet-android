@@ -2,6 +2,13 @@ package com.termux.app.fleet
 
 data class ConversationChoice(val id: String, val label: String)
 
+data class ProviderActivity(
+    val label: String,
+    val elapsedSeconds: Long,
+    val observedAt: String,
+    val receivedAtMillis: Long = System.currentTimeMillis()
+)
+
 data class ConversationQuestionOption(val id: String, val label: String, val description: String)
 
 data class ConversationQuestion(
@@ -70,11 +77,20 @@ sealed class ConversationFrame {
         val revision: String,
         val items: List<ConversationItem>,
         val nextCursor: String?,
-        val hasMore: Boolean
+        val hasMore: Boolean,
+        val providerActivity: ProviderActivity?,
+        val hasProviderActivity: Boolean
     ) : ConversationFrame()
 
     data class Event(val session: String, val adapter: String, val item: ConversationItem) : ConversationFrame()
-    data class Status(val session: String, val adapter: String, val status: String, val interactionMode: String) : ConversationFrame()
+    data class Status(
+        val session: String,
+        val adapter: String,
+        val status: String,
+        val interactionMode: String,
+        val providerActivity: ProviderActivity?,
+        val hasProviderActivity: Boolean
+    ) : ConversationFrame()
     data class Error(val code: String, val message: String) : ConversationFrame()
 }
 
@@ -130,6 +146,8 @@ data class NativeSessionUiState(
     val historyLimitReached: Boolean = false,
     val liveEventSerial: Long = 0,
     val optimisticWorkStartedAt: Long? = null,
+    val providerActivity: ProviderActivity? = null,
+    val providerActivityAuthoritative: Boolean = false,
     val focusQuestionId: String = "",
     val focusQuestionSerial: Long = 0,
     val viewMode: NativeViewMode = NativeViewMode.Native,

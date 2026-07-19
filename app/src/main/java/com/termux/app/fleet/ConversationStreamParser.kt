@@ -20,7 +20,9 @@ object ConversationStreamParser {
                 revision = safe(root.getString("revision"), 160),
                 items = root.getJSONArray("items").let { array -> List(array.length()) { parseItem(array.getJSONObject(it)) } },
                 nextCursor = root.optString("nextCursor").takeIf { it.isNotBlank() },
-                hasMore = root.getBoolean("hasMore")
+                hasMore = root.getBoolean("hasMore"),
+                providerActivity = providerActivity(root),
+                hasProviderActivity = root.has("providerActivity")
             )
             "conversation.event" -> ConversationFrame.Event(
                 safe(root.getString("session"), 160),
@@ -31,7 +33,9 @@ object ConversationStreamParser {
                 safe(root.getString("session"), 160),
                 safe(root.getString("adapter"), 32),
                 safe(root.getString("status"), 64),
-                interactionMode(root)
+                interactionMode(root),
+                providerActivity(root),
+                root.has("providerActivity")
             )
             "conversation.error" -> root.getJSONObject("error").let {
                 ConversationFrame.Error(safe(it.getString("code"), 64), safe(it.getString("message"), 512))
@@ -158,6 +162,15 @@ object ConversationStreamParser {
 
     private fun interactionMode(root: JSONObject): String = safe(root.optString("interactionMode", "unknown"), 16).also {
         require(it in setOf("plan", "default", "unknown"))
+    }
+
+    private fun providerActivity(root: JSONObject): ProviderActivity? {
+        val value = root.optJSONObject("providerActivity") ?: return null
+        return ProviderActivity(
+            label = safe(value.getString("label"), 80),
+            elapsedSeconds = value.getLong("elapsedSeconds").also { require(it in 0..7L * 24L * 60L * 60L) },
+            observedAt = safe(value.getString("observedAt"), 64)
+        )
     }
 
     private fun safe(value: String, maximum: Int, multiline: Boolean = false): String {

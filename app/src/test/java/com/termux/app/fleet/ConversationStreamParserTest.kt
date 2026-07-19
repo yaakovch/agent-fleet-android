@@ -42,6 +42,30 @@ class ConversationStreamParserTest {
     }
 
     @Test
+    fun parsesAuthoritativeCodexActivityAndPreservesOlderHostFallback() {
+        val snapshot = ConversationStreamParser.parseFrame(
+            """{"protocolVersion":2,"type":"conversation.snapshot","session":"s","adapter":"codex","mode":"ai","interactionMode":"default","revision":"r","items":[],"nextCursor":null,"hasMore":false,"providerActivity":{"label":"Waiting for background terminal","elapsedSeconds":617,"observedAt":"2026-07-19T17:00:00Z"}}"""
+        ) as ConversationFrame.Snapshot
+        assertTrue(snapshot.hasProviderActivity)
+        assertEquals("Waiting for background terminal", snapshot.providerActivity?.label)
+        assertEquals(617L, snapshot.providerActivity?.elapsedSeconds)
+        assertEquals(617_000L, providerActivityStartedAt(snapshot.providerActivity)?.let { started ->
+            checkNotNull(snapshot.providerActivity).receivedAtMillis - started
+        })
+
+        val cleared = ConversationStreamParser.parseFrame(
+            """{"protocolVersion":2,"type":"conversation.heartbeat","session":"s","adapter":"codex","status":"ready","interactionMode":"default","providerActivity":null}"""
+        ) as ConversationFrame.Status
+        assertTrue(cleared.hasProviderActivity)
+        assertEquals(null, cleared.providerActivity)
+
+        val olderHost = ConversationStreamParser.parseFrame(
+            """{"protocolVersion":2,"type":"conversation.heartbeat","session":"s","adapter":"codex","status":"ready","interactionMode":"default"}"""
+        ) as ConversationFrame.Status
+        assertFalse(olderHost.hasProviderActivity)
+    }
+
+    @Test
     fun parsesDirectoryAndRejectsUnknownFrames() {
         val directory = ConversationStreamParser.parseDirectory(
             """{"protocolVersion":2,"type":"directory.snapshot","session":"s","cwd":"/home/me","entries":[{"name":"projects","symlink":false}],"truncated":false}"""

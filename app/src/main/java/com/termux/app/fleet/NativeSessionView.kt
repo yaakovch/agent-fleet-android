@@ -439,10 +439,19 @@ private fun CompactSessionHeader(
 
 @Composable
 private fun NativeSessionStatusLine(state: NativeSessionUiState) {
+    val exactActivity = state.providerActivity
+    val exactActivityStartedAt = remember(exactActivity) {
+        providerActivityStartedAt(exactActivity)
+    }
     val providerWorkingStartedAt = remember(state.adapter, state.items) {
         activeWorkStartedAt(state.adapter, state.items)
     }
-    val workingStartedAt = providerWorkingStartedAt ?: state.optimisticWorkStartedAt
+    val fallbackStartedAt = if (state.providerActivityAuthoritative) {
+        state.optimisticWorkStartedAt
+    } else {
+        providerWorkingStartedAt ?: state.optimisticWorkStartedAt
+    }
+    val workingStartedAt = exactActivityStartedAt ?: fallbackStartedAt
     val completedDuration = remember(state.adapter, state.items) {
         latestCompletedWorkDuration(state.adapter, state.items)
     }
@@ -454,7 +463,8 @@ private fun NativeSessionStatusLine(state: NativeSessionUiState) {
         }
     }
     val detail = when {
-        workingStartedAt != null -> "Working (${formatWorkingDuration(workingStartedAt, nowMillis)})"
+        exactActivity != null && exactActivityStartedAt != null -> "${exactActivity.label} (${formatWorkingDuration(exactActivityStartedAt, nowMillis)})"
+        fallbackStartedAt != null -> "Working (${formatWorkingDuration(fallbackStartedAt, nowMillis)})"
         completedDuration != null -> "Worked for ${formatElapsedDuration(completedDuration)}"
         else -> state.connection
     }
@@ -466,6 +476,11 @@ private fun NativeSessionStatusLine(state: NativeSessionUiState) {
         overflow = TextOverflow.Ellipsis,
         modifier = Modifier.testTag("native-session-status")
     )
+}
+
+internal fun providerActivityStartedAt(activity: ProviderActivity?): Long? {
+    if (activity == null) return null
+    return activity.receivedAtMillis - activity.elapsedSeconds * 1_000L
 }
 
 @Composable

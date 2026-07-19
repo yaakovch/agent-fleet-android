@@ -169,9 +169,20 @@ data class FleetSnapshot(
 
 data class FleetSessionIdentity(val primary: String, val secondary: String, val stableName: String)
 
+internal const val MAX_INHERITED_SESSION_TITLE_CHARS = 48
+
+internal fun inheritedSessionTitle(value: String): String {
+    val title = value.trim()
+    if (title.codePointCount(0, title.length) <= MAX_INHERITED_SESSION_TITLE_CHARS) return title
+    val available = MAX_INHERITED_SESSION_TITLE_CHARS - 1
+    val prefix = title.substring(0, title.offsetByCodePoints(0, available)).trimEnd()
+    val wordBoundary = prefix.lastIndexOf(' ').takeIf { it >= available * 2 / 3 }
+    return prefix.take(wordBoundary ?: prefix.length).trimEnd() + "…"
+}
+
 fun sessionIdentityPresentation(session: FleetSession): FleetSessionIdentity {
     val automatic = session.nameMode != "manual"
-    val primary = if (automatic && session.title.isNotBlank()) session.title else session.name
+    val primary = if (automatic && session.title.isNotBlank()) inheritedSessionTitle(session.title) else session.name
     val secondary = if (automatic && session.title.isNotBlank()) {
         listOf(session.name, session.hostId, session.project).filter(String::isNotBlank).joinToString(" · ")
     } else {

@@ -1,6 +1,7 @@
 package com.termux.app.fleet
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class SessionIdentityTest {
@@ -20,6 +21,19 @@ class SessionIdentityTest {
         val presentation = sessionIdentityPresentation(session.copy(name = "Release work", nameMode = "manual"))
         assertEquals("Release work", presentation.primary)
         assertEquals("host · demo", presentation.secondary)
+    }
+
+    @Test fun inheritedTitleIsWordSafelyCappedWithoutChangingManualNames() {
+        val longTitle = "Use the reclaimed native session space without allowing inherited titles to crowd the controls"
+        val automatic = sessionIdentityPresentation(session.copy(title = longTitle))
+        assertEquals("Use the reclaimed native session space…", automatic.primary)
+        assertTrue(automatic.primary.length <= MAX_INHERITED_SESSION_TITLE_CHARS)
+        assertEquals(longTitle, sessionIdentityPresentation(
+            session.copy(name = longTitle, title = "ignored", nameMode = "manual")
+        ).primary)
+        val emoji = inheritedSessionTitle("🙂".repeat(60))
+        assertEquals(48, emoji.codePointCount(0, emoji.length))
+        assertTrue(emoji.endsWith("…"))
     }
 
     @Test fun bridgeArgumentsArePrivacyGated() {
