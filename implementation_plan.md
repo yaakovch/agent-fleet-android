@@ -1401,3 +1401,20 @@ and the universal APK SHA-256 is
 `f11c1b04aeaf84413582cec67a738bffc9970dc10ea62b028e0c73136da9f99d`.
 `.67` remains available for rollback. Automated tooling did not access the
 physical S23FE.
+
+## 53. Phone Header And Live Working Reliability Hotfix
+
+1. Remove the duplicate Native status-bar inset so the fixed 40dp identity row
+   and 48dp control row remain inside the 88dp header at the phone font scale.
+2. Keep the bounded conversation metadata stream alive for every visible
+   managed surface, allowing the shared Native and Terminal header to receive
+   provider Working events throughout a run without changing PTY behavior.
+3. Reapply managed presentation immediately after an unexpected attachment exit
+   and again when its replacement is selected, preserving the header, exact
+   Terminal top margin, and composer during exit-255 reconnection.
+4. Cover 1.3 system font scale row boundaries, a provider Working event arriving
+   while Terminal is visible, and a real exit-255 activity lifecycle. Run the
+   focused, golden-review, fast/full API 36, release-lint, signing, identity,
+   runtime, and served-checksum gates.
+5. Publish `.69`/1071 through `fleet/latest`, retain `.68` for rollback, and
+   leave the physical S23FE smoke to the user through the in-app update flow.

@@ -121,6 +121,7 @@ fun NativeSessionScreen(
     onAttach: () -> Unit = {},
     inlineComposer: Boolean = false,
     showChrome: Boolean = true,
+    applyStatusBarInset: Boolean = true,
     localSuggestionsAvailableOverride: Boolean? = null,
     localSuggestionModeOverride: LocalSuggestionMode? = null,
     localSuggestionDebugFakeOutput: String? = null,
@@ -201,7 +202,11 @@ fun NativeSessionScreen(
                     state = state,
                     destinationLabel = "Terminal",
                     headerTag = "native-session-header",
-                    modifier = Modifier.windowInsetsPadding(WindowInsets.statusBars),
+                    modifier = if (applyStatusBarInset) {
+                        Modifier.windowInsetsPadding(WindowInsets.statusBars)
+                    } else {
+                        Modifier
+                    },
                     aiComposer = aiComposer,
                     onToggleView = onToggleTerminal,
                     onControlC = onControlC,
@@ -872,7 +877,7 @@ private fun ConversationFeed(
         }
     }
 
-    Box(Modifier.fillMaxSize().padding(padding)) {
+    Box(Modifier.fillMaxSize().padding(padding).testTag("native-conversation-feed")) {
         LazyColumn(
             modifier = Modifier.fillMaxSize(),
             state = listState,

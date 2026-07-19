@@ -70,6 +70,9 @@ import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.dp
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
@@ -186,6 +189,56 @@ class AgentFleetComposeTest {
         } finally {
             AgentFleetDisplayDensityStore.save(context, originalDensity)
         }
+    }
+
+    @Test
+    fun nativeHeaderRowsDoNotOverlapAtThePhoneFontScale() {
+        val state = NativeSessionUiState(
+            "wtmux:1", "gaming", "wtmux-main", adapter = "codex", connection = "Live",
+            optimisticWorkStartedAt = System.currentTimeMillis() - 70L * 60L * 1_000L,
+            modelControl = FleetModelControlState(
+                sessionId = "gaming:wtmux-main", configRevision = "0123456789abcdef", tool = "codex", status = "ready",
+                selected = FleetModelSelection("gpt-5.6-sol", "gpt-5.6-sol", "xhigh", "Xhigh"),
+                effective = null, pending = null, catalog = emptyList(), customAllowed = true, detail = ""
+            )
+        )
+        compose.setContent {
+            val density = LocalDensity.current
+            CompositionLocalProvider(LocalDensity provides Density(density.density, 1.3f)) {
+                NativeStateFixture(state, applyStatusBarInset = false)
+            }
+        }
+
+        val header = compose.onNodeWithTag("native-session-header").fetchSemanticsNode().boundsInRoot
+        val identity = compose.onNodeWithTag("compact-session-identity-row").fetchSemanticsNode().boundsInRoot
+        val status = compose.onNodeWithTag("native-session-status").fetchSemanticsNode().boundsInRoot
+        val controls = compose.onNodeWithTag("compact-session-control-row").fetchSemanticsNode().boundsInRoot
+        val feed = compose.onNodeWithTag("native-conversation-feed").fetchSemanticsNode().boundsInRoot
+        assertTrue(status.bottom <= identity.bottom)
+        assertTrue(identity.bottom <= controls.top)
+        assertTrue(controls.bottom <= header.bottom)
+        assertTrue(header.bottom <= feed.top)
+    }
+
+    @Test
+    fun terminalHeaderShowsAProviderWorkingEventThatArrivesWhileTerminalIsVisible() {
+        val state = mutableStateOf(
+            NativeSessionUiState("wtmux:1", "gaming", "wtmux-main", adapter = "codex", connection = "Live")
+        )
+        compose.setContent {
+            AgentFleetTheme(darkTheme = true) {
+                AgentFleetTerminalSessionChrome(state.value, {}, {}, { _, _, _, _ -> }, {})
+            }
+        }
+        compose.onNodeWithText("Codex · Live").assertIsDisplayed()
+        compose.runOnIdle {
+            state.value = state.value.copy(items = listOf(ConversationItem(
+                id = "working", kind = "status", timestamp = "2026-07-19T11:23:18Z", role = "",
+                title = "Working", text = "", detail = "", state = "running", tool = "codex",
+                attachments = emptyList(), choices = emptyList()
+            )))
+        }
+        compose.onNodeWithText("Codex · Working (", substring = true).assertIsDisplayed()
     }
 
     @Test
@@ -719,6 +772,7 @@ class AgentFleetComposeTest {
         onShellKey: (String) -> Unit = {},
         onControlC: () -> Unit = {},
         inlineComposer: Boolean = false,
+        applyStatusBarInset: Boolean = true,
         localSuggestionsAvailableOverride: Boolean? = null,
         localSuggestionModeOverride: LocalSuggestionMode? = null,
         localSuggestionDebugFakeOutput: String? = null
@@ -742,6 +796,7 @@ class AgentFleetComposeTest {
                 onScheduleContinue = {},
                 onDismissAttention = {},
                 inlineComposer = inlineComposer,
+                applyStatusBarInset = applyStatusBarInset,
                 localSuggestionsAvailableOverride = localSuggestionsAvailableOverride,
                 localSuggestionModeOverride = localSuggestionModeOverride,
                 localSuggestionDebugFakeOutput = localSuggestionDebugFakeOutput

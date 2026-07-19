@@ -240,11 +240,11 @@ class ConversationStreamParserTest {
     }
 
     @Test
-    fun nativeStreamRunsOnlyForTheVisibleNativeView() {
+    fun nativeStreamRunsForEveryVisibleManagedSurfaceSoHeaderActivityStaysLive() {
         assertTrue(shouldRunConversationStream(true, true, false, NativeViewMode.Native))
         assertFalse(shouldRunConversationStream(false, true, false, NativeViewMode.Native))
-        assertFalse(shouldRunConversationStream(true, true, false, NativeViewMode.ManualTerminal))
-        assertFalse(shouldRunConversationStream(true, true, false, NativeViewMode.AutomaticTerminal))
+        assertTrue(shouldRunConversationStream(true, true, false, NativeViewMode.ManualTerminal))
+        assertTrue(shouldRunConversationStream(true, true, false, NativeViewMode.AutomaticTerminal))
         assertFalse(shouldRunConversationStream(true, true, true, NativeViewMode.Native))
     }
 

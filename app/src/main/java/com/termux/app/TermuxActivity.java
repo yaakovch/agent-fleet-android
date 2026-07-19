@@ -523,8 +523,13 @@ public final class TermuxActivity extends ComponentActivity implements ServiceCo
         String finishedSessionId = mTermuxService == null ? null :
             mTermuxService.getAgentFleetWorkspaceSessionId(finishedSession);
         if (shouldReconnectFinishedManagedSession(mIsVisible, sessionId, finishedSessionId, exitStatus) &&
-            mAgentFleetSessionResume != null)
+            mAgentFleetSessionResume != null) {
+            // Session-list styling and PTY teardown can both relayout the shared
+            // terminal container. Reassert the managed chrome immediately and
+            // again after the replacement attachment is selected.
+            if (mAgentFleetNativeSession != null) mAgentFleetNativeSession.reapplyPresentation();
             mAgentFleetSessionResume.onAttachmentEnded(sessionId);
+        }
     }
 
     static boolean shouldReconnectFinishedManagedSession(
@@ -814,6 +819,8 @@ public final class TermuxActivity extends ComponentActivity implements ServiceCo
                     if (!sessionId.equals(managedSessionId(current))) return;
                     mShouldRestoreAgentFleetSession = false;
                     selectAgentFleetTarget(current, 0);
+                    if (mAgentFleetNativeSession != null)
+                        mAgentFleetNativeSession.reapplyPresentation();
                     if (mTerminalView != null) mTerminalView.post(() -> {
                         mTerminalView.updateSize();
                         mTerminalView.onScreenUpdated();

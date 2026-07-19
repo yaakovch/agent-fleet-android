@@ -675,3 +675,16 @@ trusted fleet.
   removed because Ctrl+C and Shift+Tab remain in the Native header Actions menu.
   Local suggestion results temporarily expand below the editor and selecting a
   suggestion only fills the draft.
+
+## Managed Session Header Reliability
+
+- The activity consumes system-bar insets once. Native and Terminal share one
+  fixed 88dp two-row session header whose identity, live provider status, model
+  control, and view switch never overlap the conversation or terminal body,
+  including at the phone's 1.3 font scale.
+- While either managed surface is visible, a bounded metadata-only conversation
+  stream stays active so Codex, Claude Code, and Copilot working state and elapsed
+  time update during a run. Terminal PTY input and output remain independent.
+- Unexpected managed attachment exit and automatic reconnection immediately
+  reassert the header, terminal offset, and composer instead of exposing a bare
+  terminal while the replacement attachment starts.

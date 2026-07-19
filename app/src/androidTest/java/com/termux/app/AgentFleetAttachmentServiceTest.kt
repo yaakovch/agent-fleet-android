@@ -128,6 +128,45 @@ class TermuxAttachmentServiceTest {
     }
 
     @Test
+    fun exit255KeepsManagedChromeAndComposerVisibleWhileReconnectStarts() {
+        val descriptor = fleetSession("emulator:exit-255")
+        DrawerSessionStore(context).apply {
+            recordOpened(descriptor, DrawerSessionSurface.Terminal)
+            setActiveFullscreen(descriptor.id)
+        }
+        val failed = createSession(
+            descriptor.id,
+            descriptor.name,
+            executable = "/system/bin/sh",
+            arguments = arrayOf("-c", "sleep 1; exit 255")
+        )
+        val intent = Intent(context, TermuxActivity::class.java).apply {
+            putExtra(AgentFleetContract.EXTRA_COMPOSE_INPUT, true)
+            putExtra(AgentFleetContract.EXTRA_NATIVE_SESSION, true)
+            putExtra(AgentFleetContract.EXTRA_WORKSPACE_SESSION_ID, descriptor.id)
+            putExtra(AgentFleetContract.EXTRA_HOST_ID, descriptor.hostId)
+            putExtra(AgentFleetContract.EXTRA_PROJECT, descriptor.project)
+            putExtra(AgentFleetContract.EXTRA_INTERNAL_SESSION, descriptor.internalName)
+            putExtra(AgentFleetContract.EXTRA_SESSION_NAME, descriptor.name)
+            putExtra(AgentFleetContract.EXTRA_INITIAL_SURFACE, AgentFleetContract.SURFACE_TERMINAL)
+            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        }
+
+        ActivityScenario.launch<TermuxActivity>(intent).use { scenario ->
+            waitUntil { !failed.terminalSession.isRunning }
+            assertEquals(255, failed.terminalSession.exitStatus)
+            scenario.onActivity { activity ->
+                assertEquals(android.view.View.VISIBLE, activity.findViewById<android.view.View>(R.id.agent_fleet_terminal_chrome).visibility)
+                assertEquals(android.view.View.VISIBLE, activity.findViewById<android.view.View>(R.id.agent_fleet_composer).visibility)
+                assertEquals(
+                    context.resources.getDimensionPixelSize(R.dimen.agent_fleet_compact_session_header_height),
+                    (activity.findViewById<TerminalView>(R.id.terminal_view).layoutParams as ViewGroup.MarginLayoutParams).topMargin
+                )
+            }
+        }
+    }
+
+    @Test
     fun foregroundResumeReplacesAnExitedManagedAttachment() {
         val descriptor = fleetSession("emulator:resume")
         val expired = createSession(descriptor.id, "Expired")
@@ -166,13 +205,18 @@ class TermuxAttachmentServiceTest {
         assertEquals(1, managedCount(descriptor.id))
     }
 
-    private fun createSession(sessionId: String?, name: String): TermuxSession {
+    private fun createSession(
+        sessionId: String?,
+        name: String,
+        executable: String = "/system/bin/sleep",
+        arguments: Array<String> = arrayOf("30")
+    ): TermuxSession {
         val created = AtomicReference<TermuxSession>()
         onMain {
             val command = ExecutionCommand(
                 TermuxService.getNextExecutionId(),
-                "/system/bin/sleep",
-                arrayOf("30"),
+                executable,
+                arguments,
                 null,
                 context.cacheDir.absolutePath,
                 false,

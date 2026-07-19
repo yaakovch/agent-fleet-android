@@ -92,8 +92,8 @@ internal fun shouldRunConversationStream(
     visible: Boolean,
     enabled: Boolean,
     localSession: Boolean,
-    viewMode: NativeViewMode
-): Boolean = visible && enabled && !localSession && viewMode == NativeViewMode.Native
+    @Suppress("UNUSED_PARAMETER") viewMode: NativeViewMode
+): Boolean = visible && enabled && !localSession
 
 internal fun conversationStatusUpdate(
     currentConnection: String,

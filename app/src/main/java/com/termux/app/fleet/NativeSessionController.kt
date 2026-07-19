@@ -95,6 +95,9 @@ class NativeSessionController @JvmOverloads constructor(
                     onAttach = activity::pickAgentFleetImages,
                     inlineComposer = activity.nativeInlineComposer,
                     showChrome = showChrome,
+                    // TermuxActivity's fitsSystemWindows root already consumes
+                    // the status bar before this embedded ComposeView.
+                    applyStatusBarInset = false,
                     onRefreshModel = { refreshModelControl(includeCatalog = true, showLoading = true) },
                     onSetModel = ::setModelControl,
                     onCancelModel = ::cancelModelControl
@@ -307,7 +310,6 @@ class NativeSessionController @JvmOverloads constructor(
     }
 
     private fun applyViewMode(mode: NativeViewMode, persist: Boolean = false) {
-        val previousMode = uiState.value.viewMode
         uiState.value = uiState.value.copy(viewMode = mode)
         if (persist && workspaceSessionId.isNotBlank() && mode != NativeViewMode.AutomaticTerminal) {
             DrawerSessionStore(activity.nativeContext.applicationContext).setSurface(
@@ -319,14 +321,10 @@ class NativeSessionController @JvmOverloads constructor(
         composeView.visibility = if (native) View.VISIBLE else View.GONE
         terminalChromeView?.visibility = if (enabled && !native) View.VISIBLE else View.GONE
         updateComposerState()
-        if (enabled && !localSession) {
-            if (mode == NativeViewMode.Native) {
-                if (shouldRunStream()) startStream()
-            } else if (previousMode == NativeViewMode.Native) {
-                generation++
-                stopProcess()
-            }
-        }
+        // The compact header is shared by Native and Terminal. Keep the bounded
+        // metadata-only stream alive on both surfaces so provider activity does
+        // not freeze or disappear while the user switches views.
+        if (shouldRunStream()) startStream()
     }
 
     fun isManagedSession(): Boolean = enabled
