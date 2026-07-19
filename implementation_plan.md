@@ -1286,3 +1286,43 @@ and the universal APK SHA-256 is
 `b47c4588c27eb38bdfed87ec0b576e16a8e7c928246f61e1f93ca27346dc145a`.
 `.64` remains available for rollback. Automated tooling did not access the
 physical S23FE.
+
+## 50. Android Two-Row Session Header
+
+1. Replace the compressed phone session toolbar in both Native and Terminal
+   with one shared, fixed 88dp header: a 40dp identity row for the session
+   title, live status, and Actions, followed by a 48dp control row for the
+   flexible model/effort picker and destination-only Native/Terminal button.
+2. Keep the header independent of the configurable Native body font size while
+   retaining Android system font scaling. Preserve a stable two-row height for
+   non-AI sessions, the existing Actions behavior, and all composer, desktop,
+   DeX, protocol, and persisted-schema behavior.
+3. Cover both surfaces, row geometry, long session/model labels at the maximum
+   Native body density, Actions dispatch, the shared resource contract, and
+   reviewed Native screenshot goldens.
+4. Run focused tests, fast/full isolated API 36 suites, release lint, signing,
+   identity/runtime/checksum verification, and publish `.66`/1068 through
+   `fleet/latest` while retaining `.65` for rollback.
+
+Implementation record (2026-07-19): Android source commit `3c75d137` adds the
+shared two-row header to fullscreen Native and Terminal, gives the model/effort
+control the available row width, and exposes the same Actions menu and live
+status on both surfaces. The focused compile/JVM gate and all fast emulator
+scenarios passed. All 134 Android JVM tests and the complete managed Pixel
+7/API 36 suite passed at
+`build/reports/agent-fleet/emulator/20260719T070335Z-full`; 38 instrumentation
+cases completed with two review-only golden generators skipped. The two
+intentional Native golden changes were visually reviewed before adoption, and
+the screenshot threshold remains unchanged. Release lint completed with zero
+errors after Gradle regenerated stale cross-host resource-merge metadata. The
+signed/minified arm64 and universal APKs passed certificate, permanent
+identity, checksum, and embedded runtime `git-c8772e3` verification across all
+84 packages. `.66`/1068 is published through `fleet/latest`; the HTTPS-served
+manifest SHA-256 is
+`bf10a55c3a52130e095c0a91f4d39ad54fa77aeac5a0a5083bd591461e36e250`,
+the arm64 APK SHA-256 is
+`8890a0b7f2214cc6f599b4f825ab0b024740d170de041682323bc95d03aad39b`,
+and the universal APK SHA-256 is
+`495106f8dab0aea8cb3dfe8fdfc3c58a0d67356531b0566eae9ce381b2285e48`.
+`.65` remains available for rollback. Automated tooling did not access the
+physical S23FE.
