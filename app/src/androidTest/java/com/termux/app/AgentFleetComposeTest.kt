@@ -132,8 +132,8 @@ class AgentFleetComposeTest {
                 }
             }
         }
-        compose.onNodeWithTag("terminal-session-chrome").assertIsDisplayed().assertHeightIsEqualTo(88.dp)
-        compose.onNodeWithTag("compact-session-identity-row").assertHeightIsEqualTo(40.dp)
+        compose.onNodeWithTag("terminal-session-chrome").assertIsDisplayed().assertHeightIsEqualTo(96.dp)
+        compose.onNodeWithTag("compact-session-identity-row").assertHeightIsEqualTo(48.dp)
         compose.onNodeWithTag("compact-session-control-row").assertHeightIsEqualTo(48.dp)
         val identity = compose.onNodeWithTag("compact-session-identity-row").fetchSemanticsNode().boundsInRoot
         val controls = compose.onNodeWithTag("compact-session-control-row").fetchSemanticsNode().boundsInRoot
@@ -171,8 +171,8 @@ class AgentFleetComposeTest {
                 )
             }
 
-            compose.onNodeWithTag("native-session-header").assertIsDisplayed().assertHeightIsEqualTo(88.dp)
-            compose.onNodeWithTag("compact-session-identity-row").assertHeightIsEqualTo(40.dp)
+            compose.onNodeWithTag("native-session-header").assertIsDisplayed().assertHeightIsEqualTo(96.dp)
+            compose.onNodeWithTag("compact-session-identity-row").assertHeightIsEqualTo(48.dp)
             compose.onNodeWithTag("compact-session-control-row").assertHeightIsEqualTo(48.dp)
             compose.onNodeWithText(title).assertIsDisplayed()
             compose.onNodeWithText("Codex · Live").assertIsDisplayed()
@@ -204,11 +204,14 @@ class AgentFleetComposeTest {
         )
         compose.setContent {
             val density = LocalDensity.current
-            CompositionLocalProvider(LocalDensity provides Density(density.density, 1.3f)) {
+            CompositionLocalProvider(LocalDensity provides Density(density.density, 1.5f)) {
                 NativeStateFixture(state, applyStatusBarInset = false)
             }
         }
 
+        compose.onNodeWithTag("native-session-header").assertHeightIsEqualTo(96.dp)
+        compose.onNodeWithTag("compact-session-identity-row").assertHeightIsEqualTo(48.dp)
+        compose.onNodeWithTag("compact-session-control-row").assertHeightIsEqualTo(48.dp)
         val header = compose.onNodeWithTag("native-session-header").fetchSemanticsNode().boundsInRoot
         val identity = compose.onNodeWithTag("compact-session-identity-row").fetchSemanticsNode().boundsInRoot
         val status = compose.onNodeWithTag("native-session-status").fetchSemanticsNode().boundsInRoot
@@ -221,7 +224,7 @@ class AgentFleetComposeTest {
     }
 
     @Test
-    fun terminalHeaderShowsAProviderWorkingEventThatArrivesWhileTerminalIsVisible() {
+    fun terminalHeaderTransitionsFromAProviderWorkingEventToCompletedDuration() {
         val state = mutableStateOf(
             NativeSessionUiState("wtmux:1", "gaming", "wtmux-main", adapter = "codex", connection = "Live")
         )
@@ -239,6 +242,15 @@ class AgentFleetComposeTest {
             )))
         }
         compose.onNodeWithText("Codex · Working (", substring = true).assertIsDisplayed()
+        compose.runOnIdle {
+            state.value = state.value.copy(items = state.value.items + ConversationItem(
+                id = "done", kind = "status", timestamp = "2026-07-19T11:31:00Z", role = "",
+                title = "Done", text = "", detail = "", state = "complete", tool = "codex",
+                attachments = emptyList(), choices = emptyList(),
+                startedAt = "2026-07-19T11:23:20Z", completedAt = "2026-07-19T11:31:00Z"
+            ))
+        }
+        compose.onNodeWithText("Codex · Worked for 7m 40s").assertIsDisplayed()
     }
 
     @Test

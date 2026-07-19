@@ -1439,3 +1439,21 @@ and the universal APK SHA-256 is
 `9dbe297db83cc2cf8351f421df40531c3d44216e0f36939be6f76c03028e1968`.
 `.68` remains available for rollback. Automated tooling did not access the
 physical S23FE.
+
+## 54. Device-Faithful Header And Reconnect Correction
+
+1. Reproduce the latest phone screenshot as an activity-window contract, not a
+   standalone Compose contract: assert a real nonzero status-bar inset, Terminal
+   chrome padding, total chrome height, and the identical PTY top margin.
+2. Give the shared header a 96dp body with separate 48dp identity/status and
+   model/view rows. Restore Native's explicit Compose inset and reserve the
+   measured activity inset outside Terminal's header body.
+3. Treat an unmapped finished terminal as the intended managed target only when
+   it is still the activity's current terminal. This covers the service-first
+   removal callback order without reconnecting background or different-target
+   failures.
+4. Exercise Working arrival, completed-duration transition, active-marker
+   ordering, 1.5 font scale, activity recreation, and exit 255. Review changed
+   screenshot candidates manually, then run fast/full API 36 and release gates.
+5. Publish `.70`/1072 through `fleet/latest`, retain `.69` for rollback, and
+   leave the final physical S23FE interaction to the user.

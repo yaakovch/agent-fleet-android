@@ -95,9 +95,6 @@ class NativeSessionController @JvmOverloads constructor(
                     onAttach = activity::pickAgentFleetImages,
                     inlineComposer = activity.nativeInlineComposer,
                     showChrome = showChrome,
-                    // TermuxActivity's fitsSystemWindows root already consumes
-                    // the status bar before this embedded ComposeView.
-                    applyStatusBarInset = false,
                     onRefreshModel = { refreshModelControl(includeCatalog = true, showLoading = true) },
                     onSetModel = ::setModelControl,
                     onCancelModel = ::cancelModelControl

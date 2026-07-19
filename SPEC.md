@@ -688,3 +688,12 @@ trusted fleet.
 - Unexpected managed attachment exit and automatic reconnection immediately
   reassert the header, terminal offset, and composer instead of exposing a bare
   terminal while the replacement attachment starts.
+- The compact header body is 96dp: a 48dp identity/provider-status row and a
+  48dp model/view row. Native owns its Compose status-bar inset; Terminal adds
+  the activity's measured status-bar inset outside that 96dp body and offsets
+  the PTY by the identical total height.
+- If the service removes an exited attachment before the visible activity's
+  callback runs, the current displayed terminal is allowed to identify the
+  intended managed target. This callback ordering must still reconnect exit
+  255, while normal exits, background exits, and differently identified
+  sessions remain excluded.

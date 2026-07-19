@@ -10,6 +10,8 @@ import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import androidx.test.rule.ServiceTestRule
+import androidx.core.view.ViewCompat
+import androidx.core.view.WindowInsetsCompat
 import com.termux.R
 import com.termux.app.fleet.AgentFleetAttachmentPolicy
 import com.termux.app.fleet.AgentFleetContract
@@ -25,6 +27,7 @@ import com.termux.view.TerminalView
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Rule
 import org.junit.Test
@@ -107,10 +110,7 @@ class TermuxAttachmentServiceTest {
             scenario.onActivity { activity ->
                 assertEquals(android.view.View.VISIBLE, activity.findViewById<android.view.View>(R.id.agent_fleet_terminal_chrome).visibility)
                 assertEquals(android.view.View.VISIBLE, activity.findViewById<android.view.View>(R.id.agent_fleet_composer).visibility)
-                assertEquals(
-                    context.resources.getDimensionPixelSize(R.dimen.agent_fleet_compact_session_header_height),
-                    (activity.findViewById<TerminalView>(R.id.terminal_view).layoutParams as ViewGroup.MarginLayoutParams).topMargin
-                )
+                assertTerminalChromeReservesSystemBar(activity)
                 activity.findViewById<android.view.View>(R.id.agent_fleet_terminal_chrome).visibility = android.view.View.GONE
                 activity.findViewById<android.view.View>(R.id.agent_fleet_composer).visibility = android.view.View.GONE
             }
@@ -119,10 +119,7 @@ class TermuxAttachmentServiceTest {
             scenario.onActivity { activity ->
                 assertEquals(android.view.View.VISIBLE, activity.findViewById<android.view.View>(R.id.agent_fleet_terminal_chrome).visibility)
                 assertEquals(android.view.View.VISIBLE, activity.findViewById<android.view.View>(R.id.agent_fleet_composer).visibility)
-                assertEquals(
-                    context.resources.getDimensionPixelSize(R.dimen.agent_fleet_compact_session_header_height),
-                    (activity.findViewById<TerminalView>(R.id.terminal_view).layoutParams as ViewGroup.MarginLayoutParams).topMargin
-                )
+                assertTerminalChromeReservesSystemBar(activity)
             }
         }
     }
@@ -158,12 +155,24 @@ class TermuxAttachmentServiceTest {
             scenario.onActivity { activity ->
                 assertEquals(android.view.View.VISIBLE, activity.findViewById<android.view.View>(R.id.agent_fleet_terminal_chrome).visibility)
                 assertEquals(android.view.View.VISIBLE, activity.findViewById<android.view.View>(R.id.agent_fleet_composer).visibility)
-                assertEquals(
-                    context.resources.getDimensionPixelSize(R.dimen.agent_fleet_compact_session_header_height),
-                    (activity.findViewById<TerminalView>(R.id.terminal_view).layoutParams as ViewGroup.MarginLayoutParams).topMargin
-                )
+                assertTerminalChromeReservesSystemBar(activity)
             }
         }
+    }
+
+    private fun assertTerminalChromeReservesSystemBar(activity: TermuxActivity) {
+        val chrome = activity.findViewById<android.view.View>(R.id.agent_fleet_terminal_chrome)
+        val statusBar = ViewCompat.getRootWindowInsets(chrome)
+            ?.getInsets(WindowInsetsCompat.Type.statusBars())?.top ?: 0
+        assertTrue("The emulator must expose a status-bar inset", statusBar > 0)
+        val contentHeight = context.resources.getDimensionPixelSize(R.dimen.agent_fleet_compact_session_header_height)
+        val totalHeight = statusBar + contentHeight
+        assertEquals(statusBar, chrome.paddingTop)
+        assertEquals(totalHeight, chrome.layoutParams.height)
+        assertEquals(
+            totalHeight,
+            (activity.findViewById<TerminalView>(R.id.terminal_view).layoutParams as ViewGroup.MarginLayoutParams).topMargin
+        )
     }
 
     @Test

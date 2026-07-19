@@ -356,7 +356,7 @@ private fun CompactSessionHeader(
     ) {
         Column(Modifier.fillMaxSize().padding(start = 12.dp, end = 5.dp)) {
             Row(
-                Modifier.fillMaxWidth().height(40.dp).testTag("compact-session-identity-row"),
+                Modifier.fillMaxWidth().height(48.dp).testTag("compact-session-identity-row"),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(4.dp)
             ) {

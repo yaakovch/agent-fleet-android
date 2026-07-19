@@ -50,15 +50,19 @@ public class TermuxActivityTest {
     @Test
     public void testManagedReconnectUsesTheIntentTargetDuringDirectEntry() {
         Assert.assertTrue(TermuxActivity.shouldReconnectFinishedManagedSession(
-            true, "gaming:wtmux", "gaming:wtmux", 255));
+            true, "gaming:wtmux", "gaming:wtmux", false, 255));
+        Assert.assertTrue(TermuxActivity.shouldReconnectFinishedManagedSession(
+            true, "gaming:wtmux", null, true, 255));
         Assert.assertFalse(TermuxActivity.shouldReconnectFinishedManagedSession(
-            false, "gaming:wtmux", "gaming:wtmux", 255));
+            true, "gaming:wtmux", null, false, 255));
         Assert.assertFalse(TermuxActivity.shouldReconnectFinishedManagedSession(
-            true, "gaming:wtmux", "work:other", 255));
+            false, "gaming:wtmux", "gaming:wtmux", false, 255));
         Assert.assertFalse(TermuxActivity.shouldReconnectFinishedManagedSession(
-            true, "gaming:wtmux", "gaming:wtmux", 0));
+            true, "gaming:wtmux", "work:other", true, 255));
         Assert.assertFalse(TermuxActivity.shouldReconnectFinishedManagedSession(
-            true, "gaming:wtmux", "gaming:wtmux", 130));
+            true, "gaming:wtmux", "gaming:wtmux", false, 0));
+        Assert.assertFalse(TermuxActivity.shouldReconnectFinishedManagedSession(
+            true, "gaming:wtmux", "gaming:wtmux", false, 130));
     }
 
 }

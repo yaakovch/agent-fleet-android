@@ -274,6 +274,10 @@ class ConversationStreamParserTest {
             assertEquals(parseConversationTimestamp(user.timestamp), activeWorkStartedAt(adapter, listOf(user, working)))
             assertEquals(null, activeWorkStartedAt(adapter, listOf(user, working, done)))
             assertEquals(30L * 60L * 1_000L + 56_000L, latestCompletedWorkDuration(adapter, listOf(user, working, done)))
+            assertEquals(
+                parseConversationTimestamp(working.timestamp),
+                activeWorkStartedAt(adapter, listOf(done, done.copy(id = "newer-tool", kind = "tool"), working))
+            )
         }
         val providerTimedDone = done.copy(
             startedAt = "2026-07-19T00:23:15.862Z",

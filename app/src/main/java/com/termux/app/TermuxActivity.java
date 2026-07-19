@@ -70,6 +70,7 @@ import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 import androidx.activity.ComponentActivity;
 import androidx.core.content.FileProvider;
+import androidx.core.view.WindowInsetsCompat;
 import androidx.drawerlayout.widget.DrawerLayout;
 import androidx.viewpager.widget.ViewPager;
 import java.io.File;
@@ -165,6 +166,7 @@ public final class TermuxActivity extends ComponentActivity implements ServiceCo
     private boolean mIsInvalidState;
 
     private int mNavBarHeight;
+    private int mAgentFleetStatusBarInset;
 
 
 
@@ -236,6 +238,9 @@ public final class TermuxActivity extends ComponentActivity implements ServiceCo
         View content = findViewById(android.R.id.content);
         content.setOnApplyWindowInsetsListener((v, insets) -> {
             mNavBarHeight = insets.getSystemWindowInsetBottom();
+            mAgentFleetStatusBarInset = WindowInsetsCompat.toWindowInsetsCompat(insets)
+                .getInsets(WindowInsetsCompat.Type.statusBars()).top;
+            applyAgentFleetTerminalChromeInsets();
             return insets;
         });
 
@@ -254,6 +259,7 @@ public final class TermuxActivity extends ComponentActivity implements ServiceCo
         mAgentFleetNativeSession = new NativeSessionController(this,
             findViewById(R.id.agent_fleet_native_session), true,
             findViewById(R.id.agent_fleet_terminal_chrome));
+        applyAgentFleetTerminalChromeInsets();
         findViewById(R.id.agent_fleet_native_return).setOnClickListener(v -> {
             if (mAgentFleetNativeSession != null) mAgentFleetNativeSession.showNative();
         });
@@ -489,7 +495,7 @@ public final class TermuxActivity extends ComponentActivity implements ServiceCo
             terminalChrome.setVisibility(nativeAvailable && !nativeView ? View.VISIBLE : View.GONE);
             if (mTerminalView != null) {
                 int top = terminalChrome.getVisibility() == View.VISIBLE
-                    ? getResources().getDimensionPixelSize(R.dimen.agent_fleet_compact_session_header_height) : 0;
+                    ? agentFleetTerminalChromeHeight() : 0;
                 ViewGroup.LayoutParams rawParams = mTerminalView.getLayoutParams();
                 if (rawParams instanceof ViewGroup.MarginLayoutParams) {
                     ViewGroup.MarginLayoutParams marginParams = (ViewGroup.MarginLayoutParams) rawParams;
@@ -515,6 +521,38 @@ public final class TermuxActivity extends ComponentActivity implements ServiceCo
         });
     }
 
+    private int agentFleetTerminalChromeHeight() {
+        return getResources().getDimensionPixelSize(R.dimen.agent_fleet_compact_session_header_height) +
+            mAgentFleetStatusBarInset;
+    }
+
+    private void applyAgentFleetTerminalChromeInsets() {
+        View terminalChrome = findViewById(R.id.agent_fleet_terminal_chrome);
+        if (terminalChrome == null) return;
+        if (terminalChrome.getPaddingTop() != mAgentFleetStatusBarInset) {
+            terminalChrome.setPadding(
+                terminalChrome.getPaddingLeft(), mAgentFleetStatusBarInset,
+                terminalChrome.getPaddingRight(), terminalChrome.getPaddingBottom()
+            );
+        }
+        ViewGroup.LayoutParams chromeParams = terminalChrome.getLayoutParams();
+        int chromeHeight = agentFleetTerminalChromeHeight();
+        if (chromeParams.height != chromeHeight) {
+            chromeParams.height = chromeHeight;
+            terminalChrome.setLayoutParams(chromeParams);
+        }
+        if (terminalChrome.getVisibility() == View.VISIBLE && mTerminalView != null) {
+            ViewGroup.LayoutParams rawParams = mTerminalView.getLayoutParams();
+            if (rawParams instanceof ViewGroup.MarginLayoutParams) {
+                ViewGroup.MarginLayoutParams marginParams = (ViewGroup.MarginLayoutParams) rawParams;
+                if (marginParams.topMargin != chromeHeight) {
+                    marginParams.topMargin = chromeHeight;
+                    mTerminalView.setLayoutParams(marginParams);
+                }
+            }
+        }
+    }
+
     /** Reconnect an unexpectedly failed visible fleet transport without reviving an explicitly closed tab. */
     public void onAgentFleetManagedSessionFinished(TerminalSession finishedSession) {
         if (finishedSession == null) return;
@@ -522,7 +560,9 @@ public final class TermuxActivity extends ComponentActivity implements ServiceCo
         String sessionId = managedSessionId(getIntent());
         String finishedSessionId = mTermuxService == null ? null :
             mTermuxService.getAgentFleetWorkspaceSessionId(finishedSession);
-        if (shouldReconnectFinishedManagedSession(mIsVisible, sessionId, finishedSessionId, exitStatus) &&
+        boolean finishedWasCurrent = finishedSession == getCurrentSession();
+        if (shouldReconnectFinishedManagedSession(
+            mIsVisible, sessionId, finishedSessionId, finishedWasCurrent, exitStatus) &&
             mAgentFleetSessionResume != null) {
             // Session-list styling and PTY teardown can both relayout the shared
             // terminal container. Reassert the managed chrome immediately and
@@ -536,10 +576,15 @@ public final class TermuxActivity extends ComponentActivity implements ServiceCo
         boolean visible,
         @Nullable String targetSessionId,
         @Nullable String finishedSessionId,
+        boolean finishedWasCurrent,
         int exitStatus
     ) {
+        boolean matchesTarget = targetSessionId != null && (
+            targetSessionId.equals(finishedSessionId) ||
+                (finishedSessionId == null && finishedWasCurrent)
+        );
         return visible && exitStatus != 0 && exitStatus != 130 && targetSessionId != null &&
-            targetSessionId.equals(finishedSessionId);
+            matchesTarget;
     }
 
     public void onAgentFleetTerminalScreenChanged(TerminalSession changedSession) {

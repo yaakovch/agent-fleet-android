@@ -1,4 +1,4 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <dimen name="agent_fleet_compact_session_header_height">88dp</dimen>
+    <dimen name="agent_fleet_compact_session_header_height">96dp</dimen>
 </resources>
