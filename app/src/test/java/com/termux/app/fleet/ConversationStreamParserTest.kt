@@ -257,6 +257,29 @@ class ConversationStreamParserTest {
     }
 
     @Test
+    fun nativeWorkingDurationTracksProviderLifecycleAndClaudeFallback() {
+        val user = ConversationItem(
+            "user", "message", "2026-07-19T00:00:00Z", "user", "", "Fix it", "", "complete", "",
+            emptyList(), emptyList()
+        )
+        val working = ConversationItem(
+            "working", "status", "2026-07-19T00:00:01Z", "", "Working", "", "", "running", "",
+            emptyList(), emptyList()
+        )
+        val done = ConversationItem(
+            "done", "status", "2026-07-19T00:30:56Z", "", "Done", "", "", "complete", "",
+            emptyList(), emptyList()
+        )
+        for (adapter in listOf("codex", "copilot")) {
+            assertEquals(parseConversationTimestamp(user.timestamp), activeWorkStartedAt(adapter, listOf(user, working)))
+            assertEquals(null, activeWorkStartedAt(adapter, listOf(user, working, done)))
+        }
+        assertEquals(parseConversationTimestamp(user.timestamp), activeWorkStartedAt("claude", listOf(user)))
+        assertEquals(null, activeWorkStartedAt("claude", listOf(user, user.copy(id = "reply", role = "assistant"))))
+        assertEquals("30m 55s", formatWorkingDuration(1_000L, 1_856_000L))
+    }
+
+    @Test
     fun conversationPagingTriggersNearHistoryStartButNotWhileBusyOrFailed() {
         assertTrue(nearConversationBottom(2))
         assertFalse(nearConversationBottom(3))

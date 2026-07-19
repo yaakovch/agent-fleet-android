@@ -1,9 +1,14 @@
 package com.termux.app
 
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.ui.Modifier
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.assertIsNotDisplayed
 import androidx.compose.ui.test.assertCountEquals
+import androidx.compose.ui.test.assertHeightIsEqualTo
 import androidx.compose.ui.test.assertTextContains
 import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.junit4.createComposeRule
@@ -62,7 +67,9 @@ import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.ui.unit.dp
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -102,6 +109,45 @@ class AgentFleetComposeTest {
         compose.onNodeWithText("Apply").performClick()
         compose.waitForIdle()
         assertEquals(1, applied.get())
+    }
+
+    @Test
+    fun terminalChromeIsCompact() {
+        val state = NativeSessionUiState(
+            "Working fixture", "gaming", "wtmux-main", adapter = "codex", connection = "Live"
+        )
+        compose.setContent {
+            AgentFleetTheme(darkTheme = true) {
+                Box(Modifier.fillMaxWidth().height(96.dp)) {
+                    AgentFleetTerminalSessionChrome(state, {}, {}, { _, _, _, _ -> }, {})
+                }
+            }
+        }
+        compose.onNodeWithTag("terminal-session-chrome").assertIsDisplayed().assertHeightIsEqualTo(48.dp)
+    }
+
+    @Test
+    fun nativeShowsLiveWorkingTime() {
+        val working = ConversationItem(
+            id = "working", kind = "status", timestamp = "2026-07-19T00:00:00Z", role = "",
+            title = "Working", text = "", detail = "", state = "running", tool = "codex",
+            attachments = emptyList(), choices = emptyList()
+        )
+        val state = NativeSessionUiState(
+            "Working fixture", "gaming", "wtmux-main", adapter = "codex", connection = "Live", items = listOf(working)
+        )
+        compose.setContent { NativeStateFixture(state) }
+        compose.onNodeWithText("Codex · Working (", substring = true).assertIsDisplayed()
+    }
+
+    @Test
+    fun appUpdatesIsTheFirstMoreCard() {
+        compose.setContent { FixtureApp() }
+        compose.onNodeWithTag("nav-more").performClick()
+        compose.onNodeWithTag("app-updates").assertIsDisplayed()
+        val updatesTop = compose.onNodeWithTag("app-updates").fetchSemanticsNode().boundsInRoot.top
+        val layoutTop = compose.onNodeWithTag("window-layout-settings").fetchSemanticsNode().boundsInRoot.top
+        assertTrue(updatesTop < layoutTop)
     }
 
     @Test

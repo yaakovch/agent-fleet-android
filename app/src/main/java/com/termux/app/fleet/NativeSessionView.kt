@@ -85,6 +85,7 @@ import androidx.compose.ui.window.DialogProperties
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import io.noties.markwon.Markwon
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import org.json.JSONArray
 import org.json.JSONObject
@@ -172,12 +173,7 @@ fun NativeSessionScreen(
                 ) {
                     Column(Modifier.weight(1f)) {
                         Text(state.sessionLabel, fontSize = AgentFleetDisplayDensity.DEFAULT_NATIVE_BODY_SP.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                        Text(
-                            "${prettyAdapter(state.adapter)} · ${state.connection}",
-                            fontSize = (AgentFleetDisplayDensity.DEFAULT_NATIVE_BODY_SP - 3).sp,
-                            color = if (state.connection == "Live") ReadyGreen else MaterialTheme.colorScheme.onSurfaceVariant,
-                            maxLines = 1
-                        )
+                        NativeSessionStatusLine(state)
                     }
                     if (state.sourceMode == "ai") SessionModelControlChip(
                         state = state,
@@ -313,10 +309,13 @@ fun AgentFleetTerminalSessionChrome(
     onSetModel: (String, String, Boolean, Boolean) -> Unit,
     onCancelModel: () -> Unit
 ) {
-    Surface(color = MaterialTheme.colorScheme.background, tonalElevation = 2.dp) {
+    Surface(
+        modifier = Modifier.fillMaxWidth().height(48.dp).testTag("terminal-session-chrome"),
+        color = MaterialTheme.colorScheme.background,
+        tonalElevation = 2.dp
+    ) {
         Row(
-            Modifier.fillMaxWidth().windowInsetsPadding(WindowInsets.statusBars).height(48.dp)
-                .padding(start = 12.dp, end = 5.dp),
+            Modifier.fillMaxSize().padding(start = 12.dp, end = 5.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(5.dp)
         ) {
@@ -332,6 +331,29 @@ fun AgentFleetTerminalSessionChrome(
             ) { Text("Native", fontSize = 10.sp) }
         }
     }
+}
+
+@Composable
+private fun NativeSessionStatusLine(state: NativeSessionUiState) {
+    val workingStartedAt = remember(state.adapter, state.items) {
+        activeWorkStartedAt(state.adapter, state.items)
+    }
+    var nowMillis by remember(workingStartedAt) { mutableStateOf(System.currentTimeMillis()) }
+    LaunchedEffect(workingStartedAt) {
+        while (workingStartedAt != null) {
+            nowMillis = System.currentTimeMillis()
+            delay(1_000)
+        }
+    }
+    val detail = workingStartedAt?.let { "Working (${formatWorkingDuration(it, nowMillis)})" } ?: state.connection
+    Text(
+        "${prettyAdapter(state.adapter)} · $detail",
+        fontSize = (AgentFleetDisplayDensity.DEFAULT_NATIVE_BODY_SP - 3).sp,
+        color = if (workingStartedAt != null || state.connection == "Live") ReadyGreen else MaterialTheme.colorScheme.onSurfaceVariant,
+        maxLines = 1,
+        overflow = TextOverflow.Ellipsis,
+        modifier = Modifier.testTag("native-session-status")
+    )
 }
 
 @Composable
@@ -1350,13 +1372,61 @@ private fun toolDuration(value: ConversationItem): String = runCatching {
     if (milliseconds < 1_000) "${milliseconds}ms" else String.format("%.1fs", milliseconds / 1_000.0)
 }.getOrDefault("")
 
-private fun parseConversationTimestamp(value: String): Long? {
-    for (pattern in listOf("yyyy-MM-dd'T'HH:mm:ss.SSSX", "yyyy-MM-dd'T'HH:mm:ssX")) {
+internal fun activeWorkStartedAt(adapter: String, items: List<ConversationItem>): Long? {
+    if (adapter !in setOf("codex", "claude", "copilot")) return null
+    fun time(value: ConversationItem): Long? = parseConversationTimestamp(value.startedAt.ifBlank { value.timestamp })
+    fun lifecycleEnd(value: ConversationItem): Boolean =
+        (value.kind == "status" && value.title in setOf("Done", "Turn Duration") && value.state != "running") ||
+            value.kind == "error" || value.state == "error" ||
+            (value.kind in setOf("question", "approval") && value.state != "complete")
+
+    val lastLifecycleEnd = items.indexOfLast(::lifecycleEnd)
+    val lastWorking = items.indexOfLast {
+        it.kind == "status" && it.title == "Working" && it.state == "running"
+    }
+    if (lastWorking > lastLifecycleEnd) {
+        val userStart = items.indices.lastOrNull { index ->
+            index > lastLifecycleEnd && index <= lastWorking &&
+                items[index].kind == "message" && items[index].role == "user"
+        }
+        return time(items[userStart ?: lastWorking]) ?: time(items[lastWorking])
+    }
+
+    val lastUser = items.indexOfLast { it.kind == "message" && it.role == "user" }
+    if (lastUser < 0) return null
+    val lastStop = items.indexOfLast { value ->
+        lifecycleEnd(value) || (value.kind == "message" && value.role == "assistant")
+    }
+    val lastContinuation = items.indexOfLast { value ->
+        when (value.kind) {
+            "tool", "activity", "change" -> value.state != "error"
+            "task_list" -> value.tasks.any { it.state != "completed" }
+            else -> false
+        }
+    }
+    return if (maxOf(lastUser, lastContinuation) > lastStop) time(items[lastUser]) else null
+}
+
+internal fun formatWorkingDuration(startedAtMillis: Long, nowMillis: Long): String {
+    val totalSeconds = ((nowMillis - startedAtMillis).coerceAtLeast(0L) / 1_000L)
+    val hours = totalSeconds / 3_600L
+    val minutes = totalSeconds % 3_600L / 60L
+    val seconds = totalSeconds % 60L
+    return when {
+        hours > 0 -> "${hours}h ${minutes}m ${seconds}s"
+        minutes > 0 -> "${minutes}m ${seconds}s"
+        else -> "${seconds}s"
+    }
+}
+
+internal fun parseConversationTimestamp(value: String): Long? {
+    val normalized = value.replace(Regex("\\.(\\d{3})\\d+(?=Z|[+-])"), ".$1")
+    for (pattern in listOf("yyyy-MM-dd'T'HH:mm:ss.SSSXXX", "yyyy-MM-dd'T'HH:mm:ssXXX")) {
         val parsed = runCatching {
             SimpleDateFormat(pattern, Locale.US).apply {
                 isLenient = false
                 timeZone = TimeZone.getTimeZone("UTC")
-            }.parse(value)?.time
+            }.parse(normalized)?.time
         }.getOrNull()
         if (parsed != null) return parsed
     }

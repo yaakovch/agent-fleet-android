@@ -156,6 +156,8 @@ public class TermuxTerminalSessionClient extends TermuxTerminalSessionClientBase
             return;
         }
 
+        mActivity.onAgentFleetManagedSessionFinished(finishedSession);
+
         int index = service.getIndexOfSession(finishedSession);
 
         // For plugin commands that expect the result back, we should immediately close the session

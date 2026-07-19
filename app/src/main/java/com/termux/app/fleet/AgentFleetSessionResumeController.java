@@ -31,6 +31,9 @@ public final class AgentFleetSessionResumeController {
     }
 
     private static final int MAX_POLL_ATTEMPTS = 60;
+    private static final int MAX_VISIBLE_RESTARTS = 5;
+    private static final long STABLE_ATTACHMENT_MILLIS = 30_000L;
+    private static final long[] VISIBLE_RESTART_DELAYS = {1_000L, 2_000L, 5_000L, 10_000L, 30_000L};
 
     private final SessionLookup sessionLookup;
     private final AttachmentHost attachmentHost;
@@ -42,6 +45,7 @@ public final class AgentFleetSessionResumeController {
     private long generation;
     private String targetSessionId;
     private String startingSessionId;
+    private int visibleRestartCount;
 
     public AgentFleetSessionResumeController(
         SessionLookup sessionLookup,
@@ -64,13 +68,30 @@ public final class AgentFleetSessionResumeController {
         scheduler.cancelAll();
         targetSessionId = validSessionId(sessionId) ? sessionId : null;
         startingSessionId = null;
+        visibleRestartCount = 0;
         if (targetSessionId != null) drive(generation, 0);
+    }
+
+    /** Retry a transport that failed while the managed session is still the visible target. */
+    public void onAttachmentEnded(@Nullable String sessionId) {
+        if (closed || !foreground || !validSessionId(sessionId) || !sessionId.equals(targetSessionId)) return;
+        generation++;
+        scheduler.cancelAll();
+        startingSessionId = null;
+        if (visibleRestartCount >= MAX_VISIBLE_RESTARTS) {
+            listener.onError("The connection keeps ending. Switch away and reopen this session to retry.");
+            return;
+        }
+        long expectedGeneration = generation;
+        long delay = VISIBLE_RESTART_DELAYS[visibleRestartCount++];
+        scheduler.postDelayed(() -> drive(expectedGeneration, 0), delay);
     }
 
     public void onBackground() {
         foreground = false;
         targetSessionId = null;
         startingSessionId = null;
+        visibleRestartCount = 0;
         generation++;
         scheduler.cancelAll();
     }
@@ -86,7 +107,10 @@ public final class AgentFleetSessionResumeController {
 
         if (attachmentHost.hasRunningAttachment(sessionId)) {
             startingSessionId = null;
-            if (attachmentHost.selectAttachment(sessionId)) listener.onSelected(sessionId);
+            if (attachmentHost.selectAttachment(sessionId)) {
+                listener.onSelected(sessionId);
+                scheduleStableReset(expectedGeneration, sessionId);
+            }
             else schedule(expectedGeneration, attempt + 1);
             return;
         }
@@ -124,6 +148,13 @@ public final class AgentFleetSessionResumeController {
             () -> drive(expectedGeneration, attempt),
             attempt <= 1 ? 40L : 100L
         );
+    }
+
+    private void scheduleStableReset(long expectedGeneration, String sessionId) {
+        scheduler.postDelayed(() -> {
+            if (!closed && foreground && expectedGeneration == generation && sessionId.equals(targetSessionId) &&
+                attachmentHost.hasRunningAttachment(sessionId)) visibleRestartCount = 0;
+        }, STABLE_ATTACHMENT_MILLIS);
     }
 
     private static boolean validSessionId(@Nullable String value) {

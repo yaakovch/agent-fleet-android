@@ -73,6 +73,43 @@ class AgentFleetSessionResumeControllerTest {
         assertEquals(1, errors.size)
     }
 
+    @Test
+    fun visibleUnexpectedExitStartsAndSelectsOneReplacement() {
+        val session = session()
+        val host = FakeHost(running = true)
+        val scheduler = FakeScheduler()
+        val selected = mutableListOf<String>()
+        val controller = controller(session, host, scheduler, selected, mutableListOf())
+
+        controller.onForeground(session.id)
+        host.running = false
+        controller.onAttachmentEnded(session.id)
+
+        assertEquals(0, host.starts)
+        scheduler.runNext()
+        assertEquals(1, host.starts)
+        host.running = true
+        scheduler.runNext()
+        assertEquals(listOf(session.id, session.id), selected)
+        assertEquals(1, host.starts)
+    }
+
+    @Test
+    fun explicitBackgroundPreventsAnEndedAttachmentFromRestarting() {
+        val session = session()
+        val host = FakeHost(running = true)
+        val scheduler = FakeScheduler()
+        val controller = controller(session, host, scheduler, mutableListOf(), mutableListOf())
+
+        controller.onForeground(session.id)
+        controller.onBackground()
+        host.running = false
+        controller.onAttachmentEnded(session.id)
+        scheduler.runAll()
+
+        assertEquals(0, host.starts)
+    }
+
     private fun controller(
         session: FleetSession,
         host: FakeHost,

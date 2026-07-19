@@ -375,8 +375,8 @@ public final class TermuxActivity extends ComponentActivity implements ServiceCo
         String sessionId = getIntent() == null ? null :
             getIntent().getStringExtra(AgentFleetContract.EXTRA_WORKSPACE_SESSION_ID);
         if (sessionId != null) {
-            service.finishAgentFleetWorkspaceSession(sessionId);
             clearManagedSessionTarget();
+            service.finishAgentFleetWorkspaceSession(sessionId);
         }
         else session.finishIfRunning();
     }
@@ -419,6 +419,8 @@ public final class TermuxActivity extends ComponentActivity implements ServiceCo
             TermuxSession target = mTermuxService.getAgentFleetWorkspaceSession(sessionId);
             if (target != null && mTermuxService.selectAgentFleetWorkspaceSession(sessionId)) {
                 mTermuxTerminalSessionClient.setCurrentSession(target.getTerminalSession());
+                if (mIsVisible && mAgentFleetSessionResume != null)
+                    mAgentFleetSessionResume.onForeground(sessionId);
                 return;
             }
         }
@@ -480,7 +482,8 @@ public final class TermuxActivity extends ComponentActivity implements ServiceCo
             terminalChrome.setVisibility(nativeAvailable && !nativeView ? View.VISIBLE : View.GONE);
             terminalChrome.post(() -> {
                 if (mTerminalView == null) return;
-                int top = terminalChrome.getVisibility() == View.VISIBLE ? terminalChrome.getHeight() : 0;
+                int top = terminalChrome.getVisibility() == View.VISIBLE
+                    ? getResources().getDimensionPixelSize(R.dimen.agent_fleet_terminal_chrome_height) : 0;
                 if (mTerminalView.getPaddingTop() != top) {
                     mTerminalView.setPadding(mTerminalView.getPaddingLeft(), top,
                         mTerminalView.getPaddingRight(), mTerminalView.getPaddingBottom());
@@ -497,6 +500,16 @@ public final class TermuxActivity extends ComponentActivity implements ServiceCo
             mTerminalView.updateSize();
             if (!nativeView) mTerminalView.onScreenUpdated();
         });
+    }
+
+    /** Reconnect an unexpectedly failed visible fleet transport without reviving an explicitly closed tab. */
+    public void onAgentFleetManagedSessionFinished(TerminalSession finishedSession) {
+        if (!mIsVisible || finishedSession == null || finishedSession != getCurrentSession()) return;
+        int exitStatus = finishedSession.getExitStatus();
+        if (exitStatus == 0 || exitStatus == 130) return;
+        String sessionId = managedSessionId(getIntent());
+        if (sessionId != null && mAgentFleetSessionResume != null)
+            mAgentFleetSessionResume.onAttachmentEnded(sessionId);
     }
 
     public void onAgentFleetTerminalScreenChanged(TerminalSession changedSession) {

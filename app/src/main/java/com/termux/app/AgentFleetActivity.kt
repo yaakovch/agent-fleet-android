@@ -2001,8 +2001,13 @@ private fun MoreScreen(
         verticalArrangement = Arrangement.spacedBy(14.dp)
     ) {
         item { Text("More", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold) }
+        item { AppUpdateCard(updateState, updateManifestUrl, onCheckUpdate, onInstallUpdate) }
         item {
-            Card(shape = RoundedCornerShape(18.dp), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)) {
+            Card(
+                modifier = Modifier.testTag("window-layout-settings"),
+                shape = RoundedCornerShape(18.dp),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
+            ) {
                 Column(Modifier.fillMaxWidth().padding(18.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     Text("Window layout", fontSize = 18.sp, fontWeight = FontWeight.Bold)
                     Text("Auto uses the desktop workspace at 840 dp and wider.", fontSize = 15.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -2179,29 +2184,6 @@ private fun MoreScreen(
             }
         }
         item {
-            val detail = when (updateState) {
-                UpdateUiState.Idle -> if (updateManifestUrl.isBlank()) "Pair this phone to configure updates" else "Ready to check"
-                UpdateUiState.Checking -> "Checking signed manifest…"
-                UpdateUiState.Downloading -> "Downloading and verifying…"
-                is UpdateUiState.Current -> "${updateState.versionName} is current"
-                is UpdateUiState.Available -> "${updateState.update.versionName} is available"
-                is UpdateUiState.Error -> updateState.message
-            }
-            Card(shape = RoundedCornerShape(18.dp), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)) {
-                Column(Modifier.fillMaxWidth().padding(18.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    Text("App updates", fontSize = 18.sp, fontWeight = FontWeight.Bold)
-                    Text(detail, fontSize = 16.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                        when (updateState) {
-                            is UpdateUiState.Available -> Button(onClick = { onInstallUpdate(updateState.update) }, shape = RoundedCornerShape(14.dp)) { Text("Install") }
-                            UpdateUiState.Checking, UpdateUiState.Downloading -> Button(onClick = {}, enabled = false, shape = RoundedCornerShape(14.dp)) { Text("Please wait") }
-                            else -> Button(onClick = onCheckUpdate, enabled = updateManifestUrl.isNotBlank(), shape = RoundedCornerShape(14.dp)) { Text("Check") }
-                        }
-                    }
-                }
-            }
-        }
-        item {
             Card(shape = RoundedCornerShape(18.dp), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)) {
                 Row(Modifier.fillMaxWidth().padding(18.dp), verticalAlignment = Alignment.CenterVertically) {
                     Column(Modifier.weight(1f)) {
@@ -2243,6 +2225,40 @@ private fun MoreScreen(
             },
             dismissButton = { TextButton(onClick = { confirmMeteredModelDownload = false }) { Text("Cancel") } }
         )
+    }
+}
+
+@Composable
+private fun AppUpdateCard(
+    updateState: UpdateUiState,
+    updateManifestUrl: String,
+    onCheckUpdate: () -> Unit,
+    onInstallUpdate: (AgentFleetUpdate) -> Unit
+) {
+    val detail = when (updateState) {
+        UpdateUiState.Idle -> if (updateManifestUrl.isBlank()) "Pair this phone to configure updates" else "Ready to check"
+        UpdateUiState.Checking -> "Checking signed manifest…"
+        UpdateUiState.Downloading -> "Downloading and verifying…"
+        is UpdateUiState.Current -> "${updateState.versionName} is current"
+        is UpdateUiState.Available -> "${updateState.update.versionName} is available"
+        is UpdateUiState.Error -> updateState.message
+    }
+    Card(
+        modifier = Modifier.testTag("app-updates"),
+        shape = RoundedCornerShape(18.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
+    ) {
+        Column(Modifier.fillMaxWidth().padding(18.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            Text("App updates", fontSize = 18.sp, fontWeight = FontWeight.Bold)
+            Text(detail, fontSize = 16.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                when (updateState) {
+                    is UpdateUiState.Available -> Button(onClick = { onInstallUpdate(updateState.update) }, shape = RoundedCornerShape(14.dp)) { Text("Install") }
+                    UpdateUiState.Checking, UpdateUiState.Downloading -> Button(onClick = {}, enabled = false, shape = RoundedCornerShape(14.dp)) { Text("Please wait") }
+                    else -> Button(onClick = onCheckUpdate, enabled = updateManifestUrl.isNotBlank(), shape = RoundedCornerShape(14.dp)) { Text("Check") }
+                }
+            }
+        }
     }
 }
 
