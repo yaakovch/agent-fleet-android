@@ -1418,3 +1418,24 @@ physical S23FE.
    runtime, and served-checksum gates.
 5. Publish `.69`/1071 through `fleet/latest`, retain `.68` for rollback, and
    leave the physical S23FE smoke to the user through the in-app update flow.
+
+Implementation record (2026-07-19): Android source commit `6c3410b8` makes
+status-bar ownership explicit for the embedded Termux activity, keeps the
+metadata-only conversation stream live across Native and Terminal, and
+reasserts managed chrome during exit-255 reconnection. All 139 Android JVM
+tests and the complete managed Pixel 7/API 36 suite passed at
+`build/reports/agent-fleet/emulator/20260719T115733Z-full`; 43 reported
+instrumentation cases completed with zero failures and two review-only golden
+generators skipped. The committed golden geometry remained unchanged after
+visual review. Release lint completed with zero errors and three existing
+PendingIntent warnings. The signed/minified arm64 and universal APKs passed
+certificate, v2/v3 signature, checksum, permanent-identity, and embedded
+runtime `git-c8772e3` verification across all 84 packages. `.69`/1071 is
+published through `fleet/latest`; the HTTPS-served manifest SHA-256 is
+`60ab4c66e1f109139f6873b68bcdd933b28958ffa40ae819e9552f0cf6966e91`,
+the arm64 APK SHA-256 is
+`344c47bf1abb6f09c23d5b3f9eef9b79a51dd7180ac9c7af023aa938f6b63620`,
+and the universal APK SHA-256 is
+`9dbe297db83cc2cf8351f421df40531c3d44216e0f36939be6f76c03028e1968`.
+`.68` remains available for rollback. Automated tooling did not access the
+physical S23FE.
