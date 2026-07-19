@@ -1136,3 +1136,34 @@ and arm64 APK SHA-256 is
 `391d4aa86a705305d19d504d7582fa5c25f1fd4811127b58bad0b078a814dd2c`.
 `.60` remains available for rollback. Automated tooling did not access the
 physical S23FE.
+
+## 46. Native Completed Work Duration Hotfix
+
+1. Preserve the existing live `Working (elapsed)` indicator, then derive the
+   latest completed turn duration from the bounded Native conversation
+   lifecycle without adding a protocol field.
+2. Show `Worked for …` in both Native status state and the existing final
+   status card, replacing the low-information `Done` label without consuming
+   additional conversation space.
+3. Cover exact elapsed calculation and visible Compose rendering, then run the
+   focused, fast, full API 36, release-lint, signing, identity, embedded-runtime,
+   and checksum gates.
+4. Publish permanent-ID `.62`/1064 through `fleet/latest`, retain `.61` for
+   rollback, and leave the physical-phone update and Native smoke to the user.
+
+Implementation record (2026-07-19): source commit `e8df1ebd` derives completed
+work duration from the user-turn start and provider completion event, keeps the
+live timer unchanged, and renders the result in the visible final status card.
+The focused JVM regression and all 26 fast emulator scenarios passed. All 131
+JVM tests and the complete managed Pixel 7/API 36 suite passed at
+`build/reports/agent-fleet/emulator/20260719T040148Z-full`; 38 instrumentation
+cases completed with two review-only golden generators skipped. Release lint
+completed with zero errors, and the signed/minified arm64 and universal APKs
+passed certificate, permanent identity, checksum, and embedded runtime
+`git-c8772e3` verification across all 84 packages. `.62`/1064 is published
+through `fleet/latest`; the HTTPS-served manifest SHA-256 is
+`bbd41f41037158ad4704d251ea32c546ae748d9d0c8dda57fa57f725b111ec61`
+and arm64 APK SHA-256 is
+`b626528fc01705acccc92123a250fff444f530a653c02b46255f6298e1e567ca`.
+`.61` remains available for rollback. Automated tooling did not access the
+physical S23FE.
