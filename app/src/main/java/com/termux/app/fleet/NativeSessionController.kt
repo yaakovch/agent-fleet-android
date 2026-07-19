@@ -169,6 +169,10 @@ class NativeSessionController @JvmOverloads constructor(
         main.post(modelPoll)
     }
 
+    fun reapplyPresentation() {
+        if (enabled) applyViewMode(uiState.value.viewMode)
+    }
+
     fun onStop() {
         visible = false
         LocalSuggestionRuntime.shutdown(activity.nativeContext.applicationContext)

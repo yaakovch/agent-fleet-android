@@ -74,6 +74,19 @@ class AgentFleetSessionResumeControllerTest {
     }
 
     @Test
+    fun checkedRuntimeFailureIsReportedWithoutCrashingTheActivity() {
+        val session = session()
+        val errors = mutableListOf<String>()
+        val host = FakeHost(startFailure = FleetUnavailableException("Runtime repair is required"))
+        val controller = controller(session, host, FakeScheduler(), mutableListOf(), errors)
+
+        controller.onForeground(session.id)
+
+        assertEquals(1, host.starts)
+        assertEquals(listOf("Runtime repair is required"), errors)
+    }
+
+    @Test
     fun visibleUnexpectedExitStartsAndSelectsOneReplacement() {
         val session = session()
         val host = FakeHost(running = true)
@@ -129,12 +142,18 @@ class AgentFleetSessionResumeControllerTest {
             override fun onError(message: String) { errors += message }
         }
 
-    private class FakeHost(var running: Boolean = false) : AgentFleetSessionResumeController.AttachmentHost {
+    private class FakeHost(
+        var running: Boolean = false,
+        private val startFailure: Exception? = null
+    ) : AgentFleetSessionResumeController.AttachmentHost {
         var starts = 0
         var selections = 0
 
         override fun hasRunningAttachment(sessionId: String): Boolean = running
-        override fun startAttachment(session: FleetSession) { starts++ }
+        override fun startAttachment(session: FleetSession) {
+            starts++
+            startFailure?.let { throw it }
+        }
         override fun selectAttachment(sessionId: String): Boolean {
             selections++
             return running

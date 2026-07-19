@@ -44,8 +44,8 @@ android {
         applicationId "com.yaakovch.fleet"
         minSdkVersion project.properties.minSdkVersion.toInteger()
         targetSdkVersion project.properties.targetSdkVersion.toInteger()
-        versionCode 1066
-        versionName "0.118.4-agentfleet.64"
+        versionCode 1067
+        versionName "0.118.4-agentfleet.65"
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         testInstrumentationRunnerArguments clearPackageData: "true"
 

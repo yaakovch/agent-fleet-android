@@ -58,6 +58,20 @@ class DrawerSessionStoreTest {
     }
 
     @Test
+    fun activeFullscreenTargetSurvivesRecreationUntilExplicitlyCleared() {
+        val store = DrawerSessionStore(context)
+        val active = session("active")
+        store.recordOpened(active, DrawerSessionSurface.Terminal)
+        store.setActiveFullscreen(active.id)
+
+        assertEquals(active.id, DrawerSessionStore(context).activeFullscreenSession()?.id)
+        assertEquals(DrawerSessionSurface.Terminal, DrawerSessionStore(context).surfaceFor(active.id))
+
+        store.setActiveFullscreen(null)
+        assertEquals(null, DrawerSessionStore(context).activeFullscreenSession())
+    }
+
+    @Test
     fun healthyHostPurgesMissingSessionButOfflineHostKeepsDisabledCache() {
         val store = DrawerSessionStore(context)
         val remembered = session("remembered")

@@ -911,6 +911,16 @@ public final class TermuxService extends Service implements TermuxTask.TermuxTas
         return ids;
     }
 
+    @Nullable
+    public synchronized String getAgentFleetWorkspaceSessionId(@Nullable TerminalSession terminalSession) {
+        if (terminalSession == null) return null;
+        for (TermuxSession session : mTermuxSessions) {
+            if (session.getTerminalSession() == terminalSession)
+                return getAgentFleetSessionId(session);
+        }
+        return null;
+    }
+
     public synchronized void setAgentFleetActiveSessionIds(Collection<String> sessionIds) {
         mAgentFleetActiveSessionIds.clear();
         if (sessionIds != null) {

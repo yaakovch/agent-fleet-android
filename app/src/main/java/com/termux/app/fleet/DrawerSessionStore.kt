@@ -73,9 +73,23 @@ class DrawerSessionStore(context: Context) {
     fun sessionFor(sessionId: String): FleetSession? = loadState().records[sessionId]?.session
 
     @Synchronized
+    fun setActiveFullscreen(sessionId: String?) {
+        if (sessionId == null) {
+            preferences.edit().remove(ACTIVE_FULLSCREEN_KEY).apply()
+        } else if (sessionId.matches(Regex("[A-Za-z0-9._: -]{1,180}"))) {
+            preferences.edit().putString(ACTIVE_FULLSCREEN_KEY, sessionId).apply()
+        }
+    }
+
+    @Synchronized
+    fun activeFullscreenSession(): FleetSession? =
+        preferences.getString(ACTIVE_FULLSCREEN_KEY, null)?.let(::sessionFor)
+
+    @Synchronized
     fun remove(sessionId: String) {
         val state = loadState()
         if (state.records.remove(sessionId) != null) saveState(state)
+        if (preferences.getString(ACTIVE_FULLSCREEN_KEY, null) == sessionId) setActiveFullscreen(null)
     }
 
     /**
@@ -231,6 +245,7 @@ class DrawerSessionStore(context: Context) {
     companion object {
         private const val PREFERENCES = "agent_fleet_terminal_drawer"
         private const val KEY = "drawer_sessions_v2"
+        private const val ACTIVE_FULLSCREEN_KEY = "active_fullscreen_session_v1"
         private const val VERSION = 2
         private const val MAX_RECORDS = 64
     }

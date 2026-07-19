@@ -4,13 +4,17 @@ import android.content.Context
 import android.content.Intent
 import android.net.Uri
 import android.os.SystemClock
+import androidx.test.core.app.ActivityScenario
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import androidx.test.rule.ServiceTestRule
+import com.termux.R
 import com.termux.app.fleet.AgentFleetAttachmentPolicy
 import com.termux.app.fleet.AgentFleetContract
 import com.termux.app.fleet.AgentFleetSessionResumeController
+import com.termux.app.fleet.DrawerSessionStore
+import com.termux.app.fleet.DrawerSessionSurface
 import com.termux.app.fleet.FleetSession
 import com.termux.shared.models.ExecutionCommand
 import com.termux.shared.settings.preferences.TermuxAppSharedPreferences
@@ -74,6 +78,43 @@ class TermuxAttachmentServiceTest {
         assertEquals(1, service.classicTermuxSessionsSize)
         assertEquals(AgentFleetAttachmentPolicy.MAX_RETAINED_ATTACHMENTS, service.agentFleetWorkspaceSessionIds.size)
         check(sessionId in service.agentFleetWorkspaceSessionIds) { "The reused attachment was not retained" }
+        assertEquals(sessionId, service.getAgentFleetWorkspaceSessionId(service.getAgentFleetWorkspaceSession(sessionId)?.terminalSession))
+    }
+
+    @Test
+    fun resumeReappliesManagedTerminalChromeAndComposer() {
+        val descriptor = fleetSession("emulator:presentation")
+        DrawerSessionStore(context).apply {
+            recordOpened(descriptor, DrawerSessionSurface.Terminal)
+            setActiveFullscreen(descriptor.id)
+        }
+        createSession(descriptor.id, descriptor.name)
+        val intent = Intent(context, TermuxActivity::class.java).apply {
+            putExtra(AgentFleetContract.EXTRA_COMPOSE_INPUT, true)
+            putExtra(AgentFleetContract.EXTRA_NATIVE_SESSION, true)
+            putExtra(AgentFleetContract.EXTRA_WORKSPACE_SESSION_ID, descriptor.id)
+            putExtra(AgentFleetContract.EXTRA_HOST_ID, descriptor.hostId)
+            putExtra(AgentFleetContract.EXTRA_PROJECT, descriptor.project)
+            putExtra(AgentFleetContract.EXTRA_INTERNAL_SESSION, descriptor.internalName)
+            putExtra(AgentFleetContract.EXTRA_SESSION_NAME, descriptor.name)
+            putExtra(AgentFleetContract.EXTRA_INITIAL_SURFACE, AgentFleetContract.SURFACE_TERMINAL)
+            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        }
+
+        ActivityScenario.launch<TermuxActivity>(intent).use { scenario ->
+            scenario.onActivity { activity ->
+                assertEquals(android.view.View.VISIBLE, activity.findViewById<android.view.View>(R.id.agent_fleet_terminal_chrome).visibility)
+                assertEquals(android.view.View.VISIBLE, activity.findViewById<android.view.View>(R.id.agent_fleet_composer).visibility)
+                activity.findViewById<android.view.View>(R.id.agent_fleet_terminal_chrome).visibility = android.view.View.GONE
+                activity.findViewById<android.view.View>(R.id.agent_fleet_composer).visibility = android.view.View.GONE
+            }
+            scenario.moveToState(androidx.lifecycle.Lifecycle.State.CREATED)
+            scenario.moveToState(androidx.lifecycle.Lifecycle.State.RESUMED)
+            scenario.onActivity { activity ->
+                assertEquals(android.view.View.VISIBLE, activity.findViewById<android.view.View>(R.id.agent_fleet_terminal_chrome).visibility)
+                assertEquals(android.view.View.VISIBLE, activity.findViewById<android.view.View>(R.id.agent_fleet_composer).visibility)
+            }
+        }
     }
 
     @Test
@@ -120,8 +161,8 @@ class TermuxAttachmentServiceTest {
         onMain {
             val command = ExecutionCommand(
                 TermuxService.getNextExecutionId(),
-                "/system/bin/sh",
-                arrayOf("-c", "sleep 30"),
+                "/system/bin/sleep",
+                arrayOf("30"),
                 null,
                 context.cacheDir.absolutePath,
                 false,
@@ -137,11 +178,11 @@ class TermuxAttachmentServiceTest {
 
     private fun managedOpenIntent(sessionId: String, name: String) = Intent(
         TERMUX_SERVICE.ACTION_SERVICE_EXECUTE,
-        Uri.Builder().scheme(TERMUX_SERVICE.URI_SCHEME_SERVICE_EXECUTE).path("/system/bin/sh").build(),
+        Uri.Builder().scheme(TERMUX_SERVICE.URI_SCHEME_SERVICE_EXECUTE).path("/system/bin/sleep").build(),
         context,
         TermuxService::class.java
     ).apply {
-        putExtra(TERMUX_SERVICE.EXTRA_ARGUMENTS, arrayOf("-c", "sleep 30"))
+        putExtra(TERMUX_SERVICE.EXTRA_ARGUMENTS, arrayOf("30"))
         putExtra(TERMUX_SERVICE.EXTRA_WORKDIR, context.cacheDir.absolutePath)
         putExtra(TERMUX_SERVICE.EXTRA_BACKGROUND, false)
         putExtra(

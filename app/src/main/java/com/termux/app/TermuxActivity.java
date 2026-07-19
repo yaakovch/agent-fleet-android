@@ -299,6 +299,8 @@ public final class TermuxActivity extends ComponentActivity implements ServiceCo
 
         registerTermuxActivityBroadcastReceiver();
 
+        restoreAgentFleetPresentationIfNeeded();
+
         if (mAgentFleetNativeSession != null)
             mAgentFleetNativeSession.onStart();
 
@@ -314,6 +316,15 @@ public final class TermuxActivity extends ComponentActivity implements ServiceCo
     @Override
     protected void onNewIntent(Intent intent) {
         super.onNewIntent(intent);
+        Intent current = getIntent();
+        if (managedSessionId(intent) == null && managedSessionId(current) != null &&
+            Intent.ACTION_MAIN.equals(intent.getAction())) {
+            mShouldRestoreAgentFleetSession = true;
+            updateAgentFleetInputMode(current);
+            selectAgentFleetTarget(current, 0);
+            restoreAgentFleetSessionIfNeeded();
+            return;
+        }
         if (mAgentFleetSessionResume != null) mAgentFleetSessionResume.onBackground();
         mShouldRestoreAgentFleetSession = false;
         setIntent(intent);
@@ -322,6 +333,9 @@ public final class TermuxActivity extends ComponentActivity implements ServiceCo
     }
 
     private void updateAgentFleetInputMode(Intent intent) {
+        String sessionId = managedSessionId(intent);
+        if (sessionId != null)
+            new DrawerSessionStore(getApplicationContext()).setActiveFullscreen(sessionId);
         ComposeView composer = findViewById(R.id.agent_fleet_composer);
         AgentFleetComposer.bind(this, composer,
             intent != null && intent.getBooleanExtra(AgentFleetContract.EXTRA_COMPOSE_INPUT, false));
@@ -386,17 +400,7 @@ public final class TermuxActivity extends ComponentActivity implements ServiceCo
     /** Switch this activity to an existing service-owned workspace attachment. */
     public void activateAgentFleetSession(FleetSession session, DrawerSessionSurface surface) {
         if (session == null || surface == null || mTermuxService == null) return;
-        Intent target = new Intent(this, TermuxActivity.class);
-        target.putExtra(AgentFleetContract.EXTRA_COMPOSE_INPUT,
-            session.getTool().equals("codex") || session.getTool().equals("claude") || session.getTool().equals("copilot"));
-        target.putExtra(AgentFleetContract.EXTRA_NATIVE_SESSION, true);
-        target.putExtra(AgentFleetContract.EXTRA_WORKSPACE_SESSION_ID, session.getId());
-        target.putExtra(AgentFleetContract.EXTRA_HOST_ID, session.getHostId());
-        target.putExtra(AgentFleetContract.EXTRA_PROJECT, session.getProject());
-        target.putExtra(AgentFleetContract.EXTRA_INTERNAL_SESSION, session.getInternalName());
-        target.putExtra(AgentFleetContract.EXTRA_SESSION_NAME, session.getName());
-        target.putExtra(AgentFleetContract.EXTRA_INITIAL_SURFACE,
-            surface == DrawerSessionSurface.Terminal ? AgentFleetContract.SURFACE_TERMINAL : AgentFleetContract.SURFACE_NATIVE);
+        Intent target = agentFleetTargetIntent(session, surface);
         setIntent(target);
         updateAgentFleetInputMode(target);
         selectAgentFleetTarget(target, 0);
@@ -406,6 +410,7 @@ public final class TermuxActivity extends ComponentActivity implements ServiceCo
     /** Leave Agent Fleet presentation state before selecting a classic local shell. */
     public void activateClassicSession(TerminalSession session) {
         if (session == null || mTermuxTerminalSessionClient == null) return;
+        new DrawerSessionStore(getApplicationContext()).setActiveFullscreen(null);
         Intent target = new Intent(this, TermuxActivity.class);
         setIntent(target);
         updateAgentFleetInputMode(target);
@@ -602,6 +607,9 @@ public final class TermuxActivity extends ComponentActivity implements ServiceCo
         if (mTermuxTerminalViewClient != null)
             mTermuxTerminalViewClient.onResume();
 
+        if (mAgentFleetNativeSession != null)
+            mAgentFleetNativeSession.reapplyPresentation();
+
         isOnResumeAfterOnCreate = false;
     }
 
@@ -743,6 +751,7 @@ public final class TermuxActivity extends ComponentActivity implements ServiceCo
 
         // Update the {@link TerminalSession} and {@link TerminalEmulator} clients.
         mTermuxService.setTermuxTerminalSessionClient(mTermuxTerminalSessionClient);
+        restoreAgentFleetPresentationIfNeeded();
         selectAgentFleetTarget(getIntent(), 0);
         restoreAgentFleetSessionIfNeeded();
     }
@@ -807,6 +816,53 @@ public final class TermuxActivity extends ComponentActivity implements ServiceCo
         mAgentFleetSessionResume.onForeground(managedSessionId(getIntent()));
     }
 
+    private void restoreAgentFleetPresentationIfNeeded() {
+        if (managedSessionId(getIntent()) != null) return;
+        TerminalSession current = getCurrentSession();
+        String selectedSessionId = mTermuxService == null ? null :
+            mTermuxService.getAgentFleetWorkspaceSessionId(current);
+        DrawerSessionStore sessions = new DrawerSessionStore(getApplicationContext());
+        FleetSession selected = selectedSessionId == null ? null : sessions.sessionFor(selectedSessionId);
+        FleetSession remembered = sessions.activeFullscreenSession();
+        if (!shouldRestoreAgentFleetPresentation(
+            false,
+            selected != null,
+            current != null && current.isRunning(),
+            remembered != null
+        )) return;
+        FleetSession session = selected != null ? selected : remembered;
+        if (session == null) return;
+        Intent target = agentFleetTargetIntent(session, sessions.surfaceFor(session.getId()));
+        setIntent(target);
+        mShouldRestoreAgentFleetSession = true;
+        updateAgentFleetInputMode(target);
+    }
+
+    static boolean shouldRestoreAgentFleetPresentation(
+        boolean intentHasManagedTarget,
+        boolean selectedAttachmentIsManaged,
+        boolean currentTerminalIsRunning,
+        boolean hasRememberedFullscreenTarget
+    ) {
+        return !intentHasManagedTarget &&
+            (selectedAttachmentIsManaged || (!currentTerminalIsRunning && hasRememberedFullscreenTarget));
+    }
+
+    private Intent agentFleetTargetIntent(FleetSession session, DrawerSessionSurface surface) {
+        Intent target = new Intent(this, TermuxActivity.class);
+        target.putExtra(AgentFleetContract.EXTRA_COMPOSE_INPUT,
+            session.getTool().equals("codex") || session.getTool().equals("claude") || session.getTool().equals("copilot"));
+        target.putExtra(AgentFleetContract.EXTRA_NATIVE_SESSION, true);
+        target.putExtra(AgentFleetContract.EXTRA_WORKSPACE_SESSION_ID, session.getId());
+        target.putExtra(AgentFleetContract.EXTRA_HOST_ID, session.getHostId());
+        target.putExtra(AgentFleetContract.EXTRA_PROJECT, session.getProject());
+        target.putExtra(AgentFleetContract.EXTRA_INTERNAL_SESSION, session.getInternalName());
+        target.putExtra(AgentFleetContract.EXTRA_SESSION_NAME, session.getName());
+        target.putExtra(AgentFleetContract.EXTRA_INITIAL_SURFACE,
+            surface == DrawerSessionSurface.Terminal ? AgentFleetContract.SURFACE_TERMINAL : AgentFleetContract.SURFACE_NATIVE);
+        return target;
+    }
+
     @Nullable
     private static String managedSessionId(@Nullable Intent intent) {
         if (intent == null) return null;
@@ -815,6 +871,7 @@ public final class TermuxActivity extends ComponentActivity implements ServiceCo
     }
 
     private void clearManagedSessionTarget() {
+        new DrawerSessionStore(getApplicationContext()).setActiveFullscreen(null);
         Intent current = getIntent();
         if (current != null) {
             current.removeExtra(AgentFleetContract.EXTRA_WORKSPACE_SESSION_ID);

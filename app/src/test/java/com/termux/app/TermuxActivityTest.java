@@ -38,4 +38,13 @@ public class TermuxActivityTest {
         Assert.assertNull(TermuxActivity.agentFleetKeySequence("UNKNOWN"));
     }
 
+    @Test
+    public void testManagedPresentationRecoveryPolicy() {
+        Assert.assertTrue(TermuxActivity.shouldRestoreAgentFleetPresentation(false, true, true, false));
+        Assert.assertTrue(TermuxActivity.shouldRestoreAgentFleetPresentation(false, false, false, true));
+        Assert.assertFalse(TermuxActivity.shouldRestoreAgentFleetPresentation(true, true, false, true));
+        Assert.assertFalse(TermuxActivity.shouldRestoreAgentFleetPresentation(false, false, true, true));
+        Assert.assertFalse(TermuxActivity.shouldRestoreAgentFleetPresentation(false, false, false, false));
+    }
+
 }

@@ -16,7 +16,7 @@ public final class AgentFleetSessionResumeController {
 
     public interface AttachmentHost {
         boolean hasRunningAttachment(String sessionId);
-        void startAttachment(FleetSession session);
+        void startAttachment(FleetSession session) throws Exception;
         boolean selectAttachment(String sessionId);
     }
 
@@ -124,7 +124,7 @@ public final class AgentFleetSessionResumeController {
             startingSessionId = sessionId;
             try {
                 attachmentHost.startAttachment(session);
-            } catch (RuntimeException error) {
+            } catch (Exception error) {
                 startingSessionId = null;
                 listener.onError(error.getMessage() == null ? "The session could not reconnect." : error.getMessage());
                 return;
