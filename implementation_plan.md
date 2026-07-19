@@ -1104,3 +1104,35 @@ and arm64 APK SHA-256 is
 `b6864376bd26676cb00e6df352068345ea61c8619b737e6cabd603036ebdb2b9`.
 `.59` remains available for rollback. Automated tooling did not access the
 physical S23FE.
+
+## 45. Model Catalog Refresh Race Hotfix
+
+1. Replace the single model-request busy flag with a ticketed request gate so
+   lifecycle resets cannot let an old completion release a newer request.
+2. When the user opens or retries the model picker during a background
+   no-catalog poll, retain one explicit catalog request and run it immediately
+   after the active request completes. Show loading while it is queued instead
+   of the misleading unavailable state.
+3. Cover explicit-over-background priority, repeated background polls, and
+   lifecycle reset/late-completion behavior with deterministic JVM tests. Run
+   focused, fast, and full isolated API 36 suites plus lint and signed-release
+   verification.
+4. Publish permanent-ID `.61`/1063 through `fleet/latest`, retain `.60` for
+   rollback, and leave the physical-phone update and picker smoke to the user.
+
+Implementation record (2026-07-19): source commit `eac471e3` queues an explicit
+catalog load behind any active background model-state poll and uses generation-
+safe request tickets across rebinding and lifecycle shutdown. The focused gate
+and identity tests passed, as did all 25 fast emulator scenarios. All 131 JVM
+tests and the complete managed Pixel 7/API 36 suite passed at
+`build/reports/agent-fleet/emulator/20260719T010633Z-full`; 37 instrumentation
+cases completed with two review-only golden generators skipped. Release lint
+completed with zero errors, and the signed/minified arm64 and universal APKs
+passed certificate, permanent identity, checksum, and embedded runtime
+`git-c8772e3` verification across all 84 packages. `.61`/1063 is published
+through `fleet/latest`; the HTTPS-served manifest SHA-256 is
+`3a7f0b741c245ec1d03c3b7e50b44bff84b0d49f5da07ead982535dfb93db7f0`
+and arm64 APK SHA-256 is
+`391d4aa86a705305d19d504d7582fa5c25f1fd4811127b58bad0b078a814dd2c`.
+`.60` remains available for rollback. Automated tooling did not access the
+physical S23FE.
