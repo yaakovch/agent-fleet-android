@@ -1326,3 +1326,40 @@ and the universal APK SHA-256 is
 `495106f8dab0aea8cb3dfe8fdfc3c58a0d67356531b0566eae9ce381b2285e48`.
 `.65` remains available for rollback. Automated tooling did not access the
 physical S23FE.
+
+## 51. Terminal Header Inset And Direct-Entry Resume Hotfix
+
+1. Reserve the two-row Terminal header with a real top layout margin instead
+   of `TerminalView` padding, because the custom terminal renderer draws from
+   the canvas origin and does not offset terminal rows for view padding.
+2. Reconnect an unexpectedly ended managed attachment by matching the failed
+   attachment to the activity's intended workspace-session target, even when
+   direct app entry races before that attachment becomes the selected terminal.
+3. Cover the exact 88dp Terminal margin before and after activity recreation,
+   plus visible, background, different-target, normal-exit, and exit-255
+   reconnect decisions.
+4. Run focused, fast/full API 36, release-lint, signing, identity/runtime, and
+   served-checksum gates; publish `.67`/1069 through `fleet/latest` while
+   retaining `.66` for rollback.
+
+Implementation record (2026-07-19): Android source commit `e91a15f8` replaces
+the ineffective Terminal padding with a measured top margin and accepts the
+intended managed target's failure callback during direct entry. The focused
+lifecycle tests and Android-test compilation passed, as did all fast emulator
+scenarios at
+`build/reports/agent-fleet/emulator/20260719T074541Z-fast`. All 135 Android JVM
+tests and the complete managed Pixel 7/API 36 suite passed at
+`build/reports/agent-fleet/emulator/20260719T074854Z-full`; 38 instrumentation
+cases completed with two review-only golden generators skipped, including the
+activity recreation test's exact header-margin assertion. Release lint
+completed with zero errors. The signed/minified arm64 and universal APKs passed
+certificate, permanent identity, checksum, and embedded runtime `git-c8772e3`
+verification across all 84 packages. `.67`/1069 is published through
+`fleet/latest`; the HTTPS-served manifest SHA-256 is
+`b37da502713fe78a2a0c76b078ddc1e24e07effbdd4f31d54345e4e562435031`,
+the arm64 APK SHA-256 is
+`f3573ef32c0f228c4befd8b0a51b8d5310f8a4a8ebfde8af6f216e730dbe1ddb`,
+and the universal APK SHA-256 is
+`60c19b6c434337cab404eef8939d91a9f4fa596d44083901cad0346eb1f4f585`.
+`.66` remains available for rollback. Automated tooling did not access the
+physical S23FE.
