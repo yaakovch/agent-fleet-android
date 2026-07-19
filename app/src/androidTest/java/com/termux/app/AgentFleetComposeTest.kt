@@ -141,6 +141,38 @@ class AgentFleetComposeTest {
     }
 
     @Test
+    fun nativeShowsCompletedWorkingTimeInVisibleStatusCard() {
+        val user = ConversationItem(
+            id = "user", kind = "message", timestamp = "2026-07-19T00:00:00Z", role = "user",
+            title = "", text = "Fix it", detail = "", state = "complete", tool = "",
+            attachments = emptyList(), choices = emptyList()
+        )
+        val working = ConversationItem(
+            id = "working", kind = "status", timestamp = "2026-07-19T00:00:01Z", role = "",
+            title = "Working", text = "", detail = "", state = "running", tool = "codex",
+            attachments = emptyList(), choices = emptyList()
+        )
+        val reply = ConversationItem(
+            id = "reply", kind = "message", timestamp = "2026-07-19T00:07:39Z", role = "assistant",
+            title = "", text = "Fixed.", detail = "", state = "complete", tool = "codex",
+            attachments = emptyList(), choices = emptyList()
+        )
+        val done = ConversationItem(
+            id = "done", kind = "status", timestamp = "2026-07-19T00:07:40Z", role = "",
+            title = "Done", text = "", detail = "", state = "complete", tool = "codex",
+            attachments = emptyList(), choices = emptyList()
+        )
+        val state = NativeSessionUiState(
+            "Completed fixture", "gaming", "wtmux-main", adapter = "codex", connection = "Live",
+            items = listOf(user, working, reply, done)
+        )
+
+        compose.setContent { NativeStateFixture(state) }
+
+        compose.onNodeWithText("Worked for 7m 40s").assertIsDisplayed()
+    }
+
+    @Test
     fun appUpdatesIsTheFirstMoreCard() {
         compose.setContent { FixtureApp() }
         compose.onNodeWithTag("nav-more").performClick()

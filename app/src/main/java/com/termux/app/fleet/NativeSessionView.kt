@@ -338,6 +338,9 @@ private fun NativeSessionStatusLine(state: NativeSessionUiState) {
     val workingStartedAt = remember(state.adapter, state.items) {
         activeWorkStartedAt(state.adapter, state.items)
     }
+    val completedDuration = remember(state.adapter, state.items) {
+        latestCompletedWorkDuration(state.adapter, state.items)
+    }
     var nowMillis by remember(workingStartedAt) { mutableStateOf(System.currentTimeMillis()) }
     LaunchedEffect(workingStartedAt) {
         while (workingStartedAt != null) {
@@ -345,11 +348,15 @@ private fun NativeSessionStatusLine(state: NativeSessionUiState) {
             delay(1_000)
         }
     }
-    val detail = workingStartedAt?.let { "Working (${formatWorkingDuration(it, nowMillis)})" } ?: state.connection
+    val detail = when {
+        workingStartedAt != null -> "Working (${formatWorkingDuration(workingStartedAt, nowMillis)})"
+        completedDuration != null -> "Worked for ${formatElapsedDuration(completedDuration)}"
+        else -> state.connection
+    }
     Text(
         "${prettyAdapter(state.adapter)} · $detail",
         fontSize = (AgentFleetDisplayDensity.DEFAULT_NATIVE_BODY_SP - 3).sp,
-        color = if (workingStartedAt != null || state.connection == "Live") ReadyGreen else MaterialTheme.colorScheme.onSurfaceVariant,
+        color = if (workingStartedAt != null || completedDuration != null || state.connection == "Live") ReadyGreen else MaterialTheme.colorScheme.onSurfaceVariant,
         maxLines = 1,
         overflow = TextOverflow.Ellipsis,
         modifier = Modifier.testTag("native-session-status")
@@ -958,7 +965,14 @@ private fun ConversationItemCard(
         "shell_command" -> ShellCommandCard(value)
         "shell_output" -> ExpandableActivityCard(value, monospace = true)
         "change" -> ExpandableActivityCard(value, monospace = true)
-        else -> ExpandableActivityCard(value, monospace = false)
+        else -> ExpandableActivityCard(
+            if (value.kind == "status" && value.title in setOf("Done", "Turn Duration")) {
+                completedWorkDurationEndingAt(value.id, conversationItems)?.let { duration ->
+                    value.copy(title = "Worked for ${formatElapsedDuration(duration)}")
+                } ?: value
+            } else value,
+            monospace = false
+        )
     }
 }
 
@@ -1407,8 +1421,47 @@ internal fun activeWorkStartedAt(adapter: String, items: List<ConversationItem>)
     return if (maxOf(lastUser, lastContinuation) > lastStop) time(items[lastUser]) else null
 }
 
+internal fun completedWorkDurationEndingAt(endId: String, items: List<ConversationItem>): Long? {
+    fun time(value: ConversationItem): Long? = parseConversationTimestamp(
+        value.completedAt.ifBlank { value.startedAt.ifBlank { value.timestamp } }
+    )
+    fun lifecycleEnd(value: ConversationItem): Boolean =
+        (value.kind == "status" && value.title in setOf("Done", "Turn Duration") && value.state != "running") ||
+            value.kind == "error" || value.state == "error" ||
+            (value.kind in setOf("question", "approval") && value.state != "complete")
+
+    val endIndex = items.indexOfLast { it.id == endId && lifecycleEnd(it) }
+    if (endIndex < 0) return null
+    val previousEnd = (endIndex - 1 downTo 0).firstOrNull { lifecycleEnd(items[it]) } ?: -1
+    val lastWorking = (endIndex - 1 downTo previousEnd + 1).firstOrNull { index ->
+        items[index].kind == "status" && items[index].title == "Working"
+    }
+    val userLimit = lastWorking ?: endIndex
+    val lastUser = (userLimit downTo previousEnd + 1).firstOrNull { index ->
+        items[index].kind == "message" && items[index].role == "user"
+    }
+    val startIndex = lastUser ?: lastWorking ?: return null
+    val started = parseConversationTimestamp(
+        items[startIndex].startedAt.ifBlank { items[startIndex].timestamp }
+    ) ?: return null
+    val completed = time(items[endIndex]) ?: return null
+    return (completed - started).takeIf { it >= 0L }
+}
+
+internal fun latestCompletedWorkDuration(adapter: String, items: List<ConversationItem>): Long? {
+    if (adapter !in setOf("codex", "claude", "copilot")) return null
+    val end = items.lastOrNull {
+        it.kind == "status" && it.title in setOf("Done", "Turn Duration") && it.state != "running"
+    } ?: return null
+    return completedWorkDurationEndingAt(end.id, items)
+}
+
 internal fun formatWorkingDuration(startedAtMillis: Long, nowMillis: Long): String {
-    val totalSeconds = ((nowMillis - startedAtMillis).coerceAtLeast(0L) / 1_000L)
+    return formatElapsedDuration((nowMillis - startedAtMillis).coerceAtLeast(0L))
+}
+
+internal fun formatElapsedDuration(durationMillis: Long): String {
+    val totalSeconds = durationMillis.coerceAtLeast(0L) / 1_000L
     val hours = totalSeconds / 3_600L
     val minutes = totalSeconds % 3_600L / 60L
     val seconds = totalSeconds % 60L
