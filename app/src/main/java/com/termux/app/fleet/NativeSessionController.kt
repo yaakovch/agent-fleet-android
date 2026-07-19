@@ -91,7 +91,7 @@ class NativeSessionController @JvmOverloads constructor(
                     onKillSession = ::killSession,
                     onScheduleContinue = ::scheduleLimitContinue,
                     onDismissAttention = ::dismissAttention,
-                    onComposerText = activity::sendAgentFleetComposerText,
+                    onComposerText = ::sendComposerText,
                     onAttach = activity::pickAgentFleetImages,
                     inlineComposer = activity.nativeInlineComposer,
                     showChrome = showChrome,
@@ -251,6 +251,29 @@ class NativeSessionController @JvmOverloads constructor(
             focusQuestionId = pending.id,
             focusQuestionSerial = uiState.value.focusQuestionSerial + 1
         )
+    }
+
+    fun onComposerMessageSent(text: String, appendEnter: Boolean) {
+        if (!enabled || localSession) return
+        main.post {
+            if (!enabled || localSession) return@post
+            val startedAt = optimisticWorkAfterComposerSend(
+                uiState.value.optimisticWorkStartedAt,
+                text,
+                appendEnter,
+                sent = true,
+                nowMillis = System.currentTimeMillis()
+            )
+            if (startedAt != uiState.value.optimisticWorkStartedAt) {
+                uiState.value = uiState.value.copy(optimisticWorkStartedAt = startedAt)
+            }
+        }
+    }
+
+    private fun sendComposerText(text: String, appendEnter: Boolean): Boolean {
+        val sent = activity.sendAgentFleetComposerText(text, appendEnter)
+        if (sent) onComposerMessageSent(text, appendEnter)
+        return sent
     }
 
     private fun updateComposerState() {
@@ -669,6 +692,9 @@ class NativeSessionController @JvmOverloads constructor(
                     incoming.firstOrNull { it.kind == "fallback" }?.let { lastFallbackText = it.text }
                     incoming = incoming.filterNot { it.kind == "fallback" }
                 }
+                val optimisticWorkStartedAt = reconcileOptimisticWork(
+                    uiState.value.optimisticWorkStartedAt, frame.adapter, incoming
+                )
                 uiState.value = uiState.value.copy(
                     adapter = frame.adapter,
                     sourceMode = frame.mode,
@@ -681,6 +707,7 @@ class NativeSessionController @JvmOverloads constructor(
                     loadingOlder = false,
                     olderLoadError = null,
                     historyLimitReached = false,
+                    optimisticWorkStartedAt = optimisticWorkStartedAt,
                     error = null
                 )
                 if (frame.mode == "shell") refreshDirectories()
@@ -695,7 +722,10 @@ class NativeSessionController @JvmOverloads constructor(
                     uiState.value = uiState.value.copy(
                         items = mergeConversationItems(uiState.value.items, listOf(frame.item)),
                         connection = "Live",
-                        liveEventSerial = uiState.value.liveEventSerial + if (isNew) 1 else 0
+                        liveEventSerial = uiState.value.liveEventSerial + if (isNew) 1 else 0,
+                        optimisticWorkStartedAt = optimisticWorkAfterEvent(
+                            uiState.value.optimisticWorkStartedAt, frame.item
+                        )
                     )
                     updateComposerState()
                 }

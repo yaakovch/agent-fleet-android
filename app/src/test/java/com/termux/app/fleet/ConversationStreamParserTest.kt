@@ -284,6 +284,13 @@ class ConversationStreamParserTest {
         assertEquals(null, activeWorkStartedAt("claude", listOf(user, user.copy(id = "reply", role = "assistant"))))
         assertEquals("30m 55s", formatWorkingDuration(1_000L, 1_856_000L))
         assertEquals("7m 40s", formatElapsedDuration(460_000L))
+        assertEquals(10_000L, optimisticWorkAfterComposerSend(null, "Fix it", true, true, 10_000L))
+        assertEquals(null, optimisticWorkAfterComposerSend(null, "", true, true, 10_000L))
+        assertEquals(9_000L, optimisticWorkAfterComposerSend(9_000L, "Draft", false, true, 10_000L))
+        assertEquals(null, optimisticWorkAfterEvent(10_000L, working))
+        assertEquals(null, optimisticWorkAfterEvent(10_000L, done))
+        assertEquals(10_000L, optimisticWorkAfterEvent(10_000L, user))
+        assertEquals(null, reconcileOptimisticWork(10_000L, "codex", listOf(working)))
     }
 
     @Test

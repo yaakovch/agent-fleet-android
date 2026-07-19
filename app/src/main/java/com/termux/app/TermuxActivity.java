@@ -353,6 +353,8 @@ public final class TermuxActivity extends ComponentActivity implements ServiceCo
         if (session == null || !session.isRunning()) return false;
         if (!text.isEmpty()) session.getEmulator().paste(text);
         if (appendEnter) session.write("\r");
+        if (mAgentFleetNativeSession != null)
+            mAgentFleetNativeSession.onComposerMessageSent(text, appendEnter);
         return true;
     }
 

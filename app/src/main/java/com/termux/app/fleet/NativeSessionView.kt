@@ -335,9 +335,10 @@ fun AgentFleetTerminalSessionChrome(
 
 @Composable
 private fun NativeSessionStatusLine(state: NativeSessionUiState) {
-    val workingStartedAt = remember(state.adapter, state.items) {
+    val providerWorkingStartedAt = remember(state.adapter, state.items) {
         activeWorkStartedAt(state.adapter, state.items)
     }
+    val workingStartedAt = providerWorkingStartedAt ?: state.optimisticWorkStartedAt
     val completedDuration = remember(state.adapter, state.items) {
         latestCompletedWorkDuration(state.adapter, state.items)
     }
@@ -1419,6 +1420,33 @@ internal fun activeWorkStartedAt(adapter: String, items: List<ConversationItem>)
         }
     }
     return if (maxOf(lastUser, lastContinuation) > lastStop) time(items[lastUser]) else null
+}
+
+internal fun optimisticWorkAfterComposerSend(
+    previous: Long?, text: String, appendEnter: Boolean, sent: Boolean, nowMillis: Long
+): Long? = if (sent && appendEnter && text.isNotBlank()) nowMillis else previous
+
+internal fun optimisticWorkAfterEvent(previous: Long?, value: ConversationItem): Long? {
+    if (previous == null) return null
+    val authoritativeStart = value.kind == "status" && value.title == "Working" && value.state == "running"
+    val lifecycleEnd =
+        (value.kind == "status" && value.title in setOf("Done", "Turn Duration") && value.state != "running") ||
+            value.kind == "error" || value.state == "error" ||
+            (value.kind in setOf("question", "approval") && value.state != "complete")
+    return if (authoritativeStart || lifecycleEnd) null else previous
+}
+
+internal fun reconcileOptimisticWork(
+    previous: Long?, adapter: String, items: List<ConversationItem>
+): Long? {
+    if (previous == null || activeWorkStartedAt(adapter, items) != null) return null
+    val completedAt = items.asReversed().firstNotNullOfOrNull { value ->
+        if (
+            value.kind == "status" && value.title in setOf("Done", "Turn Duration") &&
+            value.state != "running"
+        ) parseConversationTimestamp(value.completedAt.ifBlank { value.timestamp }) else null
+    }
+    return if (completedAt != null && completedAt >= previous) null else previous
 }
 
 internal fun completedWorkDurationEndingAt(endId: String, items: List<ConversationItem>): Long? {

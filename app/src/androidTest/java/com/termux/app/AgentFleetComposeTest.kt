@@ -128,13 +128,9 @@ class AgentFleetComposeTest {
 
     @Test
     fun nativeShowsLiveWorkingTime() {
-        val working = ConversationItem(
-            id = "working", kind = "status", timestamp = "2026-07-19T00:00:00Z", role = "",
-            title = "Working", text = "", detail = "", state = "running", tool = "codex",
-            attachments = emptyList(), choices = emptyList()
-        )
         val state = NativeSessionUiState(
-            "Working fixture", "gaming", "wtmux-main", adapter = "codex", connection = "Live", items = listOf(working)
+            "Working fixture", "gaming", "wtmux-main", adapter = "codex", connection = "Live",
+            optimisticWorkStartedAt = System.currentTimeMillis() - 2_000L
         )
         compose.setContent { NativeStateFixture(state) }
         compose.onNodeWithText("Codex · Working (", substring = true).assertIsDisplayed()

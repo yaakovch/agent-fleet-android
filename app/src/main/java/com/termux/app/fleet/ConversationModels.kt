@@ -129,6 +129,7 @@ data class NativeSessionUiState(
     val olderLoadError: String? = null,
     val historyLimitReached: Boolean = false,
     val liveEventSerial: Long = 0,
+    val optimisticWorkStartedAt: Long? = null,
     val focusQuestionId: String = "",
     val focusQuestionSerial: Long = 0,
     val viewMode: NativeViewMode = NativeViewMode.Native,
