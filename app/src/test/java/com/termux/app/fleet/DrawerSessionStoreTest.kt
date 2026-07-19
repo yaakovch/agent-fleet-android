@@ -101,6 +101,17 @@ class DrawerSessionStoreTest {
         assertEquals(setOf("recent", "unseen"), store.rows(snapshot("healthy", unseen, recent)).map { it.session.internalName }.toSet())
     }
 
+    @Test
+    fun purgesCachedSmartTitlesWhenPrivacySettingIsDisabled() {
+        val store = DrawerSessionStore(context)
+        store.recordOpened(session("private"))
+        RecentSessionStore(context).record(session("recent"))
+        store.clearCachedTitles()
+        RecentSessionStore(context).clearCachedTitles()
+        assertEquals("", store.recordsForTest().single().session.title)
+        assertEquals("", RecentSessionStore(context).load().single().title)
+    }
+
     private fun clear() {
         context.getSharedPreferences("agent_fleet_terminal_drawer", Context.MODE_PRIVATE).edit().clear().commit()
         context.getSharedPreferences("agent_fleet_terminal_tabs", Context.MODE_PRIVATE).edit().clear().commit()

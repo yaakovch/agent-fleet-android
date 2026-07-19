@@ -23,7 +23,8 @@ data class FleetSession(
     val updatedAt: String?,
     val pendingScheduleCount: Int,
     val projectPath: String = "",
-    val locationKind: String = "project"
+    val locationKind: String = "project",
+    val nameMode: String = "automatic"
 )
 
 data class FleetDirectoryEntry(val name: String, val path: String)
@@ -162,8 +163,22 @@ data class FleetSnapshot(
     val sessions: List<FleetSession>,
     val schedules: List<FleetSchedule>,
     val attention: List<FleetAttention>,
-    val limits: List<FleetLimit> = emptyList()
+    val limits: List<FleetLimit> = emptyList(),
+    val presentationRevision: String? = null
 )
+
+data class FleetSessionIdentity(val primary: String, val secondary: String, val stableName: String)
+
+fun sessionIdentityPresentation(session: FleetSession): FleetSessionIdentity {
+    val automatic = session.nameMode != "manual"
+    val primary = if (automatic && session.title.isNotBlank()) session.title else session.name
+    val secondary = if (automatic && session.title.isNotBlank()) {
+        listOf(session.name, session.hostId, session.project).filter(String::isNotBlank).joinToString(" · ")
+    } else {
+        listOf(session.hostId, session.project).filter(String::isNotBlank).joinToString(" · ")
+    }
+    return FleetSessionIdentity(primary, secondary, session.name)
+}
 
 data class FleetDoctorCheck(
     val id: String,

@@ -348,11 +348,13 @@ class NativeSessionController @JvmOverloads constructor(
     private fun applyFleetSnapshot(snapshot: FleetSnapshot) {
         fleetSnapshot = snapshot
         val sessionId = "${uiState.value.hostId}:${uiState.value.internalSession}"
+        val session = snapshot.sessions.firstOrNull { it.id == sessionId }
         val hiddenId = dismissedAttentionId
         if (hiddenId != null && snapshot.attention.none { it.id == hiddenId }) dismissedAttentionId = null
         val attention = activeAttentionForSession(snapshot, sessionId, dismissedAttentionId)
         val sameAttention = attention?.id == uiState.value.attention?.id
         uiState.value = uiState.value.copy(
+            sessionLabel = session?.let(::sessionIdentityPresentation)?.primary ?: uiState.value.sessionLabel,
             attention = attention,
             attentionBusy = if (sameAttention) uiState.value.attentionBusy else false,
             attentionError = if (sameAttention) uiState.value.attentionError else null

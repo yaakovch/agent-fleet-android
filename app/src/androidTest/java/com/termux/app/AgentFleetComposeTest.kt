@@ -307,6 +307,13 @@ class AgentFleetComposeTest {
     }
 
     @Test
+    fun sessionListUsesAutomaticTitleWithStableIdentityUnderIt() {
+        compose.setContent { FixtureApp() }
+        compose.onNodeWithText("Diagnostics").assertIsDisplayed()
+        compose.onNodeWithText("wtmux:1 · gaming · wtmux").assertIsDisplayed()
+    }
+
+    @Test
     fun sessionsRepositoryErrorRetryAndDownloadAreUsable() {
         val attempts = AtomicInteger()
         compose.setContent {
@@ -849,6 +856,7 @@ class AgentFleetComposeTest {
                 onCloseRepository = {},
                 onOpenDownload = {},
                 onRenameSession = { _, _ -> },
+                onResetSessionName = {},
                 onScheduleContinue = { _, _ -> },
                 onScheduleAttention = { _, _, _ -> },
                 onDismissAttention = {},
@@ -885,7 +893,7 @@ class AgentFleetComposeTest {
 
     companion object {
         private val session = FleetSession(
-            "gaming:wtmux", "gaming", "wtmux-main", "wtmux", "Diagnostics", "wtmux", "codex", "linux", "active", false,
+            "gaming:wtmux", "gaming", "wtmux-main", "wtmux:1", "Diagnostics", "wtmux", "codex", "linux", "active", false,
             "2026-07-15T00:00:00Z", 0, "/home/user/projects/wtmux", "project"
         )
         private val snapshot = FleetSnapshot(

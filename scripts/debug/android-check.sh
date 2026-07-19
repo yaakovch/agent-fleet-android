@@ -28,7 +28,10 @@ if [[ -n "${ANDROID_SERIAL:-}" && "${ANDROID_SERIAL}" != emulator-* ]]; then
   fail "ANDROID_SERIAL points at a physical device; this runner only accepts emulator-*"
 fi
 
-if [[ "$mode" == "full" && -r /dev/kvm && -w /dev/kvm ]]; then
+use_windows_avd="${AGENT_FLEET_USE_WINDOWS_AVD:-0}"
+[[ "$use_windows_avd" == "0" || "$use_windows_avd" == "1" ]] || fail "AGENT_FLEET_USE_WINDOWS_AVD must be 0 or 1"
+
+if [[ "$mode" == "full" && "$use_windows_avd" != "1" && -r /dev/kvm && -w /dev/kvm ]]; then
   say "running full Pixel 7 / API 36 managed-device suite"
   if ./gradlew :app:testDebugUnitTest :app:agentFleetPixel7Api36DebugAndroidTest --no-daemon --console=plain >"$log" 2>&1; then
     cp -R app/build/reports/androidTests/managedDevice "$artifacts/" 2>/dev/null || true
@@ -40,7 +43,11 @@ if [[ "$mode" == "full" && -r /dev/kvm && -w /dev/kvm ]]; then
   fail "managed-device tests failed"
 fi
 if [[ "$mode" == "full" ]]; then
-  say "KVM is unavailable; using the isolated Windows API 36 emulator for the full suite"
+  if [[ "$use_windows_avd" == "1" ]]; then
+    say "using the explicitly selected isolated Windows API 36 emulator for the full suite"
+  else
+    say "KVM is unavailable; using the isolated Windows API 36 emulator for the full suite"
+  fi
 fi
 
 windows_sdk="${AGENT_FLEET_WINDOWS_ANDROID_SDK:-}"

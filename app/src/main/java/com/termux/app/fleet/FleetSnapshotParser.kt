@@ -16,8 +16,10 @@ object FleetSnapshotParser {
             throw IllegalArgumentException("Fleet snapshot is not valid JSON", error)
         }
 
+        val presentationRevision = if (root.has("presentationRevision")) root.requiredString("presentationRevision", 64) else null
         return FleetSnapshot(
             revision = root.requiredString("revision", 64),
+            presentationRevision = presentationRevision,
             generatedAt = root.requiredString("generatedAt", 40),
             hosts = root.requiredArray("hosts").mapObjects { host ->
                 FleetHost(
@@ -35,7 +37,14 @@ object FleetSnapshotParser {
                     hostId = session.requiredString("hostId", 160),
                     internalName = session.requiredString("internalName", 96),
                     name = session.requiredString("name", 128),
-                    title = session.requiredString("title", 128, allowEmpty = true),
+                    title = session.requiredString("title", 120, allowEmpty = true).also { title ->
+                        require(title.isEmpty() || presentationRevision != null && session.has("nameMode")) {
+                            "Session title was not negotiated"
+                        }
+                    },
+                    nameMode = if (session.has("nameMode")) session.requiredString("nameMode", 16).also {
+                        require(it in setOf("automatic", "manual")) { "Invalid nameMode" }
+                    } else "automatic",
                     project = session.requiredString("project", 128, allowEmpty = true),
                     tool = session.requiredString("tool", 32),
                     backend = session.requiredString("backend", 32),

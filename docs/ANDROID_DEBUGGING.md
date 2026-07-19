@@ -22,6 +22,14 @@ When `/dev/kvm` is unavailable (as in this WSL environment), `full` uses the
 isolated Windows API 36 AVD and runs the same JVM, Compose, and golden suites.
 KVM-enabled Linux and CI use the Gradle-managed device.
 
+If local KVM is available but its managed-device image is unhealthy (for
+example, it reports exhausted device storage), select the same protected
+Windows path explicitly without weakening device checks:
+
+```bash
+AGENT_FLEET_USE_WINDOWS_AVD=1 bash scripts/debug/android-check.sh full
+```
+
 Generate candidate screenshot references for review:
 
 ```bash

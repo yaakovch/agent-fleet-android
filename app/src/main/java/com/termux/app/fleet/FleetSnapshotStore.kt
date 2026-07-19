@@ -99,6 +99,17 @@ object FleetSnapshotStore {
 
     fun publish(snapshot: FleetSnapshot) = publishState(FleetLoadState.Ready(snapshot))
 
+    fun redactTitles() {
+        val redacted = synchronized(this) {
+            val snapshot = (state as? FleetLoadState.Ready)?.snapshot ?: return
+            snapshot.copy(
+                presentationRevision = null,
+                sessions = snapshot.sessions.map { it.copy(title = "", nameMode = "automatic") }
+            )
+        }
+        publishState(FleetLoadState.Ready(redacted))
+    }
+
     @Synchronized
     fun latestSnapshot(): FleetSnapshot? = (state as? FleetLoadState.Ready)?.snapshot
 

@@ -125,7 +125,9 @@ class FleetRuntime(private val context: Context) {
             ?: throw FleetUnavailableException("Pair or restore wtmux to connect this phone to your fleet.")
         val python = executable("python3")
             ?: throw FleetUnavailableException("Python is missing from the restored Termux environment.")
-        val process = ProcessBuilder(python.absolutePath, bridge.absolutePath, "--snapshot")
+        val process = ProcessBuilder(listOf(python.absolutePath, bridge.absolutePath) + snapshotBridgeArguments(
+            AutomaticSessionTitleSettings.isEnabled(context)
+        ))
             .directory(userHome)
             .redirectErrorStream(true)
             .apply { configureEnvironment(environment()) }
@@ -173,8 +175,8 @@ class FleetRuntime(private val context: Context) {
         openTerminalCommand(
             bash,
             arguments,
-            "Agent Fleet · ${session.name}",
-            session.name,
+            "Agent Fleet · ${sessionIdentityPresentation(session).primary}",
+            sessionIdentityPresentation(session).primary,
             session.tool in setOf("codex", "claude", "copilot"),
             session,
             sharedImages
@@ -272,9 +274,9 @@ class FleetRuntime(private val context: Context) {
                 TERMUX_SERVICE.EXTRA_SESSION_ACTION,
                 TERMUX_SERVICE.VALUE_EXTRA_SESSION_ACTION_KEEP_CURRENT_SESSION_AND_DONT_OPEN_ACTIVITY.toString()
             )
-            putExtra(TERMUX_SERVICE.EXTRA_COMMAND_LABEL, "Agent Fleet · ${session.name}")
+            putExtra(TERMUX_SERVICE.EXTRA_COMMAND_LABEL, "Agent Fleet · ${sessionIdentityPresentation(session).primary}")
             putExtra(TERMUX_SERVICE.EXTRA_COMMAND_DESCRIPTION, AgentFleetContract.WORKSPACE_SESSION_PREFIX + session.id)
-            putExtra(AgentFleetContract.EXTRA_SESSION_NAME, session.name)
+            putExtra(AgentFleetContract.EXTRA_SESSION_NAME, sessionIdentityPresentation(session).primary)
         }
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) context.startForegroundService(intent) else context.startService(intent)
     }
@@ -291,6 +293,15 @@ class FleetRuntime(private val context: Context) {
                 .put("idempotencyKey", UUID.randomUUID().toString())
         )
     }
+
+    fun resetSessionName(snapshot: FleetSnapshot, session: FleetSession): FleetSnapshot = mutate(
+        "session.name.reset",
+        JSONObject()
+            .put("hostId", session.hostId)
+            .put("sessionId", session.id)
+            .put("expectedRevision", snapshot.revision)
+            .put("idempotencyKey", UUID.randomUUID().toString())
+    )
 
     fun createSession(
         snapshot: FleetSnapshot,
@@ -647,7 +658,9 @@ class FleetRuntime(private val context: Context) {
     private fun request(method: String, params: JSONObject): JSONObject {
         val bridge = executable("wtmux-bridge") ?: throw FleetUnavailableException("wtmux bridge is not installed.")
         val python = executable("python3") ?: throw FleetUnavailableException("Python is missing from the restored Termux environment.")
-        val process = ProcessBuilder(python.absolutePath, bridge.absolutePath, "--stdio")
+        val process = ProcessBuilder(listOf(python.absolutePath, bridge.absolutePath) + stdioBridgeArguments(
+            AutomaticSessionTitleSettings.isEnabled(context)
+        ))
             .directory(userHome)
             .redirectErrorStream(true)
             .apply { configureEnvironment(environment()) }

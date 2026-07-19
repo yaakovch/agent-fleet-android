@@ -121,7 +121,7 @@ class WorkspaceTerminalBroker(context: Context) : ServiceConnection {
             putExtra(AgentFleetContract.EXTRA_HOST_ID, session.hostId)
             putExtra(AgentFleetContract.EXTRA_PROJECT, session.project)
             putExtra(AgentFleetContract.EXTRA_INTERNAL_SESSION, session.internalName)
-            putExtra(AgentFleetContract.EXTRA_SESSION_NAME, session.name)
+            putExtra(AgentFleetContract.EXTRA_SESSION_NAME, sessionIdentityPresentation(session).primary)
             if (sharedImages.isNotEmpty()) putStringArrayListExtra(
                 AgentFleetContract.EXTRA_SHARED_IMAGES, ArrayList(sharedImages)
             )

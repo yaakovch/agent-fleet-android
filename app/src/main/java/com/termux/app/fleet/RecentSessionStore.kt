@@ -22,6 +22,11 @@ class RecentSessionStore(context: Context) {
         preferences.edit().putString(KEY, encode(updated)).apply()
     }
 
+    fun clearCachedTitles() {
+        val updated = load().map { it.copy(title = "", nameMode = "automatic") }
+        preferences.edit().putString(KEY, encode(updated)).apply()
+    }
+
     private fun encode(sessions: List<FleetSession>): String = JSONArray().apply {
         sessions.forEach { session ->
             put(JSONObject()
@@ -30,6 +35,7 @@ class RecentSessionStore(context: Context) {
                 .put("internalName", session.internalName)
                 .put("name", session.name)
                 .put("title", session.title)
+                .put("nameMode", session.nameMode)
                 .put("project", session.project)
                 .put("projectPath", session.projectPath)
                 .put("locationKind", session.locationKind)
@@ -44,6 +50,7 @@ class RecentSessionStore(context: Context) {
         internalName = value.getString("internalName").safe(96),
         name = value.getString("name").safe(128),
         title = value.getString("title").safe(128, allowEmpty = true),
+        nameMode = value.optString("nameMode", "automatic").safe(16).also { require(it in setOf("automatic", "manual")) },
         project = value.getString("project").safe(128, allowEmpty = true),
         tool = value.getString("tool").safe(32),
         backend = value.getString("backend").safe(32),

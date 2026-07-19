@@ -31,13 +31,13 @@ fun workspacePaneChrome(
         hasSessionActions = false, opening = true
     )
     if (!available) return WorkspacePaneChrome(
-        session.name, "${session.hostId} · Host unavailable", modeBadge, "offline",
+        sessionIdentityPresentation(session).primary, "${session.hostId} · Host unavailable", modeBadge, "offline",
         nativeEnabled = false, terminalEnabled = false, retryVisible = false,
         hasSessionActions = true, opening = false
     )
     val ready = attachmentStatus == "live" || attachmentStatus == "ended"
     return WorkspacePaneChrome(
-        session.name,
+        sessionIdentityPresentation(session).primary,
         "${session.hostId} · ${session.project} · $attachmentMessage",
         modeBadge,
         attachmentStatus,

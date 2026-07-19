@@ -92,6 +92,15 @@ class DrawerSessionStore(context: Context) {
         if (preferences.getString(ACTIVE_FULLSCREEN_KEY, null) == sessionId) setActiveFullscreen(null)
     }
 
+    @Synchronized
+    fun clearCachedTitles() {
+        val state = loadState()
+        state.records.replaceAll { _, record ->
+            record.copy(session = record.session.copy(title = "", nameMode = "automatic"))
+        }
+        saveState(state)
+    }
+
     /**
      * Merge live fleet state with bounded phone-local history. A healthy host is
      * authoritative: remembered sessions that it no longer reports are ended.
@@ -210,6 +219,7 @@ class DrawerSessionStore(context: Context) {
         .put("internalName", session.internalName)
         .put("name", session.name)
         .put("title", session.title)
+        .put("nameMode", session.nameMode)
         .put("project", session.project)
         .put("projectPath", session.projectPath)
         .put("locationKind", session.locationKind)
@@ -222,6 +232,7 @@ class DrawerSessionStore(context: Context) {
         internalName = value.getString("internalName").safe(96),
         name = value.getString("name").safe(128),
         title = value.optString("title").safe(128, true),
+        nameMode = value.optString("nameMode", "automatic").safe(16).also { require(it in setOf("automatic", "manual")) },
         project = value.optString("project").safe(128, true),
         tool = value.getString("tool").safe(32),
         backend = value.getString("backend").safe(32),

@@ -497,7 +497,7 @@ fun UnifiedTerminalDrawer(
     if (actionRow != null) {
         ModalBottomSheet(onDismissRequest = { actionSessionId = null }) {
             Column(Modifier.fillMaxWidth().padding(horizontal = 18.dp).padding(bottom = 24.dp)) {
-                Text(actionRow.session.name, fontSize = 22.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(bottom = 8.dp))
+                Text(sessionIdentityPresentation(actionRow.session).primary, fontSize = 22.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(bottom = 8.dp))
                 DrawerSheetAction("Open Native") { actionSessionId = null; onOpenRemote(actionRow, DrawerSessionSurface.Native) }
                 DrawerSheetAction("Open Terminal") { actionSessionId = null; onOpenRemote(actionRow, DrawerSessionSurface.Terminal) }
                 DrawerSheetAction(if (actionRow.pinned) "Unfavorite" else "Favorite") { actionSessionId = null; onTogglePin(actionRow) }
@@ -606,6 +606,7 @@ private fun RemoteDrawerRow(
         onRight = onPin,
         onLeftAction = onRevealKill
     ) {
+        val identity = sessionIdentityPresentation(row.session)
         val borderColor = if (active) MaterialTheme.colorScheme.primary else Color.Transparent
         Row(
             Modifier.fillMaxWidth().padding(horizontal = 6.dp, vertical = 1.dp)
@@ -627,9 +628,11 @@ private fun RemoteDrawerRow(
             Column(Modifier.padding(start = 8.dp).weight(1f)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     if (row.pinned) Text("★ ", color = MaterialTheme.colorScheme.primary, fontSize = density.drawerMetadataSp.sp)
-                    Text(row.session.name, Modifier.weight(1f), fontSize = density.drawerTitleSp.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    Text(identity.primary, Modifier.weight(1f), fontSize = density.drawerTitleSp.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 }
-                val location = listOf(hostName, row.session.project).filter(String::isNotBlank).joinToString(" · ")
+                val location = if (row.session.nameMode != "manual" && row.session.title.isNotBlank()) {
+                    listOf(row.session.name, hostName, row.session.project).filter(String::isNotBlank).joinToString(" · ")
+                } else listOf(hostName, row.session.project).filter(String::isNotBlank).joinToString(" · ")
                 Text(
                     if (row.available) location else "Offline · ${location.ifBlank { "last known" }}",
                     fontSize = density.drawerMetadataSp.sp,

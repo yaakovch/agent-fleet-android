@@ -13,9 +13,10 @@ class FleetSnapshotParserTest {
     private val validSnapshot = """
         {
           "revision":"0123456789abcdef",
+          "presentationRevision":"fedcba9876543210",
           "generatedAt":"2026-07-12T05:00:00Z",
           "hosts":[{"id":"gaming","name":"Gaming desktop","platform":"wsl","transport":"tailscale","status":"healthy","lastSeenAt":null,"errorCode":"","capabilities":["sessions.read"],"wtmuxVersion":"test","agentVersion":"0.1.0","protocolVersion":1,"timeZone":"Asia/Jerusalem"}],
-          "sessions":[{"id":"gaming:wtmux-main","hostId":"gaming","internalName":"wtmux-main","name":"wtmux","title":"Android companion","project":"wtmux","tool":"codex","backend":"linux","activity":"active","attached":true,"updatedAt":"2026-07-12T05:00:00Z","pendingScheduleCount":1}],
+          "sessions":[{"id":"gaming:wtmux-main","hostId":"gaming","internalName":"wtmux-main","name":"wtmux:1","title":"Android companion","nameMode":"automatic","project":"wtmux","tool":"codex","backend":"linux","activity":"active","attached":true,"updatedAt":"2026-07-12T05:00:00Z","pendingScheduleCount":1}],
           "schedules":[{"id":"schedule-1","hostId":"gaming","sessionId":"gaming:wtmux-main","kind":"scheduled-message","backend":"linux","agent":"codex","deliverAt":"2026-07-12T06:00:00Z","status":"pending","createdAt":"2026-07-12T05:00:00Z","updatedAt":"2026-07-12T05:00:00Z","completedAt":null,"outcomeCode":""}],
           "attention":[{"id":"limit-1","hostId":"gaming","kind":"hard-limit","sessionId":"gaming:wtmux-main","agent":"codex","resetAt":"2026-07-12T06:00:00Z","state":"detected","detectedAt":"2026-07-12T05:00:00Z","updatedAt":"2026-07-12T05:00:00Z"}],
           "presets":[]
@@ -28,6 +29,8 @@ class FleetSnapshotParserTest {
         assertEquals("Gaming desktop", snapshot.hosts.single().name)
         assertEquals("wtmux-main", snapshot.sessions.single().internalName)
         assertEquals(1, snapshot.sessions.single().pendingScheduleCount)
+        assertEquals("automatic", snapshot.sessions.single().nameMode)
+        assertEquals("fedcba9876543210", snapshot.presentationRevision)
         assertEquals("2026-07-12T06:00:00Z", snapshot.attention.single().resetAt)
     }
 
@@ -56,7 +59,15 @@ class FleetSnapshotParserTest {
         val session = FleetSnapshotParser.parse(updated).sessions.single()
         assertEquals("/srv/work", session.projectPath)
         assertEquals("custom", session.locationKind)
-        assertEquals("wtmux", session.name)
+        assertEquals("wtmux:1", session.name)
+    }
+
+    @Test
+    fun rejectsNonEmptyTitleWithoutNegotiationMetadata() {
+        val root = JSONObject(validSnapshot)
+        root.remove("presentationRevision")
+        root.getJSONArray("sessions").getJSONObject(0).remove("nameMode")
+        assertTrue(runCatching { FleetSnapshotParser.parse(root.toString()) }.exceptionOrNull() is IllegalArgumentException)
     }
 
     @Test

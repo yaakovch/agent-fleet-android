@@ -94,6 +94,8 @@ import com.termux.app.fleet.FleetSession
 import com.termux.app.fleet.FleetSchedule
 import com.termux.app.fleet.FleetSnapshot
 import com.termux.app.fleet.NativeSessionSettings
+import com.termux.app.fleet.AutomaticSessionTitleSettings
+import com.termux.app.fleet.sessionIdentityPresentation
 import com.termux.app.fleet.LocalModelUiState
 import com.termux.app.fleet.LocalSuggestionModel
 import com.termux.app.fleet.LocalSuggestionModelManager
@@ -256,6 +258,7 @@ class AgentFleetActivity : ComponentActivity() {
                     onCloseRepository = fleetRuntime::closeRepositoryBrowser,
                     onOpenDownload = ::openFleetDownload,
                     onRenameSession = ::renameFleetSession,
+                    onResetSessionName = ::resetFleetSessionName,
                     onScheduleContinue = ::scheduleContinue,
                     onScheduleAttention = ::scheduleAttention,
                     onDismissAttention = ::dismissAttention,
@@ -439,6 +442,10 @@ class AgentFleetActivity : ComponentActivity() {
 
     private fun renameFleetSession(session: FleetSession, name: String) = mutateFleet("Session renamed") { snapshot ->
         fleetRuntime.renameSession(snapshot, session, name)
+    }
+
+    private fun resetFleetSessionName(session: FleetSession) = mutateFleet("Automatic session title restored") { snapshot ->
+        fleetRuntime.resetSessionName(snapshot, session)
     }
 
     private fun createFleetSession(hostId: String, project: String, backend: String, tool: String, path: String, locationKind: String) = mutateFleet("Session created") { snapshot ->
@@ -848,6 +855,7 @@ fun AgentFleetApp(
     onCloseRepository: () -> Unit,
     onOpenDownload: (FleetDownloadState) -> Unit,
     onRenameSession: (FleetSession, String) -> Unit,
+    onResetSessionName: (FleetSession) -> Unit,
     onScheduleContinue: (FleetSession, Long) -> Unit,
     onScheduleAttention: (FleetSession, FleetAttention, Long) -> Unit,
     onDismissAttention: (FleetAttention) -> Unit,
@@ -1043,6 +1051,7 @@ fun AgentFleetApp(
             onDismiss = { actionSession = null; actionPane = null },
             onOpen = { actionSession = null; actionPane = null; onOpenSession(session) },
             onRename = { actionSession = null; actionPane = null; renameSession = session.id },
+            onResetName = { actionSession = null; actionPane = null; onResetSessionName(session) },
             onSchedule = { actionSession = null; actionPane = null; scheduleSession = session.id },
             onDownload = { actionSession = null; actionPane = null; repositorySession = session.id },
             onCopy = { actionSession = null; actionPane = null; onCopyAttachCommand(session) },
@@ -1243,6 +1252,7 @@ private fun SessionCard(
     onOpen: () -> Unit,
     onMore: () -> Unit
 ) {
+    val identity = sessionIdentityPresentation(session)
     Card(
         modifier = Modifier.fillMaxWidth().testTag("session-${session.id}"),
         shape = RoundedCornerShape(20.dp),
@@ -1253,8 +1263,8 @@ private fun SessionCard(
                 StatusDot(if (available && session.activity == "active") ReadyGreen else QuietGray)
                 Spacer(Modifier.size(10.dp))
                 Column(Modifier.weight(1f)) {
-                    Text(session.name, fontSize = 20.sp, fontWeight = FontWeight.Bold)
-                    if (session.title.isNotBlank()) Text(session.title, fontSize = 16.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text(identity.primary, fontSize = 20.sp, fontWeight = FontWeight.Bold)
+                    if (identity.secondary.isNotBlank()) Text(identity.secondary, fontSize = 14.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
                 Text(
                     if (!available) "Unavailable" else if (session.activity == "active") "Active" else "Idle",
@@ -1296,6 +1306,7 @@ private fun SessionActionsDialog(
     onDismiss: () -> Unit,
     onOpen: () -> Unit,
     onRename: () -> Unit,
+    onResetName: () -> Unit,
     onSchedule: () -> Unit,
     onDownload: () -> Unit,
     onCopy: () -> Unit,
@@ -1305,15 +1316,17 @@ private fun SessionActionsDialog(
 ) {
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text(session.name, fontWeight = FontWeight.Bold) },
+        title = { Text(sessionIdentityPresentation(session).primary, fontWeight = FontWeight.Bold) },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 Text("Session details", fontWeight = FontWeight.SemiBold)
                 Text("${session.hostId} · ${session.backend} · ${session.tool}", color = MaterialTheme.colorScheme.onSurfaceVariant)
                 Text(session.projectPath.ifBlank { "Path unavailable for this older session" }, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                if (session.title.isNotBlank()) Text("Automatic title: ${session.title}", color = MaterialTheme.colorScheme.onSurfaceVariant)
                 if (!available) Text("This is a cached session. Its host is offline.", color = WarningAmber)
                 DialogAction("Open terminal", onOpen, enabled = available)
                 DialogAction("Rename", onRename, enabled = available)
+                if (session.nameMode == "manual") DialogAction("Use automatic title", onResetName, enabled = available)
                 DialogAction("Schedule Continue", onSchedule, enabled = available)
                 DialogAction("Download a file", onDownload, enabled = available)
                 DialogAction("Copy attach command", onCopy)
@@ -1412,7 +1425,7 @@ private fun RepositoryBrowserDialog(
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Column(Modifier.weight(1f)) {
                         Text("Download from repository", color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.SemiBold)
-                        Text(session.name, fontSize = 23.sp, fontWeight = FontWeight.Bold)
+                        Text(sessionIdentityPresentation(session).primary, fontSize = 23.sp, fontWeight = FontWeight.Bold)
                         Text(
                             page?.relativePath?.takeIf { it.isNotBlank() } ?: page?.rootName ?: session.project,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -1558,7 +1571,7 @@ private fun ScheduleContinueDialog(session: FleetSession, onDismiss: () -> Unit,
         title = { Text("Schedule Continue") },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                Text("Choose when ${session.name} should receive one guarded Continue message.", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text("Choose when ${sessionIdentityPresentation(session).primary} should receive one guarded Continue message.", color = MaterialTheme.colorScheme.onSurfaceVariant)
                 DialogAction("In 15 minutes", { onConfirm(15 * 60 * 1_000L) })
                 DialogAction("In 1 hour", { onConfirm(60 * 60 * 1_000L) })
                 DialogAction("In 5 hours", { onConfirm(5 * 60 * 60 * 1_000L) })
@@ -1761,7 +1774,8 @@ private fun SharedImagesSessionDialog(
             Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 if (sessions.isEmpty()) Text("No open AI sessions are available.", color = MaterialTheme.colorScheme.onSurfaceVariant)
                 sessions.take(8).forEach { session ->
-                    DialogAction("${session.name} · ${session.tool}", { onConfirm(session) })
+                    val identity = sessionIdentityPresentation(session)
+                    DialogAction("${identity.primary} · ${identity.stableName} · ${session.tool}", { onConfirm(session) })
                 }
             }
         },
@@ -1813,9 +1827,10 @@ private fun TerminalScreen(
                 Card(shape = RoundedCornerShape(18.dp), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)) {
                     Row(Modifier.fillMaxWidth().padding(18.dp), verticalAlignment = Alignment.CenterVertically) {
                         Column(Modifier.weight(1f)) {
-                            Text(session.name, fontSize = 19.sp, fontWeight = FontWeight.Bold)
+                            val identity = sessionIdentityPresentation(session)
+                            Text(identity.primary, fontSize = 19.sp, fontWeight = FontWeight.Bold)
                             Text(
-                                session.hostId,
+                                identity.secondary,
                                 fontSize = 15.sp,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 maxLines = 1,
@@ -1991,6 +2006,9 @@ private fun MoreScreen(
     var nativeSessionEnabled by rememberSaveable {
         mutableStateOf(NativeSessionSettings.isEnabled(context))
     }
+    var automaticSessionTitles by rememberSaveable {
+        mutableStateOf(AutomaticSessionTitleSettings.isEnabled(context))
+    }
     var confirmMeteredModelDownload by rememberSaveable { mutableStateOf(false) }
     val snapshot = (fleetState as? FleetLoadState.Ready)?.snapshot
     val pendingSchedules = snapshot?.schedules?.count { it.status == "pending" } ?: 0
@@ -2036,6 +2054,28 @@ private fun MoreScreen(
                         )
                     }
                     Button(onClick = onMigrateFleetState, enabled = peerReady, shape = RoundedCornerShape(14.dp)) { Text("Import") }
+                }
+            }
+        }
+        item {
+            Card(shape = RoundedCornerShape(18.dp), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)) {
+                Row(Modifier.fillMaxWidth().padding(18.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Column(Modifier.weight(1f)) {
+                        Text("Automatic coding-session titles", fontSize = 18.sp, fontWeight = FontWeight.Bold)
+                        Text(
+                            "Uses bounded provider metadata. Turning this off purges cached titles on this phone.",
+                            fontSize = 15.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                    Switch(
+                        checked = automaticSessionTitles,
+                        onCheckedChange = {
+                            automaticSessionTitles = it
+                            AutomaticSessionTitleSettings.setEnabled(context, it)
+                        },
+                        modifier = Modifier.testTag("automatic-session-titles")
+                    )
                 }
             }
         }
@@ -2514,6 +2554,7 @@ private fun AgentFleetPreview() {
             onCloseRepository = {},
             onOpenDownload = {},
             onRenameSession = { _, _ -> },
+            onResetSessionName = {},
             onScheduleContinue = { _, _ -> },
             onScheduleAttention = { _, _, _ -> },
             onDismissAttention = {},

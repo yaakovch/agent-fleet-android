@@ -84,6 +84,7 @@ import com.termux.app.fleet.WorkspaceTerminalBroker
 import com.termux.app.fleet.WorkspaceTerminalViewClient
 import com.termux.app.fleet.WorkspaceViewMode
 import com.termux.app.fleet.isFleetSessionAvailable
+import com.termux.app.fleet.sessionIdentityPresentation
 import com.termux.app.fleet.workspacePanes
 import com.termux.app.fleet.workspacePaneChrome
 import com.termux.app.fleet.buildAgentFleetComposerText
@@ -132,7 +133,7 @@ fun DesktopWorkspaceScreen(
     var query by remember { mutableStateOf("") }
     val hosts = snapshot?.hosts?.associateBy { it.id }.orEmpty()
     val filtered = sessions.filter { session ->
-        query.isBlank() || listOf(session.name, session.project, session.tool, hosts[session.hostId]?.name.orEmpty())
+        query.isBlank() || listOf(session.name, session.title, session.project, session.tool, hosts[session.hostId]?.name.orEmpty())
             .any { it.contains(query.trim(), ignoreCase = true) }
     }
     val panes = workspacePanes(state.layout.root)
@@ -233,9 +234,9 @@ fun DesktopWorkspaceScreen(
                                 Column(Modifier.fillMaxWidth().padding(10.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                                     Row(verticalAlignment = Alignment.CenterVertically) {
                                         Column(Modifier.weight(1f)) {
-                                            Text(session.name, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                            Text(sessionIdentityPresentation(session).primary, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
                                             Text(
-                                                if (available) "${hosts[session.hostId]?.name ?: session.hostId} · ${session.tool}" else "Unavailable",
+                                                if (available) sessionIdentityPresentation(session).secondary else "Unavailable",
                                                 fontSize = 12.sp,
                                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                                                 maxLines = 1
@@ -731,7 +732,7 @@ private fun EmbeddedNative(
                         putExtra(AgentFleetContract.EXTRA_HOST_ID, session.hostId)
                         putExtra(AgentFleetContract.EXTRA_PROJECT, session.project)
                         putExtra(AgentFleetContract.EXTRA_INTERNAL_SESSION, session.internalName)
-                        putExtra(AgentFleetContract.EXTRA_SESSION_NAME, session.name)
+                        putExtra(AgentFleetContract.EXTRA_SESSION_NAME, sessionIdentityPresentation(session).primary)
                     })
                     native.onStart()
                 }
