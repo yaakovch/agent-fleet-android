@@ -727,7 +727,7 @@ private fun EmbeddedNative(
                 }
                 controller = NativeSessionController(host, composeView, showChrome = false).also { native ->
                     native.bind(Intent().apply {
-                        putExtra(AgentFleetContract.EXTRA_COMPOSE_INPUT, session.tool in setOf("codex", "claude", "copilot"))
+                        putExtra(AgentFleetContract.EXTRA_COMPOSE_INPUT, AgentFleetContract.supportsComposerInput(session.tool))
                         putExtra(AgentFleetContract.EXTRA_NATIVE_SESSION, true)
                         putExtra(AgentFleetContract.EXTRA_HOST_ID, session.hostId)
                         putExtra(AgentFleetContract.EXTRA_PROJECT, session.project)

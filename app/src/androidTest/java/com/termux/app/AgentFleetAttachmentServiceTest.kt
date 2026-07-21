@@ -87,15 +87,15 @@ class TermuxAttachmentServiceTest {
     }
 
     @Test
-    fun resumeReappliesManagedTerminalChromeAndComposer() {
-        val descriptor = fleetSession("emulator:presentation")
+    fun resumeReappliesManagedShellTerminalChromeAndComposer() {
+        val descriptor = fleetSession("emulator:presentation", tool = "shell")
         DrawerSessionStore(context).apply {
             recordOpened(descriptor, DrawerSessionSurface.Terminal)
             setActiveFullscreen(descriptor.id)
         }
         createSession(descriptor.id, descriptor.name)
         val intent = Intent(context, TermuxActivity::class.java).apply {
-            putExtra(AgentFleetContract.EXTRA_COMPOSE_INPUT, true)
+            putExtra(AgentFleetContract.EXTRA_COMPOSE_INPUT, AgentFleetContract.supportsComposerInput(descriptor.tool))
             putExtra(AgentFleetContract.EXTRA_NATIVE_SESSION, true)
             putExtra(AgentFleetContract.EXTRA_WORKSPACE_SESSION_ID, descriptor.id)
             putExtra(AgentFleetContract.EXTRA_HOST_ID, descriptor.hostId)
@@ -261,14 +261,14 @@ class TermuxAttachmentServiceTest {
         AgentFleetAttachmentPolicy.sessionId(it.executionCommand?.commandDescription) == sessionId
     }
 
-    private fun fleetSession(id: String) = FleetSession(
+    private fun fleetSession(id: String, tool: String = "codex") = FleetSession(
         id = id,
         hostId = "emulator",
         internalName = "resume",
         name = "Resume",
         title = "Codex",
         project = "wtmux",
-        tool = "codex",
+        tool = tool,
         backend = "linux",
         activity = "active",
         attached = false,

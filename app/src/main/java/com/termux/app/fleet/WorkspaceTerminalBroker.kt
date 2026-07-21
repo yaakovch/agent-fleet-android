@@ -115,7 +115,7 @@ class WorkspaceTerminalBroker(context: Context) : ServiceConnection {
         if (!host.selectAgentFleetWorkspaceSession(session.id)) return
         refreshAttachments()
         appContext.startActivity(Intent(appContext, TermuxActivity::class.java).apply {
-            putExtra(AgentFleetContract.EXTRA_COMPOSE_INPUT, session.tool in setOf("codex", "claude", "copilot"))
+            putExtra(AgentFleetContract.EXTRA_COMPOSE_INPUT, AgentFleetContract.supportsComposerInput(session.tool))
             putExtra(AgentFleetContract.EXTRA_NATIVE_SESSION, true)
             putExtra(AgentFleetContract.EXTRA_WORKSPACE_SESSION_ID, session.id)
             putExtra(AgentFleetContract.EXTRA_HOST_ID, session.hostId)

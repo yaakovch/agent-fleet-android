@@ -16,6 +16,15 @@ class ConversationStreamParserTest {
     """.trimIndent()
 
     @Test
+    fun managedShellSessionsKeepTheComposerInput() {
+        assertTrue(AgentFleetContract.supportsComposerInput("shell"))
+        assertTrue(AgentFleetContract.supportsComposerInput("codex"))
+        assertTrue(AgentFleetContract.supportsComposerInput("claude"))
+        assertTrue(AgentFleetContract.supportsComposerInput("copilot"))
+        assertFalse(AgentFleetContract.supportsComposerInput(""))
+    }
+
+    @Test
     fun consumesTheSharedStructuredWorkFixture() {
         val fixture = checkNotNull(javaClass.classLoader?.getResourceAsStream("conversation_structured_work_v1.json"))
             .bufferedReader().use { it.readText() }

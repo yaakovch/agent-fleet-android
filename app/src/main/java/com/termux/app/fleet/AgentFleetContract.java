@@ -16,5 +16,9 @@ public final class AgentFleetContract {
     public static final String SURFACE_TERMINAL = "terminal";
     public static final String WORKSPACE_SESSION_PREFIX = "agent-fleet-workspace:";
 
+    public static boolean supportsComposerInput(String tool) {
+        return "shell".equals(tool) || "codex".equals(tool) || "claude".equals(tool) || "copilot".equals(tool);
+    }
+
     private AgentFleetContract() {}
 }

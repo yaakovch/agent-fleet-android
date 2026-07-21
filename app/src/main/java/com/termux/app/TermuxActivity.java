@@ -921,7 +921,7 @@ public final class TermuxActivity extends ComponentActivity implements ServiceCo
     private Intent agentFleetTargetIntent(FleetSession session, DrawerSessionSurface surface) {
         Intent target = new Intent(this, TermuxActivity.class);
         target.putExtra(AgentFleetContract.EXTRA_COMPOSE_INPUT,
-            session.getTool().equals("codex") || session.getTool().equals("claude") || session.getTool().equals("copilot"));
+            AgentFleetContract.supportsComposerInput(session.getTool()));
         target.putExtra(AgentFleetContract.EXTRA_NATIVE_SESSION, true);
         target.putExtra(AgentFleetContract.EXTRA_WORKSPACE_SESSION_ID, session.getId());
         target.putExtra(AgentFleetContract.EXTRA_HOST_ID, session.getHostId());

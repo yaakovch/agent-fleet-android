@@ -183,7 +183,7 @@ class FleetRuntime(private val context: Context) {
             arguments,
             "Agent Fleet · ${sessionIdentityPresentation(session).primary}",
             sessionIdentityPresentation(session).primary,
-            session.tool in setOf("codex", "claude", "copilot"),
+            AgentFleetContract.supportsComposerInput(session.tool),
             session,
             sharedImages
         )
