@@ -81,6 +81,11 @@ conversation structures, grouped tools, task boards, active/stale limits, and
 one- and three-question Plan prompts with exactly-once submission, and the unified
 drawer's search, remembered view, swipe confirmation, offline, and local-shell flows.
 
+Runtime-ordering coverage must include installing a verified hotfix before an
+APK-only version increase whose embedded baseline is unchanged. The app may
+promote its monotonic replay floor in that case, but it must not reactivate the
+older baseline. A genuinely changed embedded baseline still takes precedence.
+
 Dark screenshot references are normalized to exactly 393×852 pixels. A pixel
 is different when any RGB channel differs by more than 8, and the test fails
 when more than 0.5% of pixels differ. Candidate references are generated as

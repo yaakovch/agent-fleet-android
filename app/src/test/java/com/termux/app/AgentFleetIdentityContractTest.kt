@@ -31,8 +31,8 @@ class AgentFleetIdentityContractTest {
             PackageManager.GET_ACTIVITIES or PackageManager.GET_PROVIDERS or PackageManager.GET_SERVICES or
                 PackageManager.GET_PERMISSIONS or PackageManager.GET_META_DATA
         )
-        assertEquals(1078, info.longVersionCode)
-        assertEquals("0.118.4-agentfleet.74", info.versionName)
+        assertEquals(1080, info.longVersionCode)
+        assertEquals("0.118.4-agentfleet.75", info.versionName)
         assertNull(info.sharedUserId)
         val exportedActivities = info.activities.orEmpty().filter { it.exported && it.name.startsWith("com.termux.") }.associateBy { it.name }
         assertEquals(

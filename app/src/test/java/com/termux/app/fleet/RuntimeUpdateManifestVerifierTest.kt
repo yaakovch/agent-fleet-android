@@ -6,6 +6,8 @@ import java.security.MessageDigest
 import java.security.Signature
 import org.json.JSONObject
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
 import org.junit.Assert.assertThrows
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -90,6 +92,30 @@ class RuntimeUpdateManifestVerifierTest {
         assertEquals(status, manager.reconcileRuntimeFloor(status))
         assertEquals(versionCode, manager.acceptedSequence())
         assertEquals(versionCode, manager.healthySequence())
+    }
+
+    @Test
+    fun promotesTheAppFloorWithoutReplacingAVerifiedHotfixWhenTheBaselineIsUnchanged() {
+        val context = RuntimeEnvironment.getApplication()
+        val preferences = context.getSharedPreferences("agent-fleet-runtime-updates", 0)
+        preferences.edit().clear().commit()
+        val manager = RuntimeUpdateManager(context)
+        val versionCode = context.packageManager.getPackageInfo(context.packageName, 0).longVersionCode
+        preferences.edit()
+            .putLong("accepted-sequence", versionCode - 1)
+            .putLong("healthy-sequence", versionCode - 1)
+            .commit()
+        val status = EmbeddedRuntimeStatus(
+            supported = true, usable = true, repairNeeded = false,
+            embeddedBaseline = "git-baseline", baseline = "git-baseline", current = "git-hotfix", previous = "git-baseline",
+            missingOrOldPackages = 0, packageCount = 70, trustedKeyIds = emptyList(), detail = "ready"
+        )
+
+        assertTrue(manager.shouldPreserveCurrentRuntime(status))
+        assertEquals(status, manager.reconcileRuntimeFloor(status))
+        assertEquals(versionCode, manager.acceptedSequence())
+        assertEquals(versionCode, manager.healthySequence())
+        assertFalse(manager.shouldPreserveCurrentRuntime(status.copy(baseline = "git-older-baseline")))
     }
 }
 

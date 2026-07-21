@@ -139,9 +139,11 @@ class RuntimeUpdateManager(
     }
 
     fun shouldPreserveCurrentRuntime(status: EmbeddedRuntimeStatus): Boolean {
-        val floor = installedVersionCode()
-        return status.current.isNotBlank() && status.current != status.baseline &&
-            acceptedSequence() >= floor && healthySequence() >= floor
+        return shouldPreserveVerifiedRuntime(
+            status,
+            acceptedSequence(),
+            healthySequence()
+        )
     }
 
     fun reconcileRuntimeFloor(status: EmbeddedRuntimeStatus): EmbeddedRuntimeStatus {
@@ -150,8 +152,12 @@ class RuntimeUpdateManager(
         require(status.supported && status.usable && status.baseline == status.embeddedBaseline) {
             "APK runtime floor cannot be recorded before its baseline is healthy"
         }
-        val reconciled = if (status.current == status.baseline) status else embedded.restoreBaseline()
-        require(reconciled.usable && reconciled.current == reconciled.baseline && reconciled.baseline == reconciled.embeddedBaseline) {
+        val preserveCurrent = shouldPreserveCurrentRuntime(status)
+        val reconciled = if (status.current == status.baseline || preserveCurrent) status else embedded.restoreBaseline()
+        require(
+            reconciled.usable && reconciled.baseline == reconciled.embeddedBaseline &&
+                (preserveCurrent || reconciled.current == reconciled.baseline)
+        ) {
             "APK runtime floor activation failed"
         }
         check(preferences.edit()
@@ -302,6 +308,15 @@ class RuntimeUpdateManager(
         }
     }
 }
+
+internal fun shouldPreserveVerifiedRuntime(
+    status: EmbeddedRuntimeStatus,
+    acceptedSequence: Long,
+    healthySequence: Long
+): Boolean = status.supported && status.usable &&
+    status.baseline == status.embeddedBaseline &&
+    status.current.isNotBlank() && status.current != status.baseline &&
+    acceptedSequence > 0 && acceptedSequence == healthySequence
 
 private fun ByteArray.sha256(): String = MessageDigest.getInstance("SHA-256").digest(this).toHex()
 private fun ByteArray.toHex(): String = joinToString("") { "%02x".format(it) }
