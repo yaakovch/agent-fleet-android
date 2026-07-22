@@ -17,10 +17,10 @@ data class CompatibilityMatrix(
 )
 
 object CompatibilityContract {
-    const val CONTRACT_PACKAGE_VERSION = "1.0.0"
-    val CONTROL_VERSIONS = listOf(1)
-    val CONVERSATION_VERSIONS = listOf(2)
-    val WORKSPACE_LAYOUT_VERSIONS = listOf(1)
+    const val CONTRACT_PACKAGE_VERSION = GeneratedAgentFleetContracts.CONTRACT_PACKAGE_VERSION
+    val CONTROL_VERSIONS = listOf(requireNotNull(GeneratedAgentFleetContracts.protocolVersions["control"]))
+    val CONVERSATION_VERSIONS = listOf(requireNotNull(GeneratedAgentFleetContracts.protocolVersions["conversation"]))
+    val WORKSPACE_LAYOUT_VERSIONS = listOf(requireNotNull(GeneratedAgentFleetContracts.protocolVersions["workspace-layout"]))
     val CAPABILITIES = listOf("control.v1", "conversation.v2", "workspace-layout.v1")
     private const val MAX_DOCUMENT_BYTES = 64 * 1024
     private val componentIds = setOf("wtmux", "windowsApp", "androidApp")

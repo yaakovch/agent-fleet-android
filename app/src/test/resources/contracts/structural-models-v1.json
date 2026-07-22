@@ -1,0 +1,1309 @@
+{
+  "schemaVersion": 1,
+  "packageVersion": "1.0.0",
+  "protocolVersions": {
+    "control": 1,
+    "conversation": 2,
+    "workspace-layout": 1,
+    "release-set": 1
+  },
+  "objectShapes": [
+    {
+      "id": "client-policy-v1:#",
+      "required": [
+        "apkManifestUrls",
+        "artifactOrigins",
+        "checkIntervalSeconds",
+        "policyRevision",
+        "runtimeManifestUrls",
+        "schemaVersion"
+      ],
+      "optional": [],
+      "rejectUnknown": true
+    },
+    {
+      "id": "compatibility-v1:#",
+      "required": [
+        "components",
+        "contractPackageVersion",
+        "schemaVersion"
+      ],
+      "optional": [],
+      "rejectUnknown": true
+    },
+    {
+      "id": "compatibility-v1:#/$defs/component",
+      "required": [
+        "controlVersions",
+        "conversationVersions",
+        "sourceVersion",
+        "workspaceLayoutVersions"
+      ],
+      "optional": [],
+      "rejectUnknown": true
+    },
+    {
+      "id": "compatibility-v1:#/properties/components",
+      "required": [
+        "androidApp",
+        "windowsApp",
+        "wtmux"
+      ],
+      "optional": [],
+      "rejectUnknown": true
+    },
+    {
+      "id": "control-v1:#/$defs/attentionParams",
+      "required": [
+        "attentionId",
+        "expectedRevision",
+        "hostId",
+        "idempotencyKey"
+      ],
+      "optional": [],
+      "rejectUnknown": true
+    },
+    {
+      "id": "control-v1:#/$defs/directoryCreateParams",
+      "required": [
+        "backend",
+        "expectedRevision",
+        "hostId",
+        "idempotencyKey",
+        "name",
+        "parentPath"
+      ],
+      "optional": [],
+      "rejectUnknown": true
+    },
+    {
+      "id": "control-v1:#/$defs/directoryListParams",
+      "required": [
+        "backend",
+        "hostId",
+        "path"
+      ],
+      "optional": [
+        "expectedRevision",
+        "idempotencyKey"
+      ],
+      "rejectUnknown": true
+    },
+    {
+      "id": "control-v1:#/$defs/emptyParams",
+      "required": [],
+      "optional": [],
+      "rejectUnknown": true
+    },
+    {
+      "id": "control-v1:#/$defs/errorResponse",
+      "required": [
+        "error",
+        "ok",
+        "protocolVersion",
+        "requestId",
+        "timestamp",
+        "type"
+      ],
+      "optional": [],
+      "rejectUnknown": true
+    },
+    {
+      "id": "control-v1:#/$defs/errorResponse/properties/error",
+      "required": [
+        "code",
+        "message"
+      ],
+      "optional": [],
+      "rejectUnknown": true
+    },
+    {
+      "id": "control-v1:#/$defs/fleetHeartbeat",
+      "required": [
+        "data",
+        "event",
+        "eventId",
+        "protocolVersion",
+        "revision",
+        "timestamp",
+        "type"
+      ],
+      "optional": [
+        "presentationRevision"
+      ],
+      "rejectUnknown": true
+    },
+    {
+      "id": "control-v1:#/$defs/fleetHeartbeat/properties/data",
+      "required": [
+        "hostCount"
+      ],
+      "optional": [],
+      "rejectUnknown": true
+    },
+    {
+      "id": "control-v1:#/$defs/hostHeartbeat",
+      "required": [
+        "data",
+        "event",
+        "eventId",
+        "protocolVersion",
+        "revision",
+        "timestamp",
+        "type"
+      ],
+      "optional": [
+        "presentationRevision"
+      ],
+      "rejectUnknown": true
+    },
+    {
+      "id": "control-v1:#/$defs/hostHeartbeat/properties/data",
+      "required": [
+        "agentVersion",
+        "hostId"
+      ],
+      "optional": [],
+      "rejectUnknown": true
+    },
+    {
+      "id": "control-v1:#/$defs/hostParams",
+      "required": [
+        "expectedRevision",
+        "hostId",
+        "idempotencyKey"
+      ],
+      "optional": [],
+      "rejectUnknown": true
+    },
+    {
+      "id": "control-v1:#/$defs/modelCancelParams",
+      "required": [
+        "expectedConfigRevision",
+        "hostId",
+        "idempotencyKey",
+        "sessionId"
+      ],
+      "optional": [],
+      "rejectUnknown": true
+    },
+    {
+      "id": "control-v1:#/$defs/modelGetParams",
+      "required": [
+        "hostId",
+        "includeCatalog",
+        "sessionId"
+      ],
+      "optional": [],
+      "rejectUnknown": true
+    },
+    {
+      "id": "control-v1:#/$defs/modelSetParams",
+      "required": [
+        "custom",
+        "effortId",
+        "expectedConfigRevision",
+        "historyImpactAcknowledged",
+        "hostId",
+        "idempotencyKey",
+        "modelId",
+        "sessionId"
+      ],
+      "optional": [],
+      "rejectUnknown": true
+    },
+    {
+      "id": "control-v1:#/$defs/pairingInviteParams",
+      "required": [
+        "expectedRevision",
+        "idempotencyKey"
+      ],
+      "optional": [],
+      "rejectUnknown": true
+    },
+    {
+      "id": "control-v1:#/$defs/pairingRequestParams",
+      "required": [
+        "expectedRevision",
+        "idempotencyKey",
+        "pairingRequestId"
+      ],
+      "optional": [],
+      "rejectUnknown": true
+    },
+    {
+      "id": "control-v1:#/$defs/pairingRevokeParams",
+      "required": [
+        "expectedRevision",
+        "idempotencyKey",
+        "invitationId"
+      ],
+      "optional": [],
+      "rejectUnknown": true
+    },
+    {
+      "id": "control-v1:#/$defs/preset",
+      "required": [
+        "backend",
+        "hostId",
+        "id",
+        "name",
+        "profileAlias",
+        "project",
+        "tool"
+      ],
+      "optional": [],
+      "rejectUnknown": true
+    },
+    {
+      "id": "control-v1:#/$defs/presetDeleteParams",
+      "required": [
+        "expectedRevision",
+        "idempotencyKey",
+        "presetId"
+      ],
+      "optional": [],
+      "rejectUnknown": true
+    },
+    {
+      "id": "control-v1:#/$defs/presetUpsertParams",
+      "required": [
+        "expectedRevision",
+        "idempotencyKey",
+        "preset"
+      ],
+      "optional": [],
+      "rejectUnknown": true
+    },
+    {
+      "id": "control-v1:#/$defs/repositoryListParams",
+      "required": [
+        "cursor",
+        "hostId",
+        "includeHidden",
+        "relativePath",
+        "sessionId"
+      ],
+      "optional": [
+        "expectedRevision",
+        "idempotencyKey"
+      ],
+      "rejectUnknown": true
+    },
+    {
+      "id": "control-v1:#/$defs/repositorySearchParams",
+      "required": [
+        "hostId",
+        "includeHidden",
+        "query",
+        "sessionId"
+      ],
+      "optional": [
+        "expectedRevision",
+        "idempotencyKey"
+      ],
+      "rejectUnknown": true
+    },
+    {
+      "id": "control-v1:#/$defs/request",
+      "required": [
+        "method",
+        "params",
+        "protocolVersion",
+        "requestId",
+        "timestamp",
+        "type"
+      ],
+      "optional": [],
+      "rejectUnknown": true
+    },
+    {
+      "id": "control-v1:#/$defs/request/properties/params",
+      "required": [],
+      "optional": [],
+      "rejectUnknown": false
+    },
+    {
+      "id": "control-v1:#/$defs/scheduleCreateParams",
+      "required": [
+        "action",
+        "deliverAt",
+        "expectedRevision",
+        "hostId",
+        "idempotencyKey",
+        "sessionId"
+      ],
+      "optional": [
+        "attentionId"
+      ],
+      "rejectUnknown": true
+    },
+    {
+      "id": "control-v1:#/$defs/scheduleIdParams",
+      "required": [
+        "expectedRevision",
+        "hostId",
+        "idempotencyKey",
+        "scheduleId"
+      ],
+      "optional": [],
+      "rejectUnknown": true
+    },
+    {
+      "id": "control-v1:#/$defs/scheduleUpdateParams",
+      "required": [
+        "deliverAt",
+        "expectedRevision",
+        "hostId",
+        "idempotencyKey",
+        "scheduleId"
+      ],
+      "optional": [],
+      "rejectUnknown": true
+    },
+    {
+      "id": "control-v1:#/$defs/sessionCreateParams",
+      "required": [
+        "backend",
+        "expectedRevision",
+        "hostId",
+        "idempotencyKey",
+        "project",
+        "tool"
+      ],
+      "optional": [
+        "locationKind",
+        "path"
+      ],
+      "rejectUnknown": true
+    },
+    {
+      "id": "control-v1:#/$defs/sessionMutationParams",
+      "required": [
+        "expectedRevision",
+        "hostId",
+        "idempotencyKey",
+        "sessionId"
+      ],
+      "optional": [],
+      "rejectUnknown": true
+    },
+    {
+      "id": "control-v1:#/$defs/sessionRenameParams",
+      "required": [
+        "expectedRevision",
+        "hostId",
+        "idempotencyKey",
+        "name",
+        "sessionId"
+      ],
+      "optional": [],
+      "rejectUnknown": true
+    },
+    {
+      "id": "control-v1:#/$defs/snapshotParams",
+      "required": [],
+      "optional": [
+        "includeSessionTitles"
+      ],
+      "rejectUnknown": true
+    },
+    {
+      "id": "control-v1:#/$defs/successResponse",
+      "required": [
+        "ok",
+        "protocolVersion",
+        "requestId",
+        "result",
+        "timestamp",
+        "type"
+      ],
+      "optional": [],
+      "rejectUnknown": true
+    },
+    {
+      "id": "control-v1:#/$defs/successResponse/properties/result",
+      "required": [],
+      "optional": [],
+      "rejectUnknown": false
+    },
+    {
+      "id": "conversation-v2:#/$defs/answer",
+      "required": [
+        "choiceIds",
+        "questionId",
+        "text"
+      ],
+      "optional": [],
+      "rejectUnknown": true
+    },
+    {
+      "id": "conversation-v2:#/$defs/approvalResponse",
+      "required": [
+        "approvalId",
+        "choice",
+        "protocolVersion",
+        "session",
+        "status",
+        "timestamp",
+        "type"
+      ],
+      "optional": [],
+      "rejectUnknown": true
+    },
+    {
+      "id": "conversation-v2:#/$defs/choice",
+      "required": [
+        "id",
+        "label"
+      ],
+      "optional": [],
+      "rejectUnknown": true
+    },
+    {
+      "id": "conversation-v2:#/$defs/directory",
+      "required": [
+        "cwd",
+        "entries",
+        "protocolVersion",
+        "session",
+        "timestamp",
+        "truncated",
+        "type"
+      ],
+      "optional": [],
+      "rejectUnknown": true
+    },
+    {
+      "id": "conversation-v2:#/$defs/directory/properties/entries/items",
+      "required": [
+        "name",
+        "symlink"
+      ],
+      "optional": [],
+      "rejectUnknown": true
+    },
+    {
+      "id": "conversation-v2:#/$defs/error",
+      "required": [
+        "error",
+        "protocolVersion",
+        "timestamp",
+        "type"
+      ],
+      "optional": [],
+      "rejectUnknown": true
+    },
+    {
+      "id": "conversation-v2:#/$defs/error/properties/error",
+      "required": [
+        "code",
+        "message"
+      ],
+      "optional": [],
+      "rejectUnknown": true
+    },
+    {
+      "id": "conversation-v2:#/$defs/event",
+      "required": [
+        "adapter",
+        "item",
+        "protocolVersion",
+        "session",
+        "timestamp",
+        "type"
+      ],
+      "optional": [],
+      "rejectUnknown": true
+    },
+    {
+      "id": "conversation-v2:#/$defs/heartbeat",
+      "required": [
+        "adapter",
+        "interactionMode",
+        "protocolVersion",
+        "session",
+        "status",
+        "timestamp",
+        "type"
+      ],
+      "optional": [
+        "providerActivity"
+      ],
+      "rejectUnknown": true
+    },
+    {
+      "id": "conversation-v2:#/$defs/item",
+      "required": [
+        "attachments",
+        "choices",
+        "detail",
+        "id",
+        "kind",
+        "role",
+        "state",
+        "text",
+        "timestamp",
+        "title",
+        "tool"
+      ],
+      "optional": [
+        "action",
+        "answers",
+        "completedAt",
+        "input",
+        "presentation",
+        "questions",
+        "result",
+        "revision",
+        "source",
+        "startedAt",
+        "target",
+        "taskListId",
+        "tasks",
+        "turnId",
+        "updateMode"
+      ],
+      "rejectUnknown": true
+    },
+    {
+      "id": "conversation-v2:#/$defs/presentation",
+      "required": [
+        "inputBlocks",
+        "previewLines",
+        "resultBlocks",
+        "subtitle",
+        "title",
+        "version"
+      ],
+      "optional": [],
+      "rejectUnknown": true
+    },
+    {
+      "id": "conversation-v2:#/$defs/presentationBlock",
+      "required": [
+        "content",
+        "kind",
+        "title"
+      ],
+      "optional": [],
+      "rejectUnknown": true
+    },
+    {
+      "id": "conversation-v2:#/$defs/providerActivity",
+      "required": [
+        "elapsedSeconds",
+        "label",
+        "observedAt"
+      ],
+      "optional": [],
+      "rejectUnknown": true
+    },
+    {
+      "id": "conversation-v2:#/$defs/question",
+      "required": [
+        "allowOther",
+        "header",
+        "id",
+        "options",
+        "prompt",
+        "required",
+        "type"
+      ],
+      "optional": [],
+      "rejectUnknown": true
+    },
+    {
+      "id": "conversation-v2:#/$defs/questionOption",
+      "required": [
+        "description",
+        "id",
+        "label"
+      ],
+      "optional": [],
+      "rejectUnknown": true
+    },
+    {
+      "id": "conversation-v2:#/$defs/questionResponse",
+      "required": [
+        "protocolVersion",
+        "questionId",
+        "session",
+        "status",
+        "timestamp",
+        "type"
+      ],
+      "optional": [],
+      "rejectUnknown": true
+    },
+    {
+      "id": "conversation-v2:#/$defs/snapshot",
+      "required": [
+        "adapter",
+        "hasMore",
+        "interactionMode",
+        "items",
+        "mode",
+        "nextCursor",
+        "protocolVersion",
+        "revision",
+        "session",
+        "type"
+      ],
+      "optional": [
+        "providerActivity",
+        "timestamp"
+      ],
+      "rejectUnknown": true
+    },
+    {
+      "id": "conversation-v2:#/$defs/status",
+      "required": [
+        "adapter",
+        "interactionMode",
+        "protocolVersion",
+        "session",
+        "status",
+        "timestamp",
+        "type"
+      ],
+      "optional": [
+        "providerActivity"
+      ],
+      "rejectUnknown": true
+    },
+    {
+      "id": "conversation-v2:#/$defs/task",
+      "required": [
+        "activeTitle",
+        "detail",
+        "id",
+        "state",
+        "title"
+      ],
+      "optional": [],
+      "rejectUnknown": true
+    },
+    {
+      "id": "diagnostics-v1:#",
+      "required": [
+        "checks",
+        "components",
+        "generatedAt",
+        "schemaVersion"
+      ],
+      "optional": [],
+      "rejectUnknown": true
+    },
+    {
+      "id": "diagnostics-v1:#/$defs/check",
+      "required": [
+        "durationMs",
+        "errorCode",
+        "id",
+        "layer",
+        "recoveryAction",
+        "severity",
+        "status"
+      ],
+      "optional": [],
+      "rejectUnknown": true
+    },
+    {
+      "id": "diagnostics-v1:#/$defs/component",
+      "required": [
+        "capabilities",
+        "contractPackageVersion",
+        "controlVersions",
+        "conversationVersions",
+        "id",
+        "version",
+        "workspaceLayoutVersions"
+      ],
+      "optional": [],
+      "rejectUnknown": true
+    },
+    {
+      "id": "fleet-snapshot-v1:#",
+      "required": [
+        "attention",
+        "generatedAt",
+        "hosts",
+        "revision",
+        "schedules",
+        "sessions"
+      ],
+      "optional": [
+        "limits",
+        "pairingRequests",
+        "presentationRevision",
+        "presets"
+      ],
+      "rejectUnknown": true
+    },
+    {
+      "id": "fleet-snapshot-v1:#/$defs/attention",
+      "required": [
+        "agent",
+        "detectedAt",
+        "hostId",
+        "id",
+        "kind",
+        "resetAt",
+        "sessionId",
+        "state",
+        "updatedAt"
+      ],
+      "optional": [],
+      "rejectUnknown": true
+    },
+    {
+      "id": "fleet-snapshot-v1:#/$defs/host",
+      "required": [
+        "agentVersion",
+        "capabilities",
+        "errorCode",
+        "id",
+        "lastSeenAt",
+        "name",
+        "platform",
+        "protocolVersion",
+        "status",
+        "timeZone",
+        "transport",
+        "wtmuxVersion"
+      ],
+      "optional": [],
+      "rejectUnknown": true
+    },
+    {
+      "id": "fleet-snapshot-v1:#/$defs/limit",
+      "required": [
+        "hostId",
+        "id",
+        "primary",
+        "profileAlias",
+        "provider",
+        "secondary",
+        "status",
+        "updatedAt"
+      ],
+      "optional": [],
+      "rejectUnknown": true
+    },
+    {
+      "id": "fleet-snapshot-v1:#/$defs/limitWindow",
+      "required": [
+        "remainingPercent",
+        "resetsAt",
+        "usedPercent",
+        "windowMinutes"
+      ],
+      "optional": [],
+      "rejectUnknown": true
+    },
+    {
+      "id": "fleet-snapshot-v1:#/$defs/pairingRequest",
+      "required": [
+        "deviceName",
+        "expiresAt",
+        "id",
+        "peer",
+        "platform",
+        "requestedAt",
+        "status"
+      ],
+      "optional": [],
+      "rejectUnknown": true
+    },
+    {
+      "id": "fleet-snapshot-v1:#/$defs/preset",
+      "required": [
+        "backend",
+        "hostId",
+        "id",
+        "name",
+        "profileAlias",
+        "project",
+        "tool"
+      ],
+      "optional": [],
+      "rejectUnknown": true
+    },
+    {
+      "id": "fleet-snapshot-v1:#/$defs/schedule",
+      "required": [
+        "agent",
+        "backend",
+        "completedAt",
+        "createdAt",
+        "deliverAt",
+        "hostId",
+        "id",
+        "kind",
+        "outcomeCode",
+        "sessionId",
+        "status",
+        "updatedAt"
+      ],
+      "optional": [],
+      "rejectUnknown": true
+    },
+    {
+      "id": "fleet-snapshot-v1:#/$defs/session",
+      "required": [
+        "activity",
+        "attached",
+        "backend",
+        "hostId",
+        "id",
+        "internalName",
+        "name",
+        "pendingScheduleCount",
+        "project",
+        "title",
+        "tool",
+        "updatedAt"
+      ],
+      "optional": [
+        "locationKind",
+        "nameMode",
+        "projectPath"
+      ],
+      "rejectUnknown": true
+    },
+    {
+      "id": "machine-v1:#",
+      "required": [
+        "fallback",
+        "hostCommand",
+        "id",
+        "linuxUsername",
+        "name",
+        "platform",
+        "projectsRoot",
+        "roles",
+        "schemaVersion",
+        "tailscaleNode",
+        "transport",
+        "wslDistro"
+      ],
+      "optional": [],
+      "rejectUnknown": true
+    },
+    {
+      "id": "machine-v1:#/properties/fallback",
+      "required": [
+        "ip",
+        "sshHost"
+      ],
+      "optional": [],
+      "rejectUnknown": true
+    },
+    {
+      "id": "presets-v1:#",
+      "required": [
+        "presets",
+        "schemaVersion"
+      ],
+      "optional": [],
+      "rejectUnknown": true
+    },
+    {
+      "id": "presets-v1:#/properties/presets/items",
+      "required": [
+        "backend",
+        "hostId",
+        "id",
+        "name",
+        "profileAlias",
+        "project",
+        "tool"
+      ],
+      "optional": [],
+      "rejectUnknown": true
+    },
+    {
+      "id": "release-set-v1:#",
+      "required": [
+        "artifacts",
+        "components",
+        "contractPackageVersion",
+        "expiresAt",
+        "issuedAt",
+        "protocols",
+        "releaseSetSequence",
+        "rollbackFloor",
+        "schemaVersion",
+        "signature"
+      ],
+      "optional": [],
+      "rejectUnknown": true
+    },
+    {
+      "id": "release-set-v1:#/$defs/artifact",
+      "required": [
+        "architecture",
+        "component",
+        "id",
+        "platform",
+        "sha256",
+        "size",
+        "url"
+      ],
+      "optional": [],
+      "rejectUnknown": true
+    },
+    {
+      "id": "release-set-v1:#/$defs/component",
+      "required": [
+        "maximumCompatibleVersion",
+        "minimumCompatibleVersion",
+        "version"
+      ],
+      "optional": [],
+      "rejectUnknown": true
+    },
+    {
+      "id": "release-set-v1:#/$defs/range",
+      "required": [
+        "maximum",
+        "minimum"
+      ],
+      "optional": [],
+      "rejectUnknown": true
+    },
+    {
+      "id": "release-set-v1:#/properties/components",
+      "required": [
+        "androidApp",
+        "clientRuntime",
+        "contracts",
+        "hostRuntime",
+        "providerAdapters",
+        "windowsApp"
+      ],
+      "optional": [],
+      "rejectUnknown": true
+    },
+    {
+      "id": "release-set-v1:#/properties/protocols",
+      "required": [
+        "control",
+        "conversation",
+        "workspaceLayout"
+      ],
+      "optional": [],
+      "rejectUnknown": true
+    },
+    {
+      "id": "release-set-v1:#/properties/rollbackFloor",
+      "required": [
+        "androidVersionCode",
+        "releaseSetSequence",
+        "runtimeSequence"
+      ],
+      "optional": [],
+      "rejectUnknown": true
+    },
+    {
+      "id": "release-set-v1:#/properties/signature",
+      "required": [
+        "algorithm",
+        "keyId",
+        "value"
+      ],
+      "optional": [],
+      "rejectUnknown": true
+    },
+    {
+      "id": "runtime-update-v1:#",
+      "required": [
+        "keyId",
+        "payload",
+        "schemaVersion",
+        "signature"
+      ],
+      "optional": [],
+      "rejectUnknown": true
+    },
+    {
+      "id": "workspace-layout-v1:#",
+      "required": [
+        "focusedPaneId",
+        "root",
+        "schemaVersion",
+        "sessionMru"
+      ],
+      "optional": [],
+      "rejectUnknown": true
+    },
+    {
+      "id": "workspace-layout-v1:#/$defs/pane",
+      "required": [
+        "id",
+        "kind",
+        "sessionId",
+        "viewMode"
+      ],
+      "optional": [],
+      "rejectUnknown": true
+    },
+    {
+      "id": "workspace-layout-v1:#/$defs/split",
+      "required": [
+        "direction",
+        "first",
+        "id",
+        "kind",
+        "ratio",
+        "second"
+      ],
+      "optional": [],
+      "rejectUnknown": true
+    }
+  ],
+  "controlRequestShapes": {
+    "fleet.snapshot": {
+      "required": [],
+      "optional": [
+        "includeSessionTitles"
+      ]
+    },
+    "protocol.capabilities": {
+      "required": [],
+      "optional": []
+    },
+    "session.create": {
+      "required": [
+        "backend",
+        "expectedRevision",
+        "hostId",
+        "idempotencyKey",
+        "project",
+        "tool"
+      ],
+      "optional": [
+        "locationKind",
+        "path"
+      ]
+    },
+    "session.kill": {
+      "required": [
+        "expectedRevision",
+        "hostId",
+        "idempotencyKey",
+        "sessionId"
+      ],
+      "optional": []
+    },
+    "session.rename": {
+      "required": [
+        "expectedRevision",
+        "hostId",
+        "idempotencyKey",
+        "name",
+        "sessionId"
+      ],
+      "optional": []
+    },
+    "session.name.reset": {
+      "required": [
+        "expectedRevision",
+        "hostId",
+        "idempotencyKey",
+        "sessionId"
+      ],
+      "optional": []
+    },
+    "schedule.cancel": {
+      "required": [
+        "expectedRevision",
+        "hostId",
+        "idempotencyKey",
+        "scheduleId"
+      ],
+      "optional": []
+    },
+    "schedule.create": {
+      "required": [
+        "action",
+        "deliverAt",
+        "expectedRevision",
+        "hostId",
+        "idempotencyKey",
+        "sessionId"
+      ],
+      "optional": [
+        "attentionId"
+      ]
+    },
+    "schedule.update": {
+      "required": [
+        "deliverAt",
+        "expectedRevision",
+        "hostId",
+        "idempotencyKey",
+        "scheduleId"
+      ],
+      "optional": []
+    },
+    "attention.dismiss": {
+      "required": [
+        "attentionId",
+        "expectedRevision",
+        "hostId",
+        "idempotencyKey"
+      ],
+      "optional": []
+    },
+    "host.doctor": {
+      "required": [
+        "expectedRevision",
+        "hostId",
+        "idempotencyKey"
+      ],
+      "optional": []
+    },
+    "host.update": {
+      "required": [
+        "expectedRevision",
+        "hostId",
+        "idempotencyKey"
+      ],
+      "optional": []
+    },
+    "directory.list": {
+      "required": [
+        "backend",
+        "hostId",
+        "path"
+      ],
+      "optional": [
+        "expectedRevision",
+        "idempotencyKey"
+      ]
+    },
+    "directory.create": {
+      "required": [
+        "backend",
+        "expectedRevision",
+        "hostId",
+        "idempotencyKey",
+        "name",
+        "parentPath"
+      ],
+      "optional": []
+    },
+    "repository.list": {
+      "required": [
+        "cursor",
+        "hostId",
+        "includeHidden",
+        "relativePath",
+        "sessionId"
+      ],
+      "optional": [
+        "expectedRevision",
+        "idempotencyKey"
+      ]
+    },
+    "repository.search": {
+      "required": [
+        "hostId",
+        "includeHidden",
+        "query",
+        "sessionId"
+      ],
+      "optional": [
+        "expectedRevision",
+        "idempotencyKey"
+      ]
+    },
+    "session.model.get": {
+      "required": [
+        "hostId",
+        "includeCatalog",
+        "sessionId"
+      ],
+      "optional": []
+    },
+    "session.model.set": {
+      "required": [
+        "custom",
+        "effortId",
+        "expectedConfigRevision",
+        "historyImpactAcknowledged",
+        "hostId",
+        "idempotencyKey",
+        "modelId",
+        "sessionId"
+      ],
+      "optional": []
+    },
+    "session.model.cancel": {
+      "required": [
+        "expectedConfigRevision",
+        "hostId",
+        "idempotencyKey",
+        "sessionId"
+      ],
+      "optional": []
+    },
+    "preset.upsert": {
+      "required": [
+        "expectedRevision",
+        "idempotencyKey",
+        "preset"
+      ],
+      "optional": []
+    },
+    "preset.delete": {
+      "required": [
+        "expectedRevision",
+        "idempotencyKey",
+        "presetId"
+      ],
+      "optional": []
+    },
+    "pairing.invite": {
+      "required": [
+        "expectedRevision",
+        "idempotencyKey"
+      ],
+      "optional": []
+    },
+    "pairing.review": {
+      "required": [
+        "expectedRevision",
+        "idempotencyKey",
+        "pairingRequestId"
+      ],
+      "optional": []
+    },
+    "pairing.approve": {
+      "required": [
+        "expectedRevision",
+        "idempotencyKey",
+        "pairingRequestId"
+      ],
+      "optional": []
+    },
+    "pairing.reject": {
+      "required": [
+        "expectedRevision",
+        "idempotencyKey",
+        "pairingRequestId"
+      ],
+      "optional": []
+    },
+    "pairing.revoke": {
+      "required": [
+        "expectedRevision",
+        "idempotencyKey",
+        "invitationId"
+      ],
+      "optional": []
+    }
+  }
+}

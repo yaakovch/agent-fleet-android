@@ -37,7 +37,8 @@ class ReleaseSetContractTest {
             "fixtures/invalid/fleet-snapshot-unknown-field-v1.json" to "fleet-snapshot-unknown-field-v1.json",
             "fixtures/invalid/release-set-content-field-v1.json" to "release-set-content-field-v1.json",
             "fixtures/invalid/release-set-unknown-field-v1.json" to "release-set-unknown-field-v1.json",
-            "fixtures/invalid/workspace-layout-unknown-field-v1.json" to "workspace-layout-unknown-field-v1.json"
+            "fixtures/invalid/workspace-layout-unknown-field-v1.json" to "workspace-layout-unknown-field-v1.json",
+            "generated/structural-models-v1.json" to "structural-models-v1.json"
         )
         fixtures.forEach { (canonicalPath, localName) ->
             val digest = MessageDigest.getInstance("SHA-256")

@@ -6,36 +6,7 @@ import java.time.Instant
 
 object ControlContract {
     private const val MAX_FRAME_BYTES = 256 * 1024
-    private data class Shape(val required: Set<String>, val optional: Set<String> = emptySet())
-
-    private val shapes = mapOf(
-        "fleet.snapshot" to Shape(emptySet(), setOf("includeSessionTitles")),
-        "protocol.capabilities" to Shape(emptySet()),
-        "session.create" to Shape(setOf("hostId", "project", "backend", "tool", "expectedRevision", "idempotencyKey"), setOf("path", "locationKind")),
-        "session.kill" to Shape(setOf("hostId", "sessionId", "expectedRevision", "idempotencyKey")),
-        "session.rename" to Shape(setOf("hostId", "sessionId", "name", "expectedRevision", "idempotencyKey")),
-        "session.name.reset" to Shape(setOf("hostId", "sessionId", "expectedRevision", "idempotencyKey")),
-        "schedule.cancel" to Shape(setOf("hostId", "scheduleId", "expectedRevision", "idempotencyKey")),
-        "schedule.create" to Shape(setOf("hostId", "sessionId", "deliverAt", "action", "expectedRevision", "idempotencyKey"), setOf("attentionId")),
-        "schedule.update" to Shape(setOf("hostId", "scheduleId", "deliverAt", "expectedRevision", "idempotencyKey")),
-        "attention.dismiss" to Shape(setOf("hostId", "attentionId", "expectedRevision", "idempotencyKey")),
-        "host.doctor" to Shape(setOf("hostId", "expectedRevision", "idempotencyKey")),
-        "host.update" to Shape(setOf("hostId", "expectedRevision", "idempotencyKey")),
-        "directory.list" to Shape(setOf("hostId", "backend", "path"), setOf("expectedRevision", "idempotencyKey")),
-        "directory.create" to Shape(setOf("hostId", "backend", "parentPath", "name", "expectedRevision", "idempotencyKey")),
-        "repository.list" to Shape(setOf("hostId", "sessionId", "relativePath", "includeHidden", "cursor"), setOf("expectedRevision", "idempotencyKey")),
-        "repository.search" to Shape(setOf("hostId", "sessionId", "query", "includeHidden"), setOf("expectedRevision", "idempotencyKey")),
-        "session.model.get" to Shape(setOf("hostId", "sessionId", "includeCatalog")),
-        "session.model.set" to Shape(setOf("hostId", "sessionId", "modelId", "effortId", "custom", "expectedConfigRevision", "idempotencyKey", "historyImpactAcknowledged")),
-        "session.model.cancel" to Shape(setOf("hostId", "sessionId", "expectedConfigRevision", "idempotencyKey")),
-        "preset.upsert" to Shape(setOf("preset", "expectedRevision", "idempotencyKey")),
-        "preset.delete" to Shape(setOf("presetId", "expectedRevision", "idempotencyKey")),
-        "pairing.invite" to Shape(setOf("expectedRevision", "idempotencyKey")),
-        "pairing.review" to Shape(setOf("pairingRequestId", "expectedRevision", "idempotencyKey")),
-        "pairing.approve" to Shape(setOf("pairingRequestId", "expectedRevision", "idempotencyKey")),
-        "pairing.reject" to Shape(setOf("pairingRequestId", "expectedRevision", "idempotencyKey")),
-        "pairing.revoke" to Shape(setOf("invitationId", "expectedRevision", "idempotencyKey"))
-    )
+    private val shapes = GeneratedAgentFleetContracts.controlRequestShapes
     private val id = Regex("^[A-Za-z0-9._:-]{1,160}$")
     private val sessionId = Regex("^[A-Za-z0-9._:-]{1,320}$")
     private val revision = Regex("^[a-f0-9]{16}$")
@@ -54,7 +25,7 @@ object ControlContract {
         val method = root.requiredString("method")
         val shape = requireNotNull(shapes[method]) { "Unknown control method" }
         val params = root.getJSONObject("params")
-        params.requireFields(shape.required, shape.optional)
+        params.requireFields(shape.required.toSet(), shape.optional.toSet())
         if (method == "session.create") require(params.has("path") == params.has("locationKind"))
         if (method in setOf("directory.list", "repository.list", "repository.search")) {
             require(params.has("expectedRevision") == params.has("idempotencyKey"))

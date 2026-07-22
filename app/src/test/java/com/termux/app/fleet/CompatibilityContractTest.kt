@@ -14,6 +14,21 @@ class CompatibilityContractTest {
         requireNotNull(javaClass.classLoader?.getResource("contracts/$name")).readText()
 
     @Test
+    fun usesSharedGeneratedStructuralCatalog() {
+        val catalog = JSONObject(fixture("structural-models-v1.json"))
+        val protocols = catalog.getJSONObject("protocolVersions")
+        assertEquals(GeneratedAgentFleetContracts.protocolVersions.keys, protocols.keys().asSequence().toSet())
+        GeneratedAgentFleetContracts.protocolVersions.forEach { (id, version) -> assertEquals(version, protocols.getInt(id)) }
+        val control = catalog.getJSONObject("controlRequestShapes")
+        assertEquals(GeneratedAgentFleetContracts.controlRequestShapes.keys, control.keys().asSequence().toSet())
+        GeneratedAgentFleetContracts.controlRequestShapes.forEach { (method, shape) ->
+            val value = control.getJSONObject(method)
+            assertEquals(shape.required, value.getJSONArray("required").let { array -> (0 until array.length()).map(array::getString) })
+            assertEquals(shape.optional, value.getJSONArray("optional").let { array -> (0 until array.length()).map(array::getString) })
+        }
+    }
+
+    @Test
     fun acceptsSharedCompatibilityMatrix() {
         val matrix = CompatibilityContract.parse(fixture("compatibility-v1.json"))
         assertEquals("1.0.0", matrix.contractPackageVersion)
