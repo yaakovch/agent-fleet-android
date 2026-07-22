@@ -3,6 +3,7 @@ package com.termux.app.fleet
 import android.content.Context
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertThrows
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -26,13 +27,34 @@ class ConversationStreamParserTest {
 
     @Test
     fun consumesTheSharedStructuredWorkFixture() {
-        val fixture = checkNotNull(javaClass.classLoader?.getResourceAsStream("conversation_structured_work_v1.json"))
+        val fixture = checkNotNull(javaClass.classLoader?.getResourceAsStream("contracts/conversation-structured-work-v2.json"))
             .bufferedReader().use { it.readText() }
         val frame = ConversationStreamParser.parseFrame(fixture) as ConversationFrame.Snapshot
         assertEquals(listOf("task_list", "plan", "question"), frame.items.map { it.kind })
         assertEquals("Repairing the Native view", frame.items.first().tasks[1].activeTitle)
         assertEquals("codex_plan_gate", frame.items.last().source)
         assertEquals(listOf("implement", "implement-clear", "stay"), frame.items.last().questions.single().options.map { it.id })
+    }
+
+    @Test
+    fun rejectsSharedUnknownFieldsAndOverLimitFrames() {
+        listOf("conversation-unknown-field-v2.json", "conversation-item-unknown-field-v2.json").forEach { name ->
+            val fixture = checkNotNull(javaClass.classLoader?.getResourceAsStream("contracts/$name"))
+                .bufferedReader().use { it.readText() }
+            assertThrows(IllegalArgumentException::class.java) { ConversationStreamParser.parseFrame(fixture) }
+        }
+        val baseline = org.json.JSONObject(
+            checkNotNull(javaClass.classLoader?.getResourceAsStream("contracts/conversation-structured-work-v2.json"))
+                .bufferedReader().use { it.readText() }
+        )
+        val options = org.json.JSONArray()
+        repeat(17) { index ->
+            options.put(org.json.JSONObject().put("id", "option-$index").put("label", "Option $index").put("description", ""))
+        }
+        baseline.getJSONArray("items").getJSONObject(2).getJSONArray("questions").getJSONObject(0).put("options", options)
+        assertThrows(IllegalArgumentException::class.java) { ConversationStreamParser.parseFrame(baseline.toString()) }
+        val oversized = """{"protocolVersion":2,"type":"conversation.error","timestamp":"2026-07-22T12:00:00Z","error":{"code":"large","message":"${"x".repeat(256 * 1024)}"}}"""
+        assertThrows(IllegalArgumentException::class.java) { ConversationStreamParser.parseFrame(oversized) }
     }
 
     @Test

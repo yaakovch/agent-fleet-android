@@ -1,6 +1,7 @@
 package com.termux.app.fleet
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertThrows
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -41,6 +42,14 @@ class FleetSnapshotParserTest {
         assertEquals("Codex 2", limit.profileAlias)
         assertEquals(76.0, limit.primary?.remainingPercent)
         assertEquals(10080, limit.secondary?.windowMinutes)
+    }
+
+    @Test
+    fun rejectsSharedUnknownAndPrivateSnapshotFields() {
+        listOf("fleet-snapshot-unknown-field-v1.json", "fleet-snapshot-content-field-v1.json").forEach { name ->
+            val fixture = requireNotNull(javaClass.classLoader?.getResource("contracts/$name")).readText()
+            assertThrows(IllegalArgumentException::class.java) { FleetSnapshotParser.parse(fixture) }
+        }
     }
 
     @Test
