@@ -1491,3 +1491,24 @@ physical S23FE.
    embedded-runtime, checksum, and externally served-byte gates.
 4. Publish `.76`/1082 through `fleet/latest`, retain `.75` for rollback, and
    leave the physical S23FE smoke to the user through the in-app update flow.
+
+Implementation record (2026-07-22): Android source commit `cd23d85b` preserves
+the authoritative host activity value while rendering the compact phone header
+as `Codex · Terminal wait · elapsed`, keeping the live minutes and seconds
+inside the one-line status row. The focused formatter/parser regression and the
+34-case fast API 36 suite passed. All 150 JVM tests and the complete managed
+Pixel 7/API 36 suite passed at
+`build/reports/agent-fleet/emulator/20260722T050034Z-full`, with zero failures
+and two intentional review-only golden generators skipped. Release lint
+completed with zero errors and the three existing PendingIntent warnings. The
+signed/minified arm64 and universal `.76`/1082 APKs passed certificate,
+permanent-identity, checksum, and embedded runtime `git-b5bb8ec` verification
+across all 84 packages. `.76` is published through `fleet/latest`; the
+HTTPS-served manifest SHA-256 is
+`a8eb294b612d67f9faa8d22cefde3edd193006ea59cdad0b1718b3ba875267cf`,
+the arm64 APK SHA-256 is
+`e3590bcb8f7ceb344894bad09eada1d8a7f7bf8f788e0a3d43e63346e6fb7ef7`,
+and the universal APK SHA-256 is
+`206f1256f3e5ba3f009e9cd13b0506f7fbbdcce28392c0291f66ab515ee5a3dc`.
+`.75` remains available for rollback. Automated tooling did not access the
+physical S23FE.
