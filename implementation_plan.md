@@ -1534,3 +1534,27 @@ physical S23FE.
    AGENTS and the Android debugging skill/lessons. Run the protected Windows
    and managed API 36 suites, lint, script tests, shell syntax, and skill
    validation without publishing an APK or touching the physical S23FE.
+
+Implementation record (2026-07-22): Android commits `11151e9d` and
+`00c4d192` add the validated Java 17 launcher, WSL-aware emulator selection,
+single version source, local credential/configuration setup, release preflight,
+timed release orchestrator, served-byte verifier, workflow tests, CI checks,
+and documentation. The controller login and interactive Bash environments now
+select the existing pinned JDK 17; no package installation was needed. A
+three-run `:app:assembleDebugAndroidTest` benchmark retained daemon reuse
+(33.5% median improvement) and parallel execution (48.1% further improvement)
+while rejecting build cache (2.3%); evidence is under
+`build/reports/agent-fleet/gradle/20260722T055653Z/`.
+
+The focused identity regression, all eight release-workflow tests, shell
+syntax, and skill validation passed. All 150 JVM tests and the complete
+protected Windows API 36 suite passed at
+`build/reports/agent-fleet/emulator/20260722T060546Z-full` with 46 successful
+instrumentation cases. The explicit managed-device parity suite passed at
+`build/reports/agent-fleet/emulator/20260722T060933Z-full` with zero failures
+and two intentional review-only golden skips. Release lint passed. The real
+controller credentials and keystore pairing passed, and the clean pushed
+orchestrator preflight rejected reused sequence 1082 in seven seconds before
+Gradle while recording no stale artifacts. The already-published `.76`
+manifest and both APKs passed served-byte verification. This tooling-only work
+built and published no APK and did not access the physical S23FE.
