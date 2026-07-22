@@ -463,7 +463,8 @@ private fun NativeSessionStatusLine(state: NativeSessionUiState) {
         }
     }
     val detail = when {
-        exactActivity != null && exactActivityStartedAt != null -> "${exactActivity.label} (${formatWorkingDuration(exactActivityStartedAt, nowMillis)})"
+        exactActivity != null && exactActivityStartedAt != null ->
+            "${compactProviderActivityLabel(exactActivity.label)} · ${formatWorkingDuration(exactActivityStartedAt, nowMillis)}"
         fallbackStartedAt != null -> "Working (${formatWorkingDuration(fallbackStartedAt, nowMillis)})"
         completedDuration != null -> "Worked for ${formatElapsedDuration(completedDuration)}"
         else -> state.connection
@@ -481,6 +482,11 @@ private fun NativeSessionStatusLine(state: NativeSessionUiState) {
 internal fun providerActivityStartedAt(activity: ProviderActivity?): Long? {
     if (activity == null) return null
     return activity.receivedAtMillis - activity.elapsedSeconds * 1_000L
+}
+
+internal fun compactProviderActivityLabel(label: String): String = when (val normalized = label.trim()) {
+    "Waiting for background terminal" -> "Terminal wait"
+    else -> normalized
 }
 
 @Composable

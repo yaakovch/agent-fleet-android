@@ -1478,3 +1478,16 @@ and the universal APK SHA-256 is
 `ade9ff9ab1e3c26b381be82c156c9312f16574c68bc3d111c67168d6dd2debad`.
 `.69` remains available for rollback. Automated tooling did not access the
 physical S23FE.
+
+## 55. Compact Provider Activity Counter Hotfix
+
+1. Preserve the host's authoritative provider-activity value while shortening
+   `Waiting for background terminal` to `Terminal wait` only in the compact
+   Native and Terminal header.
+2. Keep the elapsed counter beside the shortened phase so minutes and seconds
+   remain visible before the one-line header can ellipsize on the phone.
+3. Cover raw protocol preservation, presentation compaction, and Compose
+   rendering. Run focused, fast/full API 36, release-lint, signing, identity,
+   embedded-runtime, checksum, and externally served-byte gates.
+4. Publish `.76`/1082 through `fleet/latest`, retain `.75` for rollback, and
+   leave the physical S23FE smoke to the user through the in-app update flow.

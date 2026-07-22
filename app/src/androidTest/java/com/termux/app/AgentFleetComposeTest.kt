@@ -279,7 +279,7 @@ class AgentFleetComposeTest {
     }
 
     @Test
-    fun nativeShowsTheExactCodexPhaseAndHostCounter() {
+    fun nativeKeepsTheCompactCodexPhaseAndHostCounterVisible() {
         val state = NativeSessionUiState(
             "Working fixture", "gaming", "wtmux-main", adapter = "codex", connection = "Live",
             providerActivity = ProviderActivity(
@@ -289,7 +289,7 @@ class AgentFleetComposeTest {
             providerActivityAuthoritative = true
         )
         compose.setContent { NativeStateFixture(state) }
-        compose.onNodeWithText("Codex · Waiting for background terminal (10m 17s)").assertIsDisplayed()
+        compose.onNodeWithText("Codex · Terminal wait · 10m", substring = true).assertIsDisplayed()
     }
 
     @Test

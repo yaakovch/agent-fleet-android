@@ -58,6 +58,7 @@ class ConversationStreamParserTest {
         assertTrue(snapshot.hasProviderActivity)
         assertEquals("Waiting for background terminal", snapshot.providerActivity?.label)
         assertEquals(617L, snapshot.providerActivity?.elapsedSeconds)
+        assertEquals("Terminal wait", compactProviderActivityLabel(checkNotNull(snapshot.providerActivity).label))
         assertEquals(617_000L, providerActivityStartedAt(snapshot.providerActivity)?.let { started ->
             checkNotNull(snapshot.providerActivity).receivedAtMillis - started
         })
