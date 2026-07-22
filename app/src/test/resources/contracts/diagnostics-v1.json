@@ -1,0 +1,62 @@
+{
+  "schemaVersion": 1,
+  "generatedAt": "2026-07-22T12:00:00Z",
+  "components": [
+    {
+      "id": "windows-app",
+      "version": "0.11.0-beta.21",
+      "contractPackageVersion": "1.0.0",
+      "controlVersions": [1],
+      "conversationVersions": [2],
+      "workspaceLayoutVersions": [1],
+      "capabilities": ["control.v1", "conversation.v2", "workspace-layout.v1"]
+    },
+    {
+      "id": "android-app",
+      "version": "0.118.4-agentfleet.76",
+      "contractPackageVersion": "1.0.0",
+      "controlVersions": [1],
+      "conversationVersions": [2],
+      "workspaceLayoutVersions": [1],
+      "capabilities": ["control.v1", "conversation.v2", "workspace-layout.v1"]
+    },
+    {
+      "id": "wtmux",
+      "version": "git-8b09167",
+      "contractPackageVersion": "1.0.0",
+      "controlVersions": [1],
+      "conversationVersions": [2],
+      "workspaceLayoutVersions": [1],
+      "capabilities": ["control.v1", "conversation.v2", "workspace-layout.v1"]
+    }
+  ],
+  "checks": [
+    {
+      "id": "app",
+      "layer": "client_app",
+      "status": "healthy",
+      "severity": "info",
+      "errorCode": "OK",
+      "durationMs": 2,
+      "recoveryAction": "none"
+    },
+    {
+      "id": "runtime-compatibility",
+      "layer": "host_runtime",
+      "status": "healthy",
+      "severity": "info",
+      "errorCode": "OK",
+      "durationMs": 4,
+      "recoveryAction": "none"
+    },
+    {
+      "id": "update-compatibility",
+      "layer": "update_channel",
+      "status": "not-run",
+      "severity": "info",
+      "errorCode": "OK",
+      "durationMs": 0,
+      "recoveryAction": "none"
+    }
+  ]
+}

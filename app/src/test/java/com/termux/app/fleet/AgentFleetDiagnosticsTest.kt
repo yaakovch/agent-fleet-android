@@ -75,7 +75,10 @@ class AgentFleetDiagnosticsTest {
         )
         val archive = runner.export(report)
         ZipFile(archive).use { zip ->
-            assertEquals(setOf("diagnostics.json", "events.ndjson"), zip.entries().asSequence().map { it.name }.toSet())
+            assertEquals(
+                setOf("diagnostics.json", "events.ndjson", "contract-diagnostics.json"),
+                zip.entries().asSequence().map { it.name }.toSet()
+            )
             val content = zip.entries().asSequence().joinToString("\n") { entry -> zip.getInputStream(entry).bufferedReader().readText() }
             assertTrue(content.contains(DIAGNOSTICS_SCHEMA))
             assertFalse(content.contains(secret))

@@ -85,6 +85,13 @@ data class AgentFleetDiagnosticReport(
     fun eventsNdjson(): String = events.joinToString(separator = "\n", postfix = if (events.isEmpty()) "" else "\n") {
         it.toJson().toString()
     }
+
+    fun contractDiagnosticsJson(): String = CompatibilityContract.diagnosticsJson(
+        componentId = "android-app",
+        version = appVersion,
+        compatibilityStatus = checks.firstOrNull { it.id == "compatibility" }?.status ?: DiagnosticStatus.Attention,
+        generatedAt = generatedAt
+    )
 }
 
 internal fun localShellDiagnosticCommand(bash: File): List<String> =
@@ -201,6 +208,11 @@ class AgentFleetDiagnosticsRunner(
             val policy = policyStore.load() ?: throw DiagnosticAttention("No paired client policy is installed")
             "Policy ${policy.policyRevision} is ready" to "Signed app and runtime update sources are configured."
         }
+        checks += AgentFleetDiagnosticCheck(
+            "compatibility", "Protocol compatibility", DiagnosticStatus.Healthy,
+            "Contracts ${CompatibilityContract.CONTRACT_PACKAGE_VERSION} are supported",
+            "Control ${CompatibilityContract.CONTROL_VERSIONS.joinToString()} · conversation ${CompatibilityContract.CONVERSATION_VERSIONS.joinToString()} · workspace ${CompatibilityContract.WORKSPACE_LAYOUT_VERSIONS.joinToString()}."
+        )
         checks += check("shell", "Local process") {
             val bash = executable("bash") ?: error("Bash is missing")
             val process = ProcessBuilder(localShellDiagnosticCommand(bash))
@@ -266,6 +278,9 @@ class AgentFleetDiagnosticsRunner(
             zip.closeEntry()
             zip.putNextEntry(ZipEntry("events.ndjson"))
             zip.write(report.eventsNdjson().toByteArray(Charsets.UTF_8))
+            zip.closeEntry()
+            zip.putNextEntry(ZipEntry("contract-diagnostics.json"))
+            zip.write(report.contractDiagnosticsJson().toByteArray(Charsets.UTF_8))
             zip.closeEntry()
         }
         journal.record("diagnostics.export", "healthy", message = "Metadata-only report exported")
