@@ -191,6 +191,7 @@ class ReleaseSequenceAndOrderingTest(unittest.TestCase):
         self.assertEqual(1, text.count("run_stage signed-build"))
         self.assertLess(text.index('if [[ "$hold" == "1" ]]'), text.index("run_stage publication"))
         self.assertNotIn("AGENT_FLEET_STORE_PASSWORD", (ROOT / "scripts/release/app-release.sh").read_text())
+        self.assertIn("if signed_build_passed and manifest_path.is_file():", text)
 
     def test_build_preflight_precedes_runtime_verification_and_gradle(self):
         text = (ROOT / "scripts/release/build-signed-release.sh").read_text(encoding="utf-8")

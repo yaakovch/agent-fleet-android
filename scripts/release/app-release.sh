@@ -37,7 +37,11 @@ for line in pathlib.Path(stages_path).read_text(encoding="utf-8").splitlines():
     stages.append({"name": name, "durationSeconds": int(seconds), "status": status})
 artifacts = []
 manifest_path = pathlib.Path(release_dir, "manifest.json")
-if manifest_path.is_file():
+signed_build_passed = any(
+    stage["name"] == "signed-build" and stage["status"] == "passed"
+    for stage in stages
+)
+if signed_build_passed and manifest_path.is_file():
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
     artifacts = [
         {"abi": item["abi"], "sha256": item["apkSha256"], "size": item["size"]}
