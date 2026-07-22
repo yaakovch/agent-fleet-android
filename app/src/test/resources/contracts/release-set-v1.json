@@ -1,0 +1,50 @@
+{
+  "schemaVersion": 1,
+  "releaseSetSequence": 1082,
+  "issuedAt": "2026-07-22T10:00:00Z",
+  "expiresAt": "2026-08-21T10:00:00Z",
+  "contractPackageVersion": "1.0.0",
+  "protocols": {
+    "control": { "minimum": 1, "maximum": 1 },
+    "conversation": { "minimum": 2, "maximum": 2 },
+    "workspaceLayout": { "minimum": 1, "maximum": 1 }
+  },
+  "components": {
+    "windowsApp": { "version": "0.11.0-beta.21", "minimumCompatibleVersion": "0.11.0-beta.21", "maximumCompatibleVersion": "0.11.0-beta.21" },
+    "androidApp": { "version": "0.118.4-agentfleet.76", "minimumCompatibleVersion": "0.118.4-agentfleet.76", "maximumCompatibleVersion": "0.118.4-agentfleet.76" },
+    "clientRuntime": { "version": "git-7b9113e", "minimumCompatibleVersion": "git-7b9113e", "maximumCompatibleVersion": "git-7b9113e" },
+    "hostRuntime": { "version": "git-7b9113e", "minimumCompatibleVersion": "git-7b9113e", "maximumCompatibleVersion": "git-7b9113e" },
+    "providerAdapters": { "version": "git-7b9113e", "minimumCompatibleVersion": "git-7b9113e", "maximumCompatibleVersion": "git-7b9113e" },
+    "contracts": { "version": "1.0.0", "minimumCompatibleVersion": "1.0.0", "maximumCompatibleVersion": "1.0.0" }
+  },
+  "artifacts": [
+    {
+      "id": "windows-x86_64",
+      "component": "windowsApp",
+      "platform": "windows",
+      "architecture": "x86_64",
+      "url": "https://updates.example.invalid/agent-fleet/windows.exe",
+      "sha256": "1111111111111111111111111111111111111111111111111111111111111111",
+      "size": 1000
+    },
+    {
+      "id": "android-universal",
+      "component": "androidApp",
+      "platform": "android",
+      "architecture": "universal",
+      "url": "https://updates.example.invalid/agent-fleet/android.apk",
+      "sha256": "2222222222222222222222222222222222222222222222222222222222222222",
+      "size": 1000
+    }
+  ],
+  "rollbackFloor": {
+    "releaseSetSequence": 1081,
+    "androidVersionCode": 1081,
+    "runtimeSequence": 1081
+  },
+  "signature": {
+    "algorithm": "ed25519",
+    "keyId": "0123456789abcdef0123456789abcdef",
+    "value": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+  }
+}

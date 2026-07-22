@@ -1,0 +1,12 @@
+{
+  "schemaVersion": 1,
+  "root": {
+    "kind": "pane",
+    "id": "pane-primary",
+    "sessionId": null,
+    "viewMode": "native",
+    "terminalOutput": "forbidden"
+  },
+  "focusedPaneId": "pane-primary",
+  "sessionMru": []
+}

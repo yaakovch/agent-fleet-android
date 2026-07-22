@@ -206,6 +206,7 @@ fun encodeWorkspaceLayout(layout: WorkspaceLayout): JSONObject = JSONObject()
     .put("sessionMru", JSONArray(layout.sessionMru.take(64)))
 
 fun decodeWorkspaceLayout(value: JSONObject): WorkspaceLayout {
+    value.requireWorkspaceFields("schemaVersion", "root", "focusedPaneId", "sessionMru")
     require(value.optInt("schemaVersion") == 1)
     val ids = mutableSetOf<String>()
     val sessions = mutableSetOf<String>()
@@ -243,6 +244,7 @@ private fun decodeWorkspaceNode(
     require(safeWorkspaceId(id) && ids.add(id))
     return when (value.getString("kind")) {
         "pane" -> {
+            value.requireWorkspaceFields("kind", "id", "sessionId", "viewMode")
             val session = value.optString("sessionId").takeIf { value.opt("sessionId") != JSONObject.NULL && it.isNotBlank() }
             require(session == null || safeWorkspaceId(session) && sessions.add(session))
             val mode = when (value.optString("viewMode")) {
@@ -253,6 +255,7 @@ private fun decodeWorkspaceNode(
             WorkspacePane(id, session, mode)
         }
         "split" -> {
+            value.requireWorkspaceFields("kind", "id", "direction", "ratio", "first", "second")
             val direction = when (value.getString("direction")) {
                 "row" -> WorkspaceDirection.Row
                 "column" -> WorkspaceDirection.Column
@@ -268,6 +271,10 @@ private fun decodeWorkspaceNode(
         }
         else -> error("Invalid workspace node")
     }
+}
+
+private fun JSONObject.requireWorkspaceFields(vararg expected: String) {
+    require(keys().asSequence().toSet() == expected.toSet()) { "Invalid workspace fields" }
 }
 
 private fun mapNode(node: WorkspaceNode, transform: (WorkspacePane) -> WorkspacePane): WorkspaceNode = when (node) {

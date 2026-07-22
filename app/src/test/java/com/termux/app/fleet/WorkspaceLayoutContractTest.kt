@@ -1,6 +1,7 @@
 package com.termux.app.fleet
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertThrows
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -11,12 +12,22 @@ import org.robolectric.RobolectricTestRunner
 class WorkspaceLayoutContractTest {
     @Test
     fun validatesSharedDesktopLayoutGoldenWithoutChangingPhonePresentation() {
-        val fixture = requireNotNull(javaClass.classLoader?.getResource("workspace_layout_v1.json")).readText()
+        val fixture = requireNotNull(javaClass.classLoader?.getResource("contracts/workspace-layout-v1.json")).readText()
         val layout = decodeWorkspaceLayout(org.json.JSONObject(fixture))
         assertEquals(3, workspacePanes(layout.root).size)
         assertEquals("pane-2", layout.focusedPaneId)
         assertEquals(listOf("gaming-desktop-ubuntu:codex-one", "work-m-ubuntu:claude-two", null), workspacePanes(layout.root).map { it.sessionId })
         assertEquals(fixture.trim(), encodeWorkspaceLayout(layout).toString(2).trim())
+    }
+
+    @Test
+    fun rejectsSharedUnknownFieldFixture() {
+        val fixture = requireNotNull(
+            javaClass.classLoader?.getResource("contracts/workspace-layout-unknown-field-v1.json")
+        ).readText()
+        assertThrows(IllegalArgumentException::class.java) {
+            decodeWorkspaceLayout(org.json.JSONObject(fixture))
+        }
     }
 
     @Test

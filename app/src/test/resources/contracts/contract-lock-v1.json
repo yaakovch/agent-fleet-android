@@ -1,0 +1,25 @@
+{
+  "schemaVersion": 1,
+  "packageVersion": "1.0.0",
+  "algorithm": "sha256",
+  "files": {
+    "compatibility-v1.json": "b834b377003bd4244ce69ad7f8fcce8dd259b767d8729525b658db86b01fb053",
+    "fixtures/invalid/release-set-content-field-v1.json": "0773916d1faa1bcad47d350e4dfe61ed6014121174a07f00db9acd5b1881ac2f",
+    "fixtures/invalid/release-set-unknown-field-v1.json": "36853cff0f41d357d83269a53d576522ac21de81b482c4adb0b1f2b038aedb68",
+    "fixtures/invalid/workspace-layout-unknown-field-v1.json": "d582b16bf1a9e0c6ba67c1b42931ceff072a9a595b5aad6fcf05d3d1088af5b6",
+    "fixtures/valid/fleet-snapshot-base-v1.json": "3d47b09281599ce14b5b1c934dc9181d8b723bc71ead2669d9ab2775c5885dc4",
+    "fixtures/valid/release-set-v1.json": "6036a3634a7e1b6bd6af9489f41105dfa05c11ee6fdf85a753e8738b6ebbc137",
+    "fixtures/valid/workspace-layout-v1.json": "3edb3bacf9736114e62684e7ab3c698858c325b1fc7a315acc428c2966e5cf0e",
+    "limits-v1.json": "f38f7039aa657ba17741c84b5eab28599220e96a99c969de5011db3ef767f126",
+    "manifest-v1.json": "c27321c31349e8c336c4c266f66a9f4a9ea6240bd3a59d1bff2c2d3ad5ea8271",
+    "privacy-v1.json": "7a6ae97361c5d467b5bc1ef1b0ed24facc5dd4a02e0631d9539f22e9d8fce764",
+    "schemas/client-policy-v1.schema.json": "b5e5a0ef0fe5a13b0d425eba38a4386eb55807a6a893a4b2bbc04159169ad7c9",
+    "schemas/compatibility-v1.schema.json": "2b70c86549ecfb2c80fd1e45abe4837589cd441c76b1a6fce5b873db15bbb0b9",
+    "schemas/diagnostics-v1.schema.json": "b9ec40f5114419db4353f061b979ee28e8366e988dc8f2a8ba9ab7d5d4e56dc0",
+    "schemas/machine-v1.schema.json": "5ae21da535d53dc18214860bfbcdfec99ad6cd8ee23e41f4bfca34f43c8b0955",
+    "schemas/presets-v1.schema.json": "a1d538186b023e5f12b821fdda99c63c43d8d633d157d217e5e99a97a2959aa9",
+    "schemas/release-set-v1.schema.json": "4bb855ed7f65b341b73995f84e63d5d446c1b3c2d428973bd1d172d44b0e16cc",
+    "schemas/runtime-update-v1.schema.json": "92ddefd2c0bc5162680e3bca6ac8268b7bf7c94c25d66988aba5538aafa3f4b6",
+    "schemas/workspace-layout-v1.schema.json": "9c0eb0c0a29a3883dd9c1a21f862367e0b596863b66b34e6e1c007700fa9c867"
+  }
+}
