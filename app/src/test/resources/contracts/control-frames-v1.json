@@ -1,0 +1,393 @@
+{
+  "schemaVersion": 1,
+  "frames": [
+    {
+      "protocolVersion": 1,
+      "type": "request",
+      "timestamp": "2026-07-22T12:00:00Z",
+      "requestId": "fixture-1",
+      "method": "fleet.snapshot",
+      "params": {}
+    },
+    {
+      "protocolVersion": 1,
+      "type": "request",
+      "timestamp": "2026-07-22T12:00:00Z",
+      "requestId": "fixture-2",
+      "method": "protocol.capabilities",
+      "params": {}
+    },
+    {
+      "protocolVersion": 1,
+      "type": "request",
+      "timestamp": "2026-07-22T12:00:00Z",
+      "requestId": "fixture-3",
+      "method": "session.create",
+      "params": {
+        "hostId": "test-host",
+        "expectedRevision": "0123456789abcdef",
+        "idempotencyKey": "operation-1",
+        "project": "project",
+        "backend": "linux",
+        "tool": "codex",
+        "path": "/srv/project",
+        "locationKind": "custom"
+      }
+    },
+    {
+      "protocolVersion": 1,
+      "type": "request",
+      "timestamp": "2026-07-22T12:00:00Z",
+      "requestId": "fixture-4",
+      "method": "session.kill",
+      "params": {
+        "hostId": "test-host",
+        "expectedRevision": "0123456789abcdef",
+        "idempotencyKey": "operation-1",
+        "sessionId": "test-host:session-1"
+      }
+    },
+    {
+      "protocolVersion": 1,
+      "type": "request",
+      "timestamp": "2026-07-22T12:00:00Z",
+      "requestId": "fixture-5",
+      "method": "session.rename",
+      "params": {
+        "hostId": "test-host",
+        "expectedRevision": "0123456789abcdef",
+        "idempotencyKey": "operation-1",
+        "sessionId": "test-host:session-1",
+        "name": "Project One"
+      }
+    },
+    {
+      "protocolVersion": 1,
+      "type": "request",
+      "timestamp": "2026-07-22T12:00:00Z",
+      "requestId": "fixture-6",
+      "method": "session.name.reset",
+      "params": {
+        "hostId": "test-host",
+        "expectedRevision": "0123456789abcdef",
+        "idempotencyKey": "operation-1",
+        "sessionId": "test-host:session-1"
+      }
+    },
+    {
+      "protocolVersion": 1,
+      "type": "request",
+      "timestamp": "2026-07-22T12:00:00Z",
+      "requestId": "fixture-7",
+      "method": "schedule.cancel",
+      "params": {
+        "hostId": "test-host",
+        "expectedRevision": "0123456789abcdef",
+        "idempotencyKey": "operation-1",
+        "scheduleId": "schedule-1"
+      }
+    },
+    {
+      "protocolVersion": 1,
+      "type": "request",
+      "timestamp": "2026-07-22T12:00:00Z",
+      "requestId": "fixture-8",
+      "method": "schedule.create",
+      "params": {
+        "hostId": "test-host",
+        "expectedRevision": "0123456789abcdef",
+        "idempotencyKey": "operation-1",
+        "sessionId": "test-host:session-1",
+        "deliverAt": "2026-07-23T12:00:00Z",
+        "action": "continue",
+        "attentionId": "attention-1"
+      }
+    },
+    {
+      "protocolVersion": 1,
+      "type": "request",
+      "timestamp": "2026-07-22T12:00:00Z",
+      "requestId": "fixture-9",
+      "method": "schedule.update",
+      "params": {
+        "hostId": "test-host",
+        "expectedRevision": "0123456789abcdef",
+        "idempotencyKey": "operation-1",
+        "scheduleId": "schedule-1",
+        "deliverAt": "2026-07-23T12:00:00Z"
+      }
+    },
+    {
+      "protocolVersion": 1,
+      "type": "request",
+      "timestamp": "2026-07-22T12:00:00Z",
+      "requestId": "fixture-10",
+      "method": "attention.dismiss",
+      "params": {
+        "hostId": "test-host",
+        "expectedRevision": "0123456789abcdef",
+        "idempotencyKey": "operation-1",
+        "attentionId": "attention-1"
+      }
+    },
+    {
+      "protocolVersion": 1,
+      "type": "request",
+      "timestamp": "2026-07-22T12:00:00Z",
+      "requestId": "fixture-11",
+      "method": "host.doctor",
+      "params": {
+        "hostId": "test-host",
+        "expectedRevision": "0123456789abcdef",
+        "idempotencyKey": "operation-1"
+      }
+    },
+    {
+      "protocolVersion": 1,
+      "type": "request",
+      "timestamp": "2026-07-22T12:00:00Z",
+      "requestId": "fixture-12",
+      "method": "host.update",
+      "params": {
+        "hostId": "test-host",
+        "expectedRevision": "0123456789abcdef",
+        "idempotencyKey": "operation-1"
+      }
+    },
+    {
+      "protocolVersion": 1,
+      "type": "request",
+      "timestamp": "2026-07-22T12:00:00Z",
+      "requestId": "fixture-13",
+      "method": "directory.list",
+      "params": {
+        "hostId": "test-host",
+        "expectedRevision": "0123456789abcdef",
+        "idempotencyKey": "operation-1",
+        "backend": "linux",
+        "path": "/srv/project"
+      }
+    },
+    {
+      "protocolVersion": 1,
+      "type": "request",
+      "timestamp": "2026-07-22T12:00:00Z",
+      "requestId": "fixture-14",
+      "method": "directory.create",
+      "params": {
+        "hostId": "test-host",
+        "expectedRevision": "0123456789abcdef",
+        "idempotencyKey": "operation-1",
+        "backend": "linux",
+        "parentPath": "/srv/project",
+        "name": "docs"
+      }
+    },
+    {
+      "protocolVersion": 1,
+      "type": "request",
+      "timestamp": "2026-07-22T12:00:00Z",
+      "requestId": "fixture-15",
+      "method": "repository.list",
+      "params": {
+        "hostId": "test-host",
+        "expectedRevision": "0123456789abcdef",
+        "idempotencyKey": "operation-1",
+        "sessionId": "test-host:session-1",
+        "relativePath": "docs",
+        "includeHidden": false,
+        "cursor": ""
+      }
+    },
+    {
+      "protocolVersion": 1,
+      "type": "request",
+      "timestamp": "2026-07-22T12:00:00Z",
+      "requestId": "fixture-16",
+      "method": "repository.search",
+      "params": {
+        "hostId": "test-host",
+        "expectedRevision": "0123456789abcdef",
+        "idempotencyKey": "operation-1",
+        "sessionId": "test-host:session-1",
+        "query": "readme",
+        "includeHidden": false
+      }
+    },
+    {
+      "protocolVersion": 1,
+      "type": "request",
+      "timestamp": "2026-07-22T12:00:00Z",
+      "requestId": "fixture-17",
+      "method": "session.model.get",
+      "params": {
+        "hostId": "test-host",
+        "sessionId": "test-host:session-1",
+        "includeCatalog": true
+      }
+    },
+    {
+      "protocolVersion": 1,
+      "type": "request",
+      "timestamp": "2026-07-22T12:00:00Z",
+      "requestId": "fixture-18",
+      "method": "session.model.set",
+      "params": {
+        "hostId": "test-host",
+        "sessionId": "test-host:session-1",
+        "modelId": "gpt-5",
+        "effortId": "high",
+        "custom": false,
+        "expectedConfigRevision": "0123456789abcdef",
+        "idempotencyKey": "operation-1",
+        "historyImpactAcknowledged": true
+      }
+    },
+    {
+      "protocolVersion": 1,
+      "type": "request",
+      "timestamp": "2026-07-22T12:00:00Z",
+      "requestId": "fixture-19",
+      "method": "session.model.cancel",
+      "params": {
+        "hostId": "test-host",
+        "sessionId": "test-host:session-1",
+        "expectedConfigRevision": "0123456789abcdef",
+        "idempotencyKey": "operation-1"
+      }
+    },
+    {
+      "protocolVersion": 1,
+      "type": "request",
+      "timestamp": "2026-07-22T12:00:00Z",
+      "requestId": "fixture-20",
+      "method": "preset.upsert",
+      "params": {
+        "expectedRevision": "0123456789abcdef",
+        "idempotencyKey": "operation-1",
+        "preset": {
+          "id": "preset-1",
+          "name": "Project",
+          "hostId": "test-host",
+          "project": "project",
+          "backend": "linux",
+          "tool": "codex",
+          "profileAlias": "Codex"
+        }
+      }
+    },
+    {
+      "protocolVersion": 1,
+      "type": "request",
+      "timestamp": "2026-07-22T12:00:00Z",
+      "requestId": "fixture-21",
+      "method": "preset.delete",
+      "params": {
+        "presetId": "preset-1",
+        "expectedRevision": "0123456789abcdef",
+        "idempotencyKey": "operation-1"
+      }
+    },
+    {
+      "protocolVersion": 1,
+      "type": "request",
+      "timestamp": "2026-07-22T12:00:00Z",
+      "requestId": "fixture-22",
+      "method": "pairing.invite",
+      "params": {
+        "expectedRevision": "0123456789abcdef",
+        "idempotencyKey": "operation-1"
+      }
+    },
+    {
+      "protocolVersion": 1,
+      "type": "request",
+      "timestamp": "2026-07-22T12:00:00Z",
+      "requestId": "fixture-23",
+      "method": "pairing.review",
+      "params": {
+        "pairingRequestId": "pairing-1",
+        "expectedRevision": "0123456789abcdef",
+        "idempotencyKey": "operation-1"
+      }
+    },
+    {
+      "protocolVersion": 1,
+      "type": "request",
+      "timestamp": "2026-07-22T12:00:00Z",
+      "requestId": "fixture-24",
+      "method": "pairing.approve",
+      "params": {
+        "pairingRequestId": "pairing-1",
+        "expectedRevision": "0123456789abcdef",
+        "idempotencyKey": "operation-1"
+      }
+    },
+    {
+      "protocolVersion": 1,
+      "type": "request",
+      "timestamp": "2026-07-22T12:00:00Z",
+      "requestId": "fixture-25",
+      "method": "pairing.reject",
+      "params": {
+        "pairingRequestId": "pairing-1",
+        "expectedRevision": "0123456789abcdef",
+        "idempotencyKey": "operation-1"
+      }
+    },
+    {
+      "protocolVersion": 1,
+      "type": "request",
+      "timestamp": "2026-07-22T12:00:00Z",
+      "requestId": "fixture-26",
+      "method": "pairing.revoke",
+      "params": {
+        "invitationId": "invitation-1",
+        "expectedRevision": "0123456789abcdef",
+        "idempotencyKey": "operation-1"
+      }
+    },
+    {
+      "protocolVersion": 1,
+      "type": "response",
+      "requestId": "fixture-success",
+      "timestamp": "2026-07-22T12:00:00Z",
+      "ok": true,
+      "result": {}
+    },
+    {
+      "protocolVersion": 1,
+      "type": "response",
+      "requestId": "fixture-error",
+      "timestamp": "2026-07-22T12:00:00Z",
+      "ok": false,
+      "error": {
+        "code": "invalid_request",
+        "message": "Synthetic fixture error"
+      }
+    },
+    {
+      "protocolVersion": 1,
+      "type": "event",
+      "eventId": "event-host",
+      "event": "host.heartbeat",
+      "timestamp": "2026-07-22T12:00:00Z",
+      "revision": "0123456789abcdef",
+      "data": {
+        "hostId": "test-host",
+        "agentVersion": "fixture"
+      }
+    },
+    {
+      "protocolVersion": 1,
+      "type": "event",
+      "eventId": "event-fleet",
+      "event": "fleet.heartbeat",
+      "timestamp": "2026-07-22T12:00:00Z",
+      "revision": "0123456789abcdef",
+      "data": {
+        "hostCount": 1
+      }
+    }
+  ]
+}

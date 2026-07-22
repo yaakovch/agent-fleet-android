@@ -681,6 +681,7 @@ class FleetRuntime(private val context: Context) {
             .put("method", method)
             .put("timestamp", isoUtc(System.currentTimeMillis()))
             .put("params", params)
+        ControlContract.requireValidRequest(request)
         process.outputStream.bufferedWriter(Charsets.UTF_8).use { writer ->
             writer.write(request.toString())
             writer.newLine()
@@ -730,6 +731,7 @@ class FleetRuntime(private val context: Context) {
             .put("method", method)
             .put("timestamp", isoUtc(System.currentTimeMillis()))
             .put("params", params)
+        ControlContract.requireValidRequest(request)
         try {
             channel.writer.write(request.toString())
             channel.writer.newLine()

@@ -21,10 +21,13 @@ class ReleaseSetContractTest {
         assertEquals("sha256", lock.getString("algorithm"))
         val files = lock.getJSONObject("files")
         val fixtures = mapOf(
+            "fixtures/valid/control-frames-v1.json" to "control-frames-v1.json",
             "fixtures/valid/conversation-structured-work-v2.json" to "conversation-structured-work-v2.json",
             "fixtures/valid/fleet-snapshot-base-v1.json" to "fleet-snapshot-base-v1.json",
             "fixtures/valid/release-set-v1.json" to "release-set-v1.json",
             "fixtures/valid/workspace-layout-v1.json" to "workspace-layout-v1.json",
+            "fixtures/invalid/control-content-field-v1.json" to "control-content-field-v1.json",
+            "fixtures/invalid/control-unknown-field-v1.json" to "control-unknown-field-v1.json",
             "fixtures/invalid/conversation-item-unknown-field-v2.json" to "conversation-item-unknown-field-v2.json",
             "fixtures/invalid/conversation-unknown-field-v2.json" to "conversation-unknown-field-v2.json",
             "fixtures/invalid/fleet-snapshot-content-field-v1.json" to "fleet-snapshot-content-field-v1.json",

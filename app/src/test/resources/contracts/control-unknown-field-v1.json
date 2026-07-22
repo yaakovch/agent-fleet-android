@@ -1,0 +1,9 @@
+{
+  "protocolVersion": 1,
+  "type": "request",
+  "timestamp": "2026-07-22T12:00:00Z",
+  "requestId": "fixture-1",
+  "method": "fleet.snapshot",
+  "params": {},
+  "unexpected": true
+}

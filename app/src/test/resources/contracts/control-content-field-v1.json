@@ -1,0 +1,14 @@
+{
+  "protocolVersion": 1,
+  "type": "request",
+  "timestamp": "2026-07-22T12:00:00Z",
+  "requestId": "fixture-4",
+  "method": "session.kill",
+  "params": {
+    "hostId": "test-host",
+    "expectedRevision": "0123456789abcdef",
+    "idempotencyKey": "operation-1",
+    "sessionId": "test-host:session-1",
+    "prompt": "forbidden"
+  }
+}
