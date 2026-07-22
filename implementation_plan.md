@@ -1512,3 +1512,25 @@ and the universal APK SHA-256 is
 `206f1256f3e5ba3f009e9cd13b0506f7fbbdcce28392c0291f66ab515ee5a3dc`.
 `.75` remains available for rollback. Automated tooling did not access the
 physical S23FE.
+
+## 56. Deterministic Android Build And Release Workflow
+
+1. Make the existing controller JDK 17 the Bash default and add a repository
+   Gradle launcher that validates Java before every focused task or lint run.
+2. Add `auto`, `windows`, and `managed` emulator backend selection. Prefer the
+   isolated Windows API 36 AVD under WSL, preserve the existing compatibility
+   flag, and keep managed-device and physical-serial safety coverage.
+3. Consolidate app version metadata, migrate the release password to a
+   mode-0600 signing file, and validate Java, tooling, credentials, Git state,
+   published app/runtime sequences, and source version before Gradle starts.
+4. Add one timed app-release command for full validation, lint, one signed
+   build, verification, default publication, and HTTPS served-byte checks, with
+   an explicit hold mode and metadata-only reports.
+5. Add deterministic unit/integration coverage for selection, preflight,
+   ordering, hold behavior, and redaction. Benchmark daemon, cache, and
+   parallel candidates three times and retain only verified median gains of at
+   least ten percent.
+6. Update Android debugging and private-release documentation first, then
+   AGENTS and the Android debugging skill/lessons. Run the protected Windows
+   and managed API 36 suites, lint, script tests, shell syntax, and skill
+   validation without publishing an APK or touching the physical S23FE.

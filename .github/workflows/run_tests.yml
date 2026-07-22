@@ -27,5 +27,6 @@ jobs:
 
       - name: Rehearse encrypted backup rollback
         run: |
-          bash -n scripts/release/*.sh scripts/migration/*.sh
+          bash -n scripts/debug/*.sh scripts/release/*.sh scripts/migration/*.sh
+          python3 -m unittest discover -s scripts/tests -p 'test_*.py'
           scripts/migration/rehearse-backup-rollback.sh

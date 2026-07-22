@@ -4,6 +4,9 @@ set -euo pipefail
 [[ $# -eq 1 ]] || { echo "usage: $0 RELEASE_DIRECTORY" >&2; exit 2; }
 directory="$(cd "$1" && pwd)"
 (cd "$directory" && sha256sum -c SHA256SUMS)
+repo="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+java_home="$("$repo/scripts/debug/android-gradle.sh" --print-java-home)"
+java_bin="$java_home/bin/java"
 
 sdk="${ANDROID_SDK_ROOT:-${ANDROID_HOME:-}}"
 if [[ -z "$sdk" ]]; then
@@ -26,9 +29,9 @@ if [[ ! -x "$aapt2" && -f "${aapt2}.exe" ]]; then
 fi
 [[ "$aapt2_platform" == "windows" || -x "$aapt2" ]] || { echo "missing aapt2 in $build_tools" >&2; exit 1; }
 
-python3 - "$directory/manifest.json" "$directory" "$apksigner_jar" "$aapt2" "$aapt2_platform" "$aapt2_directory" "$windows_cmd" <<'PY'
+python3 - "$directory/manifest.json" "$directory" "$apksigner_jar" "$aapt2" "$aapt2_platform" "$aapt2_directory" "$windows_cmd" "$java_bin" <<'PY'
 import base64, hashlib, json, pathlib, re, subprocess, sys, zipfile
-manifest_path, directory, apksigner, aapt2, aapt2_platform, aapt2_directory, windows_cmd = sys.argv[1:]
+manifest_path, directory, apksigner, aapt2, aapt2_platform, aapt2_directory, windows_cmd, java_bin = sys.argv[1:]
 manifest = json.loads(pathlib.Path(manifest_path).read_text(encoding="utf-8"))
 required = {"schemaVersion", "applicationId", "versionCode", "versionName", "apkUrl", "apkSha256", "certificateSha256", "size"}
 if not required <= manifest.keys() or manifest["schemaVersion"] != 1 or manifest["applicationId"] != "com.yaakovch.fleet":
@@ -92,7 +95,7 @@ for item in artifacts:
     apk = pathlib.Path(directory, pathlib.PurePosixPath(item["apkUrl"]).name)
     if apk.stat().st_size != item["size"] or hashlib.sha256(apk.read_bytes()).hexdigest() != item["apkSha256"]:
         raise SystemExit(f"{item['abi']} APK size or checksum mismatch")
-    result = subprocess.run(["java", "-jar", apksigner, "verify", "--print-certs", str(apk)], check=True, text=True, capture_output=True)
+    result = subprocess.run([java_bin, "-jar", apksigner, "verify", "--print-certs", str(apk)], check=True, text=True, capture_output=True)
     match = re.search(r"Signer #1 certificate SHA-256 digest: ([0-9a-fA-F]{64})", result.stdout)
     if not match or match.group(1).lower() != manifest["certificateSha256"]:
         raise SystemExit(f"{item['abi']} APK certificate mismatch")

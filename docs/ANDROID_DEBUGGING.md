@@ -6,29 +6,38 @@ install, type, scroll, capture, or run ADB commands against it.
 
 ## Daily commands
 
+Run a focused JVM regression through the Java-17-aware launcher:
+
+```bash
+scripts/debug/android-gradle.sh :app:testDebugUnitTest --tests com.termux.app.ExampleTest --console=plain
+```
+
 Run the fast Compose scenario suite on the existing Windows AVD:
 
 ```bash
 bash scripts/debug/android-check.sh fast
 ```
 
-Run JVM tests plus the canonical Gradle-managed Pixel 7 / API 36 device:
+Run JVM tests plus the complete Pixel 7 / API 36 suite. Under WSL, `auto`
+prefers the protected persistent Windows AVD even when `/dev/kvm` is usable:
 
 ```bash
 bash scripts/debug/android-check.sh full
 ```
 
-When `/dev/kvm` is unavailable (as in this WSL environment), `full` uses the
-isolated Windows API 36 AVD and runs the same JVM, Compose, and golden suites.
-KVM-enabled Linux and CI use the Gradle-managed device.
+For a publish-bound change, run the focused regression and then `full`; do not
+also run `fast`, because `full` contains that Compose coverage. `fast` remains
+the normal iteration loop for UI changes that are not immediately releasing.
 
-If local KVM is available but its managed-device image is unhealthy (for
-example, it reports exhausted device storage), select the same protected
-Windows path explicitly without weakening device checks:
+Force the Gradle-managed emulator for CI parity or after changing emulator
+orchestration:
 
 ```bash
-AGENT_FLEET_USE_WINDOWS_AVD=1 bash scripts/debug/android-check.sh full
+AGENT_FLEET_EMULATOR_BACKEND=managed bash scripts/debug/android-check.sh full
 ```
+
+`AGENT_FLEET_EMULATOR_BACKEND` accepts `auto`, `windows`, or `managed`.
+`AGENT_FLEET_USE_WINDOWS_AVD=1` remains a compatibility alias for `windows`.
 
 Generate candidate screenshot references for review:
 
@@ -71,6 +80,22 @@ runner even after Android finishes booting.
 The canonical local AVD is `AgentFleet_S23FE_API36`, configured as a Pixel 7 at
 1080×2400 and 420 dpi. The Gradle managed-device equivalent is
 `agentFleetPixel7Api36`.
+
+## Build performance
+
+The debug runner keeps Gradle's daemon and parallel project execution, while
+leaving the build cache disabled. A three-run controller benchmark of
+`:app:assembleDebugAndroidTest` measured a 33.5% median gain from daemon reuse,
+a further 48.1% from parallel execution, and only 2.3% from build cache. Re-run
+the benchmark after material Gradle, filesystem, or toolchain changes:
+
+```bash
+scripts/debug/benchmark-gradle.sh
+```
+
+Results are written under `build/reports/agent-fleet/gradle/`. Keep a candidate
+only when its independent median improvement is at least 10% and subsequent
+focused/full validation passes.
 
 ## Coverage
 

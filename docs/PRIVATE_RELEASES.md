@@ -3,6 +3,20 @@
 Public CI produces unsigned review artifacts. Daily-driver APKs are signed only
 on a controller with the private Agent Fleet key.
 
+## Controller setup
+
+The controller uses its existing JDK 17 and stores the release password beside
+the keystore as `agent-fleet-release.pass`, mode `0600`. Configure the password,
+served URLs, and publication destination once without printing the password:
+
+```bash
+scripts/release/configure-local-release.sh /path/to/password.txt https://gaming-desktop-1.tail51b214.ts.net/agent-fleet/fleet/latest local:/home/sapir_cz/.local/share/agent-fleet/public https://gaming-desktop-1.tail51b214.ts.net/agent-fleet/runtime/runtime-manifest.json
+```
+
+The source file is not used again or deleted automatically. Override the
+default signing/config paths only with `AGENT_FLEET_SIGNING_DIR`,
+`AGENT_FLEET_STORE_PASSWORD_FILE`, or `AGENT_FLEET_RELEASE_CONFIG`.
+
 ## Default rollout policy
 
 After a permanent-ID Android release passes its documented JVM, API 36,
@@ -32,19 +46,24 @@ would target a different application ID or release lane.
    app/src/main/agent-fleet`. App builds verify both complete public bundles;
    never substitute an official-Termux bootstrap or direct package URL. The
    custom bootstrap must keep remote APT sources disabled.
-4. Build with a monotonically increasing version code and the HTTPS directory
-   that will host the APK:
-   `scripts/release/build-signed-release.sh 0.118.4-agentfleet.56 1058 https://host.example/agent-fleet/fleet/latest`.
-   The release contains an arm64 daily-driver APK plus a universal recovery APK.
-   Keep the Windows Gradle child non-interactive with a plain console and
-   redirected stdin; otherwise an automated ConPTY can pause on a cursor-position
-   query before Gradle starts.
-5. Verify with `scripts/release/verify-release.sh dist/0.118.4-agentfleet.56`.
-6. On the primary controller, set
-   `AGENT_FLEET_PUBLISH_PRIMARY=local:/absolute/private/serve/path`. For a
-   remote primary use `user@gaming-desktop:/srv/agent-fleet`; optionally set
-   `AGENT_FLEET_PUBLISH_FALLBACK=user@work-m:/srv/agent-fleet`. Then run
-   `scripts/release/publish-release.sh DIST_DIRECTORY`.
+4. Change `app/version.properties` to a version code greater than both the
+   published APK code and runtime sequence. Complete the focused regression,
+   commit every tracked release change, push it, and ensure the branch is clean
+   and synchronized with its upstream.
+5. Run `scripts/release/app-release.sh`. It performs the sequence and credential
+   preflight, protected Windows-AVD full suite, release lint, one signed build,
+   artifact verification, publication, and HTTPS served-byte verification.
+   Use `--hold` to stop after verification or `--preflight-only` to check a
+   prepared next version without building. Stage timings are stored under
+   `build/reports/agent-fleet/release/`.
+6. The lower-level `build-signed-release.sh`, `verify-release.sh`, and
+   `publish-release.sh` commands remain available for recovery. The signed
+   builder requires arguments that exactly match `app/version.properties` and
+   refuses invalid credentials, dirty source, or an unpushed commit before
+   Gradle starts. It keeps the Windows Gradle child noninteractive with a plain
+   console and redirected stdin.
+7. For a remote primary use `user@gaming-desktop:/srv/agent-fleet`; optionally
+   configure `AGENT_FLEET_PUBLISH_FALLBACK=user@work-m:/srv/agent-fleet`.
    The local path is the filesystem root seen by the HTTP backend after any
    reverse-proxy mount prefix is removed. For the current Tailscale Serve
    `/agent-fleet` proxy, publish to
@@ -53,7 +72,7 @@ would target a different application ID or release lane.
    under `fleet/latest`; the existing top-level `latest` remains the
    `com.termux` legacy lane. Verify both `manifest.json` and the APK URL
    through the externally served URL before announcing the release.
-7. Put the primary/fallback app and runtime manifest URLs plus their approved
+8. Put the primary/fallback app and runtime manifest URLs plus their approved
    artifact origins in a strict `client-policy-v1` file. Pass it to
    `wtmux-pairing prepare-artifacts --client-policy FILE`; pairing installs it
    on Android. Update sources are no longer entered manually in the app.
@@ -70,3 +89,8 @@ certificate already installed on the phone. Android still presents its normal
 installer confirmation. Runtime updates additionally require the pinned Ed25519
 key, a new monotonic sequence, a compatible protocol/app version, and a passing
 doctor check; failure rolls back automatically.
+
+Release preflight intentionally runs before embedded-runtime verification or
+Gradle. A wrong password, unsafe password-file mode, dirty/unpushed source,
+source/argument version mismatch, or reused monotonic sequence must fail in a
+few seconds and must not create or publish an APK.

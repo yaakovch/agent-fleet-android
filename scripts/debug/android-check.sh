@@ -9,6 +9,8 @@ esac
 
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 cd "$root"
+gradle="$root/scripts/debug/android-gradle.sh"
+backend_selector="$root/scripts/debug/select-emulator-backend.sh"
 stamp="$(date -u +%Y%m%dT%H%M%SZ)"
 artifacts="$root/build/reports/agent-fleet/emulator/$stamp-$mode"
 mkdir -p "$artifacts"
@@ -16,7 +18,7 @@ log="$artifacts/run.log"
 app_package="com.yaakovch.fleet"
 test_package="${app_package}.test"
 
-java_home="${JAVA_HOME:-$HOME/.local/share/agent-fleet/jdk17}"
+java_home="$("$gradle" --print-java-home)"
 linux_sdk="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-$HOME/.local/share/android-sdk}}"
 export JAVA_HOME="$java_home"
 export ANDROID_HOME="$linux_sdk"
@@ -28,12 +30,17 @@ if [[ -n "${ANDROID_SERIAL:-}" && "${ANDROID_SERIAL}" != emulator-* ]]; then
   fail "ANDROID_SERIAL points at a physical device; this runner only accepts emulator-*"
 fi
 
-use_windows_avd="${AGENT_FLEET_USE_WINDOWS_AVD:-0}"
-[[ "$use_windows_avd" == "0" || "$use_windows_avd" == "1" ]] || fail "AGENT_FLEET_USE_WINDOWS_AVD must be 0 or 1"
+backend="windows"
+if [[ "$mode" == "full" ]]; then
+  backend="$("$backend_selector")" || fail "emulator backend selection failed"
+elif [[ "${AGENT_FLEET_EMULATOR_BACKEND:-auto}" == "managed" ]]; then
+  fail "the managed backend is available only for the full suite"
+fi
 
-if [[ "$mode" == "full" && "$use_windows_avd" != "1" && -r /dev/kvm && -w /dev/kvm ]]; then
+if [[ "$mode" == "full" && "$backend" == "managed" ]]; then
   say "running full Pixel 7 / API 36 managed-device suite"
-  if ./gradlew :app:testDebugUnitTest :app:agentFleetPixel7Api36DebugAndroidTest --no-daemon --console=plain >"$log" 2>&1; then
+  if "$gradle" :app:testDebugUnitTest :app:agentFleetPixel7Api36DebugAndroidTest \
+    --daemon --no-build-cache --parallel --console=plain >"$log" 2>&1; then
     cp -R app/build/reports/androidTests/managedDevice "$artifacts/" 2>/dev/null || true
     cp -R app/build/outputs/androidTest-results/managedDevice "$artifacts/" 2>/dev/null || true
     say "PASS · report: $artifacts"
@@ -43,11 +50,7 @@ if [[ "$mode" == "full" && "$use_windows_avd" != "1" && -r /dev/kvm && -w /dev/k
   fail "managed-device tests failed"
 fi
 if [[ "$mode" == "full" ]]; then
-  if [[ "$use_windows_avd" == "1" ]]; then
-    say "using the explicitly selected isolated Windows API 36 emulator for the full suite"
-  else
-    say "KVM is unavailable; using the isolated Windows API 36 emulator for the full suite"
-  fi
+  say "using the isolated Windows API 36 emulator for the full suite"
 fi
 
 windows_sdk="${AGENT_FLEET_WINDOWS_ANDROID_SDK:-}"
@@ -119,8 +122,8 @@ if [[ "$mode" == "migration-lanes" ]]; then
   legacy_badging="$("$aapt2" dump badging "$legacy_apk")"
   [[ "$legacy_badging" == "package: name='com.termux' "* ]] || \
     fail "legacy lane APK has the wrong application ID"
-  permanent_cert="$(java -jar "$apksigner_jar" verify --print-certs "$permanent_apk" | awk -F': ' '/Signer #1 certificate SHA-256 digest:/ && !found {print tolower($2); found=1}')"
-  legacy_cert="$(java -jar "$apksigner_jar" verify --print-certs "$legacy_apk" | awk -F': ' '/Signer #1 certificate SHA-256 digest:/ && !found {print tolower($2); found=1}')"
+  permanent_cert="$("$java_home/bin/java" -jar "$apksigner_jar" verify --print-certs "$permanent_apk" | awk -F': ' '/Signer #1 certificate SHA-256 digest:/ && !found {print tolower($2); found=1}')"
+  legacy_cert="$("$java_home/bin/java" -jar "$apksigner_jar" verify --print-certs "$legacy_apk" | awk -F': ' '/Signer #1 certificate SHA-256 digest:/ && !found {print tolower($2); found=1}')"
   [[ "$permanent_cert" =~ ^[a-f0-9]{64}$ && "$permanent_cert" == "$legacy_cert" ]] || \
     fail "migration lane APK certificates do not match"
   adb_run -s "$serial" uninstall "$test_package" >>"$log" 2>&1 || true
@@ -147,7 +150,7 @@ say "building tests"
 gradle_tasks=(:app:assembleDebug)
 [[ "$mode" != "coinstall" ]] && gradle_tasks+=(:app:assembleDebugAndroidTest)
 [[ "$mode" == "full" ]] && gradle_tasks+=(:app:testDebugUnitTest)
-if ! ./gradlew "${gradle_tasks[@]}" --no-daemon --console=plain >"$log" 2>&1; then
+if ! "$gradle" "${gradle_tasks[@]}" --daemon --no-build-cache --parallel --console=plain >"$log" 2>&1; then
   tail -n 35 "$log" >&2
   fail "test build failed"
 fi

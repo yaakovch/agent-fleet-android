@@ -6,6 +6,7 @@ import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
 import androidx.compose.ui.platform.ComposeView
+import com.termux.BuildConfig
 import com.termux.R
 import com.termux.view.TerminalView
 import org.junit.Assert.assertEquals
@@ -31,8 +32,8 @@ class AgentFleetIdentityContractTest {
             PackageManager.GET_ACTIVITIES or PackageManager.GET_PROVIDERS or PackageManager.GET_SERVICES or
                 PackageManager.GET_PERMISSIONS or PackageManager.GET_META_DATA
         )
-        assertEquals(1082, info.longVersionCode)
-        assertEquals("0.118.4-agentfleet.76", info.versionName)
+        assertEquals(BuildConfig.VERSION_CODE.toLong(), info.longVersionCode)
+        assertEquals(BuildConfig.VERSION_NAME, info.versionName)
         assertNull(info.sharedUserId)
         val exportedActivities = info.activities.orEmpty().filter { it.exported && it.name.startsWith("com.termux.") }.associateBy { it.name }
         assertEquals(

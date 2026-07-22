@@ -20,6 +20,8 @@ local.properties
 # Gradle generated files
 .gradle/
 .kotlin/
+__pycache__/
+*.pyc
 
 # Signing files
 .signing/

@@ -4,12 +4,25 @@ plugins {
     id "org.jetbrains.kotlin.plugin.compose"
 }
 
+def agentFleetVersionProperties = new Properties()
+def agentFleetVersionFile = file("version.properties")
+if (!agentFleetVersionFile.isFile()) {
+    throw new GradleException("Missing Agent Fleet version source: ${agentFleetVersionFile}")
+}
+agentFleetVersionFile.withInputStream { agentFleetVersionProperties.load(it) }
+def agentFleetSourceVersionName = agentFleetVersionProperties.getProperty("VERSION_NAME", "")
+def agentFleetSourceVersionCode = agentFleetVersionProperties.getProperty("VERSION_CODE", "")
+if (!(agentFleetSourceVersionName ==~ /^\d+\.\d+\.\d+-agentfleet\.\d+$/) ||
+    !(agentFleetSourceVersionCode ==~ /^[1-9]\d*$/)) {
+    throw new GradleException("Invalid Agent Fleet version source")
+}
+
 android {
     namespace "com.termux"
     compileSdkVersion project.properties.compileSdkVersion.toInteger()
     ndkVersion = System.getenv("JITPACK_NDK_VERSION") ?: project.properties.ndkVersion
-    def appVersionName = System.getenv("TERMUX_APP_VERSION_NAME") ?: ""
-    def appVersionCode = System.getenv("TERMUX_APP_VERSION_CODE") ?: ""
+    def appVersionName = System.getenv("TERMUX_APP_VERSION_NAME") ?: agentFleetSourceVersionName
+    def appVersionCode = System.getenv("TERMUX_APP_VERSION_CODE") ?: agentFleetSourceVersionCode
     def apkVersionTag = System.getenv("TERMUX_APK_VERSION_TAG") ?: ""
     def splitAPKsForDebugBuilds = System.getenv("TERMUX_SPLIT_APKS_FOR_DEBUG_BUILDS") ?: "1"
     def splitAPKsForReleaseBuilds = System.getenv("TERMUX_SPLIT_APKS_FOR_RELEASE_BUILDS") ?: "0" // F-Droid does not support split APKs #1904
@@ -44,13 +57,11 @@ android {
         applicationId "com.yaakovch.fleet"
         minSdkVersion project.properties.minSdkVersion.toInteger()
         targetSdkVersion project.properties.targetSdkVersion.toInteger()
-        versionCode 1082
-        versionName "0.118.4-agentfleet.76"
+        versionCode appVersionCode.toInteger()
+        versionName appVersionName
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         testInstrumentationRunnerArguments clearPackageData: "true"
 
-        if (appVersionName) versionName = appVersionName
-        if (appVersionCode) versionCode = appVersionCode.toInteger()
         validateVersionName(versionName)
 
         manifestPlaceholders.TERMUX_PACKAGE_NAME = "com.yaakovch.fleet"
@@ -111,6 +122,7 @@ android {
 
     buildFeatures {
         compose true
+        buildConfig true
     }
 
     externalNativeBuild {

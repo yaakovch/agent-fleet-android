@@ -697,3 +697,32 @@ trusted fleet.
   intended managed target. This callback ordering must still reconnect exit
   255, while normal exits, background exits, and differently identified
   sessions remain excluded.
+
+## Deterministic Android Build And Release Workflow
+
+- Android development on the controller uses the existing pinned JDK 17 for
+  login shells, interactive shells, focused Gradle work, emulator runners, lint,
+  signing, and APK verification. Repository launchers validate the selected
+  JDK before Gradle starts instead of relying on the machine's older default.
+- Local WSL validation uses the protected persistent Windows Pixel 7/API 36 AVD
+  by default. A managed-emulator override remains available for CI, periodic
+  parity checks, and changes to emulator orchestration. Both paths retain the
+  isolated ADB server, x86_64/API/qemu checks, and physical-device refusal.
+- A publish-bound change runs its focused regression followed by one complete
+  API 36 suite. The separate fast Compose suite remains an iteration tool and
+  is not repeated when the complete suite will immediately follow.
+- App version name and code have one tracked source. A private controller-local
+  configuration supplies release endpoints and publication destinations, while
+  a mode-0600 file beside the keystore supplies its password. Credentials are
+  validated before Gradle and never appear in logs, reports, diagnostics, or
+  tracked files.
+- One release command requires a clean committed and pushed revision, validates
+  the shared APK/runtime monotonic sequence, runs complete tests and lint,
+  builds and signs once, verifies identity/runtime/checksums, publishes by
+  default, and verifies the externally served manifest and APK bytes. An
+  explicit hold completes verification without publication.
+- Each release writes metadata-only stage timings under build reports. Invalid
+  Java, credentials, repository state, version metadata, or sequence fail
+  before compilation. Gradle daemon, cache, or parallel settings are retained
+  only after a repeatable benchmark shows at least a ten-percent median gain
+  with equivalent outputs and passing tests.

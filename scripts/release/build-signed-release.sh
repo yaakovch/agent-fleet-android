@@ -1,7 +1,12 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-[[ $# -eq 3 ]] || { echo "usage: $0 VERSION_NAME VERSION_CODE HTTPS_BASE_URL" >&2; exit 2; }
+preflight_only=0
+if [[ "${1:-}" == "--preflight-only" ]]; then
+  preflight_only=1
+  shift
+fi
+[[ $# -eq 3 ]] || { echo "usage: $0 [--preflight-only] VERSION_NAME VERSION_CODE HTTPS_BASE_URL" >&2; exit 2; }
 version_name="$1"
 version_code="$2"
 base_url="${3%/}"
@@ -9,29 +14,30 @@ base_url="${3%/}"
 [[ "$base_url" == https://* ]] || { echo "release URL must use HTTPS" >&2; exit 2; }
 
 repo="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-"$repo/scripts/runtime/verify-embedded-runtime.py" "$repo/app/src/main/agent-fleet"
+source "$repo/scripts/release/release-common.sh"
+agent_fleet_release_read_version "$repo"
+[[ "$version_name" == "$AGENT_FLEET_RELEASE_VERSION_NAME" && "$version_code" == "$AGENT_FLEET_RELEASE_VERSION_CODE" ]] || {
+  echo "release arguments must match app/version.properties" >&2
+  exit 1
+}
 signing_dir="${AGENT_FLEET_SIGNING_DIR:-$HOME/.local/share/agent-fleet/signing}"
 keystore="${AGENT_FLEET_KEYSTORE:-$signing_dir/agent-fleet-release.jks}"
 alias_name="${AGENT_FLEET_KEY_ALIAS:-agent-fleet}"
-[[ -f "$keystore" ]] || { echo "missing release keystore: $keystore" >&2; exit 1; }
-
-if [[ -z "${AGENT_FLEET_STORE_PASSWORD:-}" ]]; then
-  read -r -s -p "Release-key password: " AGENT_FLEET_STORE_PASSWORD
-  echo
-fi
-export AGENT_FLEET_STORE_PASSWORD
-export AGENT_FLEET_KEY_PASSWORD="${AGENT_FLEET_KEY_PASSWORD:-$AGENT_FLEET_STORE_PASSWORD}"
-
-sdk="${ANDROID_SDK_ROOT:-${ANDROID_HOME:-}}"
-if [[ -z "$sdk" ]]; then
-  for candidate in /mnt/c/Users/*/AppData/Local/AgentFleetAndroid/sdk; do
-    if [[ -d "$candidate/build-tools" ]]; then sdk="$candidate"; break; fi
-  done
-fi
-[[ -n "$sdk" && -d "$sdk/build-tools" ]] || { echo "set ANDROID_SDK_ROOT to an Android SDK" >&2; exit 1; }
+agent_fleet_release_load_credentials
+agent_fleet_release_check_keystore "$repo"
+agent_fleet_release_check_git "$repo"
+agent_fleet_release_find_sdk
+sdk="$AGENT_FLEET_RELEASE_ANDROID_SDK"
+java_home="$AGENT_FLEET_RELEASE_JAVA_HOME"
 build_tools="$(find "$sdk/build-tools" -mindepth 1 -maxdepth 1 -type d | sort -V | tail -1)"
 apksigner_jar="$build_tools/lib/apksigner.jar"
 [[ -f "$apksigner_jar" ]] || { echo "missing apksigner.jar in $build_tools" >&2; exit 1; }
+if [[ "$preflight_only" == "1" ]]; then
+  echo "release preflight passed for $version_name ($version_code)"
+  exit 0
+fi
+
+"$repo/scripts/runtime/verify-embedded-runtime.py" "$repo/app/src/main/agent-fleet"
 
 export TERMUX_APP_VERSION_NAME="$version_name"
 export TERMUX_APP_VERSION_CODE="$version_code"
@@ -57,7 +63,7 @@ if [[ "$sdk" == /mnt/* ]] && command -v cmd.exe >/dev/null; then
   fi
   "${windows_cmd[@]}" /d /c "cd /d $windows_repo && set JAVA_HOME=$windows_java_home&& set ANDROID_SDK_ROOT=$windows_sdk&& set ANDROID_HOME=$windows_sdk&& set TERMUX_APP_VERSION_NAME=$version_name&& set TERMUX_APP_VERSION_CODE=$version_code&& set TERMUX_APK_VERSION_TAG=$version_name&& set TERMUX_SPLIT_APKS_FOR_RELEASE_BUILDS=1&& gradlew.bat app:assembleRelease --no-daemon --console=plain" </dev/null
 else
-  (cd "$repo" && ./gradlew app:assembleRelease --no-daemon --console=plain)
+  "$repo/scripts/debug/android-gradle.sh" app:assembleRelease --no-daemon --console=plain
 fi
 
 unsigned_arm64="$(find "$repo/app/build/outputs/apk/release" -maxdepth 1 -name '*arm64-v8a.apk' -type f -print -quit)"
@@ -72,12 +78,12 @@ sign_apk() {
   local input="$1"
   local output="$2"
   local report="$3"
-  java -jar "$apksigner_jar" sign \
+  "$java_home/bin/java" -jar "$apksigner_jar" sign \
     --ks "$keystore" --ks-key-alias "$alias_name" \
     --ks-pass env:AGENT_FLEET_STORE_PASSWORD \
     --key-pass env:AGENT_FLEET_KEY_PASSWORD \
     --out "$output" "$input"
-  java -jar "$apksigner_jar" verify --verbose --print-certs "$output" >"$report"
+  "$java_home/bin/java" -jar "$apksigner_jar" verify --verbose --print-certs "$output" >"$report"
 }
 
 sign_apk "$unsigned_arm64" "$signed_arm64" "$out_dir/apksigner-arm64.txt"
