@@ -1,0 +1,10 @@
+{
+  "schemaVersion": 1,
+  "contractPackageVersion": "1.0.0",
+  "components": {
+    "wtmux": { "sourceVersion": "git-fixture", "controlVersions": [1], "conversationVersions": [2], "workspaceLayoutVersions": [1] },
+    "windowsApp": { "sourceVersion": "fixture", "controlVersions": [1], "conversationVersions": [2], "workspaceLayoutVersions": [1] },
+    "androidApp": { "sourceVersion": "fixture", "controlVersions": [1], "conversationVersions": [2], "workspaceLayoutVersions": [1] }
+  },
+  "unexpected": true
+}

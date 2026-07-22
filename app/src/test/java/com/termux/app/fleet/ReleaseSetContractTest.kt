@@ -21,7 +21,11 @@ class ReleaseSetContractTest {
         assertEquals("sha256", lock.getString("algorithm"))
         val files = lock.getJSONObject("files")
         val fixtures = mapOf(
+            "fixtures/invalid/compatibility-content-field-v1.json" to "compatibility-content-field-v1.json",
+            "fixtures/invalid/compatibility-unknown-field-v1.json" to "compatibility-unknown-field-v1.json",
             "fixtures/valid/control-frames-v1.json" to "control-frames-v1.json",
+            "fixtures/valid/control-results-v1.json" to "control-results-v1.json",
+            "fixtures/valid/conversation-frames-v2.json" to "conversation-frames-v2.json",
             "fixtures/valid/conversation-structured-work-v2.json" to "conversation-structured-work-v2.json",
             "fixtures/valid/diagnostics-v1.json" to "diagnostics-v1.json",
             "fixtures/valid/fleet-snapshot-base-v1.json" to "fleet-snapshot-base-v1.json",
@@ -29,6 +33,8 @@ class ReleaseSetContractTest {
             "fixtures/valid/workspace-layout-v1.json" to "workspace-layout-v1.json",
             "fixtures/invalid/control-content-field-v1.json" to "control-content-field-v1.json",
             "fixtures/invalid/control-unknown-field-v1.json" to "control-unknown-field-v1.json",
+            "fixtures/invalid/control-result-content-field-v1.json" to "control-result-content-field-v1.json",
+            "fixtures/invalid/control-result-unknown-field-v1.json" to "control-result-unknown-field-v1.json",
             "fixtures/invalid/conversation-item-unknown-field-v2.json" to "conversation-item-unknown-field-v2.json",
             "fixtures/invalid/conversation-unknown-field-v2.json" to "conversation-unknown-field-v2.json",
             "fixtures/invalid/diagnostics-content-field-v1.json" to "diagnostics-content-field-v1.json",

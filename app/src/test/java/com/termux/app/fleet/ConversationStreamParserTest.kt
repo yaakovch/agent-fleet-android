@@ -17,6 +17,31 @@ class ConversationStreamParserTest {
     """.trimIndent()
 
     @Test
+    fun acceptsAndRoundTripsEverySharedFrameFamily() {
+        val fixture = checkNotNull(javaClass.classLoader?.getResourceAsStream("contracts/conversation-frames-v2.json"))
+            .bufferedReader().use { it.readText() }
+        val frames = org.json.JSONObject(fixture).getJSONArray("frames")
+        val types = mutableSetOf<String>()
+        repeat(frames.length()) { index ->
+            val frame = frames.getJSONObject(index)
+            ConversationStreamParser.requireValidProtocolFrame(frame.toString())
+            ConversationStreamParser.requireValidProtocolFrame(org.json.JSONObject(frame.toString()).toString())
+            types += frame.getString("type")
+            val unknown = org.json.JSONObject(frame.toString()).put("unexpected", true)
+            assertThrows(IllegalArgumentException::class.java) {
+                ConversationStreamParser.requireValidProtocolFrame(unknown.toString())
+            }
+        }
+        assertEquals(
+            setOf(
+                "conversation.snapshot", "conversation.event", "conversation.status", "conversation.heartbeat",
+                "conversation.error", "directory.snapshot", "question.response", "approval.response"
+            ),
+            types
+        )
+    }
+
+    @Test
     fun managedShellSessionsKeepTheComposerInput() {
         assertTrue(AgentFleetContract.supportsComposerInput("shell"))
         assertTrue(AgentFleetContract.supportsComposerInput("codex"))

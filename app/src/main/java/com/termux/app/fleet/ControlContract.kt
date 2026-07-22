@@ -6,6 +6,7 @@ import java.time.Instant
 
 object ControlContract {
     private const val MAX_FRAME_BYTES = 256 * 1024
+    private const val MAX_NESTING_DEPTH = 16
     private val shapes = GeneratedAgentFleetContracts.controlRequestShapes
     private val id = Regex("^[A-Za-z0-9._:-]{1,160}$")
     private val sessionId = Regex("^[A-Za-z0-9._:-]{1,320}$")
@@ -16,6 +17,7 @@ object ControlContract {
     private val forbidden = setOf("message", "prompt", "output", "transcript", "panetitle", "command")
 
     fun requireValidRequest(root: JSONObject) {
+        inspect(root, 0)
         require(root.toString().toByteArray(Charsets.UTF_8).size <= MAX_FRAME_BYTES) { "Control request is too large" }
         root.requireFields(setOf("protocolVersion", "type", "requestId", "method", "timestamp", "params"))
         require(root.get("protocolVersion") is Number && root.getInt("protocolVersion") == 1)
@@ -31,7 +33,6 @@ object ControlContract {
             require(params.has("expectedRevision") == params.has("idempotencyKey"))
         }
         validateParameters(method, params)
-        rejectPrivateFields(root)
     }
 
     fun methods(): Set<String> = shapes.keys
@@ -95,13 +96,14 @@ object ControlContract {
         Instant.parse(value)
     }
 
-    private fun rejectPrivateFields(value: Any?) {
+    private fun inspect(value: Any?, depth: Int) {
+        require(depth <= MAX_NESTING_DEPTH) { "Control request nesting is too deep" }
         when (value) {
             is JSONObject -> value.keys().asSequence().forEach { key ->
                 require(key.lowercase() !in forbidden) { "Private control field is forbidden" }
-                rejectPrivateFields(value.opt(key))
+                inspect(value.opt(key), depth + 1)
             }
-            is JSONArray -> (0 until value.length()).forEach { rejectPrivateFields(value.opt(it)) }
+            is JSONArray -> (0 until value.length()).forEach { inspect(value.opt(it), depth + 1) }
         }
     }
 }

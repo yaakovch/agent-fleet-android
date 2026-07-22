@@ -36,6 +36,13 @@ class CompatibilityContractTest {
     }
 
     @Test
+    fun rejectsSharedInvalidCompatibilityMatrices() {
+        listOf("compatibility-unknown-field-v1.json", "compatibility-content-field-v1.json").forEach { name ->
+            assertThrows(IllegalArgumentException::class.java) { CompatibilityContract.parse(fixture(name)) }
+        }
+    }
+
+    @Test
     fun acceptsSharedDiagnosticsAndRejectsSameInvalidFixtures() {
         CompatibilityContract.requireValidDiagnostics(JSONObject(fixture("diagnostics-v1.json")))
         listOf("diagnostics-unknown-field-v1.json", "diagnostics-content-field-v1.json").forEach { name ->

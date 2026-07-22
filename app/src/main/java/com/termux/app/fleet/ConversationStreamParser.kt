@@ -7,6 +7,32 @@ object ConversationStreamParser {
     private val itemKinds = setOf("message", "activity", "tool", "question", "change", "approval", "status", "error", "attachment", "fallback", "shell_command", "shell_output", "task_list", "plan")
     private val itemStates = setOf("", "pending", "running", "complete", "error")
 
+    fun requireValidProtocolFrame(line: String) {
+        require(line.length >= 2 && line.toByteArray(Charsets.UTF_8).size <= MAX_FRAME_BYTES)
+        val root = JSONObject(line)
+        require(root.getInt("protocolVersion") == 2)
+        when (root.getString("type")) {
+            "conversation.snapshot", "conversation.event", "conversation.status", "conversation.heartbeat", "conversation.error" -> parseFrame(line)
+            "directory.snapshot" -> parseDirectory(line)
+            "question.response" -> {
+                root.requireConversationFields(setOf("protocolVersion", "type", "timestamp", "session", "questionId", "status"))
+                safe(root.getString("timestamp"), 64)
+                safe(root.getString("session"), 160)
+                safe(root.getString("questionId"), 160)
+                require(root.getString("status") == "delivered")
+            }
+            "approval.response" -> {
+                root.requireConversationFields(setOf("protocolVersion", "type", "timestamp", "session", "approvalId", "choice", "status"))
+                safe(root.getString("timestamp"), 64)
+                safe(root.getString("session"), 160)
+                safe(root.getString("approvalId"), 160)
+                safe(root.getString("choice"), 32)
+                require(root.getString("status") == "delivered")
+            }
+            else -> error("Unknown conversation protocol frame")
+        }
+    }
+
     fun parseFrame(line: String): ConversationFrame {
         require(line.length >= 2 && line.toByteArray(Charsets.UTF_8).size <= MAX_FRAME_BYTES) { "Conversation frame is invalid" }
         val root = JSONObject(line)

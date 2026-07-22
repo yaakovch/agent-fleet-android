@@ -353,7 +353,14 @@
       "requestId": "fixture-success",
       "timestamp": "2026-07-22T12:00:00Z",
       "ok": true,
-      "result": {}
+      "result": {
+        "revision": "0123456789abcdef",
+        "generatedAt": "2026-07-22T12:00:00Z",
+        "hosts": [],
+        "sessions": [],
+        "schedules": [],
+        "attention": []
+      }
     },
     {
       "protocolVersion": 1,

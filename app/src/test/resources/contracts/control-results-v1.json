@@ -1,0 +1,162 @@
+{
+  "schemaVersion": 1,
+  "results": [
+    {
+      "agentVersion": "0.1.0",
+      "protocolVersion": 1,
+      "contractPackageVersion": "1.0.0",
+      "controlVersions": [1],
+      "conversationVersions": [2],
+      "workspaceLayoutVersions": [1],
+      "methods": ["fleet.snapshot", "protocol.capabilities"],
+      "events": ["host.heartbeat"]
+    },
+    {
+      "bridgeVersion": "0.1.0",
+      "protocolVersion": 1,
+      "contractPackageVersion": "1.0.0",
+      "controlVersions": [1],
+      "conversationVersions": [2],
+      "workspaceLayoutVersions": [1],
+      "methods": ["fleet.snapshot", "protocol.capabilities"],
+      "events": ["fleet.heartbeat"]
+    },
+    {
+      "revision": "0123456789abcdef",
+      "generatedAt": "2026-07-22T12:00:00Z",
+      "hosts": [],
+      "sessions": [],
+      "schedules": [],
+      "attention": []
+    },
+    {
+      "backend": "linux",
+      "path": "/srv/project",
+      "parentPath": "/srv",
+      "entries": [{ "name": "docs", "path": "/srv/project/docs" }],
+      "shortcuts": [{ "id": "home", "label": "Home", "path": "/home/test" }],
+      "truncated": false
+    },
+    {
+      "rootName": "project",
+      "relativePath": "docs",
+      "parentPath": "",
+      "entries": [
+        { "name": "README.md", "relativePath": "docs/README.md", "kind": "file", "size": 42, "modifiedAt": "2026-07-22T12:00:00Z", "hidden": false, "isLink": false }
+      ],
+      "nextCursor": null,
+      "truncated": false
+    },
+    {
+      "sessionId": "test-host:session-1",
+      "configRevision": "0123456789abcdef",
+      "tool": "codex",
+      "status": "ready",
+      "selected": { "modelId": "gpt-5", "modelLabel": "GPT-5", "effortId": "high", "effortLabel": "High" },
+      "effective": { "modelId": "gpt-5", "modelLabel": "GPT-5", "effortId": "high", "effortLabel": "High" },
+      "pending": null,
+      "catalog": {
+        "models": [{ "id": "gpt-5", "label": "GPT-5", "description": "General coding model", "isDefault": true, "efforts": [{ "id": "high", "label": "High" }], "defaultEffort": "high" }],
+        "customAllowed": true
+      },
+      "detail": "Ready"
+    },
+    {
+      "operationId": "operation-model-1",
+      "status": "queued",
+      "modelControl": {
+        "sessionId": "test-host:session-1",
+        "configRevision": "0123456789abcdef",
+        "tool": "codex",
+        "status": "queued",
+        "selected": { "modelId": "gpt-5", "modelLabel": "GPT-5", "effortId": "high", "effortLabel": "High" },
+        "effective": null,
+        "pending": { "operationId": "operation-model-1", "modelId": "gpt-5", "effortId": "high", "custom": false, "requestedAt": "2026-07-22T12:00:00Z", "expiresAt": "2026-07-22T12:05:00Z" },
+        "catalog": null,
+        "detail": "Queued"
+      }
+    },
+    {
+      "operationId": "operation-basic-1",
+      "status": "updated",
+      "snapshot": { "revision": "0123456789abcdef", "generatedAt": "2026-07-22T12:00:00Z", "hosts": [], "sessions": [], "schedules": [], "attention": [] }
+    },
+    {
+      "operationId": "operation-schedule-1",
+      "status": "scheduled",
+      "snapshot": { "revision": "0123456789abcdef", "generatedAt": "2026-07-22T12:00:00Z", "hosts": [], "sessions": [], "schedules": [], "attention": [] },
+      "scheduleId": "schedule-1"
+    },
+    {
+      "operationId": "operation-session-1",
+      "status": "created",
+      "snapshot": { "revision": "0123456789abcdef", "generatedAt": "2026-07-22T12:00:00Z", "hosts": [], "sessions": [], "schedules": [], "attention": [] },
+      "sessionId": "test-host:session-1"
+    },
+    {
+      "operationId": "operation-directory-1",
+      "status": "created",
+      "snapshot": { "revision": "0123456789abcdef", "generatedAt": "2026-07-22T12:00:00Z", "hosts": [], "sessions": [], "schedules": [], "attention": [] },
+      "path": "/srv/project/docs"
+    },
+    {
+      "operationId": "operation-doctor-1",
+      "status": "checked",
+      "snapshot": { "revision": "0123456789abcdef", "generatedAt": "2026-07-22T12:00:00Z", "hosts": [], "sessions": [], "schedules": [], "attention": [] },
+      "doctor": {
+        "hostId": "test-host",
+        "checkedAt": "2026-07-22T12:00:00Z",
+        "status": "healthy",
+        "checks": [{ "id": "compatibility", "status": "healthy", "summary": "Protocol compatibility is ready", "detail": "contracts 1.0.0" }]
+      }
+    },
+    {
+      "operationId": "operation-invite-1",
+      "status": "invite",
+      "snapshot": { "revision": "0123456789abcdef", "generatedAt": "2026-07-22T12:00:00Z", "hosts": [], "sessions": [], "schedules": [], "attention": [] },
+      "invitation": {
+        "invitationId": "invitation-1",
+        "shortCode": "amber-birch-calm-delta-ember-frost",
+        "bootstrapPeer": "controller.example.ts.net",
+        "bootstrapUser": "fleet",
+        "expiresAt": "2026-07-22T12:10:00Z",
+        "link": "wtmux://pair?code=fixture",
+        "termuxCommand": "wtmux-pair --fixture",
+        "file": { "pairingVersion": 1, "bootstrapPeer": "controller.example.ts.net", "bootstrapUser": "fleet", "token": "pABCDEFGHIJKLMNOPQRSTUV", "expiresAt": "2026-07-22T12:10:00Z" }
+      }
+    },
+    {
+      "operationId": "operation-review-1",
+      "status": "review",
+      "snapshot": { "revision": "0123456789abcdef", "generatedAt": "2026-07-22T12:00:00Z", "hosts": [], "sessions": [], "schedules": [], "attention": [] },
+      "pairingRequest": {
+        "id": "pairing-1",
+        "invitationId": "invitation-1",
+        "deviceId": "android-1",
+        "deviceName": "Android",
+        "platform": "android",
+        "peer": "phone.example.ts.net",
+        "peerIp": "100.64.0.2",
+        "requestedAt": "2026-07-22T12:00:00Z",
+        "expiresAt": "2026-07-22T12:10:00Z",
+        "reviewedAt": null,
+        "status": "awaiting-review",
+        "publicationRef": null,
+        "proposal": {
+          "schemaVersion": 1,
+          "id": "android-1",
+          "name": "Android",
+          "roles": ["client"],
+          "platform": "android",
+          "linuxUsername": "u0_a1",
+          "tailscaleNode": "phone.example.ts.net",
+          "projectsRoot": "",
+          "transport": "tailscale",
+          "wslDistro": "",
+          "fallback": { "sshHost": "", "ip": "100.64.0.2" },
+          "hostCommand": ""
+        }
+      }
+    }
+  ]
+}

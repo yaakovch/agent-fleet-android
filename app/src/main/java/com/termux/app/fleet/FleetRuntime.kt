@@ -714,6 +714,7 @@ class FleetRuntime(private val context: Context) {
                 )
             }
             return response.optJSONObject("result")
+                ?.also(ControlResultContract::requireValidResult)
                 ?: throw FleetUnavailableException("Fleet action response did not include a result.")
         } finally {
             process.destroy()
@@ -769,6 +770,7 @@ class FleetRuntime(private val context: Context) {
             )
         }
         response.optJSONObject("result")
+            ?.also(ControlResultContract::requireValidResult)
             ?: throw FleetUnavailableException("Repository response did not include a result.", "invalid_response")
     }
 
