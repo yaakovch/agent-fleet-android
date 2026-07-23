@@ -250,12 +250,8 @@ fun transportHostId(snapshot: FleetSnapshot, physicalHostId: String, executionTa
     } ?: candidates.firstOrNull()
 }
 
-fun physicalHostRecoveryDetail(snapshot: FleetSnapshot, host: FleetPhysicalHost): String? = when {
-    snapshot.endpoints.any { it.physicalHostId == host.id && it.identityState != "verified" } ->
-        "${host.status} · endpoint identity needs verification"
-    host.status != "healthy" -> "${host.status} · last seen ${host.lastSeenAt ?: "unknown"}"
-    else -> null
-}
+fun physicalHostRecoveryDetail(snapshot: FleetSnapshot, host: FleetPhysicalHost): String? =
+    transportRecoveryDetail(snapshot, host)
 
 data class FleetSessionIdentity(val primary: String, val secondary: String, val stableName: String)
 

@@ -1,0 +1,108 @@
+{
+  "schemaVersion": 1,
+  "defaultEngine": "openssh",
+  "fallbackEngine": "tailscale-cli",
+  "directNetworkRequiresOptIn": true,
+  "connectionReuseDefault": "disabled",
+  "transferModeDefault": "stream",
+  "engines": [
+    {
+      "id": "openssh",
+      "control": true,
+      "tty": true,
+      "streamTransfer": true,
+      "checkMode": true,
+      "identityBindings": ["ssh-host-key", "tailnet-node"]
+    },
+    {
+      "id": "tailscale-cli",
+      "control": true,
+      "tty": false,
+      "streamTransfer": true,
+      "checkMode": true,
+      "identityBindings": ["tailnet-node"]
+    }
+  ],
+  "failures": [
+    {
+      "code": "NETWORK_UNREACHABLE",
+      "layer": "tailnet",
+      "severity": "unavailable",
+      "retryClass": "automatic",
+      "recoveryAction": "retry-private-network"
+    },
+    {
+      "code": "DNS_UNAVAILABLE",
+      "layer": "tailnet",
+      "severity": "unavailable",
+      "retryClass": "automatic",
+      "recoveryAction": "retry-endpoint-name"
+    },
+    {
+      "code": "SSH_AUTH_REQUIRED",
+      "layer": "ssh",
+      "severity": "attention",
+      "retryClass": "user_action",
+      "recoveryAction": "review-ssh-access"
+    },
+    {
+      "code": "SSH_CHECK_REQUIRED",
+      "layer": "ssh",
+      "severity": "attention",
+      "retryClass": "user_action",
+      "recoveryAction": "complete-browser-approval"
+    },
+    {
+      "code": "HOST_KEY_CHANGED",
+      "layer": "ssh",
+      "severity": "attention",
+      "retryClass": "user_action",
+      "recoveryAction": "reverify-endpoint"
+    },
+    {
+      "code": "TTY_UNAVAILABLE",
+      "layer": "ssh",
+      "severity": "unavailable",
+      "retryClass": "after_recovery",
+      "recoveryAction": "select-openssh"
+    },
+    {
+      "code": "HOST_RUNTIME_MISSING",
+      "layer": "host_runtime",
+      "severity": "unavailable",
+      "retryClass": "after_recovery",
+      "recoveryAction": "repair-host-runtime"
+    },
+    {
+      "code": "HOST_RUNTIME_INCOMPATIBLE",
+      "layer": "host_runtime",
+      "severity": "attention",
+      "retryClass": "rollback",
+      "recoveryAction": "update-or-rollback"
+    },
+    {
+      "code": "TMUX_UNAVAILABLE",
+      "layer": "tmux",
+      "severity": "unavailable",
+      "retryClass": "after_recovery",
+      "recoveryAction": "repair-tmux"
+    }
+  ],
+  "decisions": {
+    "opensshConvergence": {
+      "state": "provisional",
+      "reasonCode": "SECOND_HOST_UNAVAILABLE",
+      "killSwitch": "WTMUX_SSH_ENGINE"
+    },
+    "connectionReuse": {
+      "state": "disabled",
+      "reasonCode": "REVOCATION_AND_BACKGROUND_GATES_UNPROVEN",
+      "killSwitch": "WTMUX_SSH_REUSE"
+    },
+    "sftp": {
+      "state": "rejected",
+      "reasonCode": "HOST_POLICY_ATOMICITY_NOT_EQUIVALENT",
+      "killSwitch": "WTMUX_TRANSFER_MODE"
+    }
+  }
+}

@@ -1,12 +1,13 @@
 {
   "schemaVersion": 1,
-  "packageVersion": "1.3.0",
+  "packageVersion": "1.4.0",
   "protocolVersions": {
     "control": 1,
     "conversation": 2,
     "workspace-layout": 1,
     "release-set": 1,
-    "supervisor": 1
+    "supervisor": 1,
+    "transport": 1
   },
   "objectShapes": [
     {
@@ -1637,6 +1638,67 @@
       "required": [
         "action",
         "expected"
+      ],
+      "optional": [],
+      "rejectUnknown": true
+    },
+    {
+      "id": "transport-v1:#",
+      "required": [
+        "connectionReuseDefault",
+        "decisions",
+        "defaultEngine",
+        "directNetworkRequiresOptIn",
+        "engines",
+        "failures",
+        "fallbackEngine",
+        "schemaVersion",
+        "transferModeDefault"
+      ],
+      "optional": [],
+      "rejectUnknown": true
+    },
+    {
+      "id": "transport-v1:#/$defs/decision",
+      "required": [
+        "killSwitch",
+        "reasonCode",
+        "state"
+      ],
+      "optional": [],
+      "rejectUnknown": true
+    },
+    {
+      "id": "transport-v1:#/$defs/engine",
+      "required": [
+        "checkMode",
+        "control",
+        "id",
+        "identityBindings",
+        "streamTransfer",
+        "tty"
+      ],
+      "optional": [],
+      "rejectUnknown": true
+    },
+    {
+      "id": "transport-v1:#/$defs/failure",
+      "required": [
+        "code",
+        "layer",
+        "recoveryAction",
+        "retryClass",
+        "severity"
+      ],
+      "optional": [],
+      "rejectUnknown": true
+    },
+    {
+      "id": "transport-v1:#/properties/decisions",
+      "required": [
+        "connectionReuse",
+        "opensshConvergence",
+        "sftp"
       ],
       "optional": [],
       "rejectUnknown": true

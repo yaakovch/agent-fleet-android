@@ -23,7 +23,7 @@ class ReleaseSetContractTest {
     fun matchesCanonicalFixtureLockByteForByte() {
         val lock = JSONObject(fixture("contract-lock-v1.json"))
         assertEquals(1, lock.getInt("schemaVersion"))
-        assertEquals("1.3.0", lock.getString("packageVersion"))
+        assertEquals("1.4.0", lock.getString("packageVersion"))
         assertEquals("sha256", lock.getString("algorithm"))
         val files = lock.getJSONObject("files")
         val fixtures = mapOf(
@@ -52,6 +52,9 @@ class ReleaseSetContractTest {
             "fixtures/invalid/fleet-snapshot-unknown-field-v1.json" to "fleet-snapshot-unknown-field-v1.json",
             "fixtures/invalid/release-set-content-field-v1.json" to "release-set-content-field-v1.json",
             "fixtures/invalid/release-set-unknown-field-v1.json" to "release-set-unknown-field-v1.json",
+            "fixtures/valid/transport-conformance-v1.json" to "transport-conformance-v1.json",
+            "fixtures/invalid/transport-content-field-v1.json" to "transport-content-field-v1.json",
+            "fixtures/invalid/transport-unknown-field-v1.json" to "transport-unknown-field-v1.json",
             "fixtures/invalid/workspace-layout-unknown-field-v1.json" to "workspace-layout-unknown-field-v1.json",
             "generated/structural-models-v1.json" to "structural-models-v1.json"
         )

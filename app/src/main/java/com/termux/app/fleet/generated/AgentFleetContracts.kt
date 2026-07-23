@@ -8,8 +8,8 @@ data class GeneratedStructuralShape(
 )
 
 object GeneratedAgentFleetContracts {
-    const val CONTRACT_PACKAGE_VERSION = "1.3.0"
-    val protocolVersions: Map<String, Int> = mapOf("control" to 1, "conversation" to 2, "workspace-layout" to 1, "release-set" to 1, "supervisor" to 1)
+    const val CONTRACT_PACKAGE_VERSION = "1.4.0"
+    val protocolVersions: Map<String, Int> = mapOf("control" to 1, "conversation" to 2, "workspace-layout" to 1, "release-set" to 1, "supervisor" to 1, "transport" to 1)
     val objectShapes: Map<String, GeneratedStructuralShape> = mapOf(
         "activation-journal-v1:#" to GeneratedStructuralShape(listOf("candidate", "current", "failureCode", "phase", "previous", "schemaVersion", "transactionId", "updatedAt"), listOf(), true),
         "activation-journal-v1:#/\$defs/componentSequences" to GeneratedStructuralShape(listOf("androidApp", "clientRuntime", "contracts", "hostRuntime", "providerAdapters", "windowsApp"), listOf(), true),
@@ -138,6 +138,11 @@ object GeneratedAgentFleetContracts {
         "supervisor-v1:#/\$defs/scenario" to GeneratedStructuralShape(listOf("id", "initial", "steps"), listOf(), true),
         "supervisor-v1:#/\$defs/state" to GeneratedStructuralShape(listOf("connectionGeneration", "controlProcessCount", "foreground", "health", "lastError", "phase"), listOf(), true),
         "supervisor-v1:#/\$defs/step" to GeneratedStructuralShape(listOf("action", "expected"), listOf(), true),
+        "transport-v1:#" to GeneratedStructuralShape(listOf("connectionReuseDefault", "decisions", "defaultEngine", "directNetworkRequiresOptIn", "engines", "failures", "fallbackEngine", "schemaVersion", "transferModeDefault"), listOf(), true),
+        "transport-v1:#/\$defs/decision" to GeneratedStructuralShape(listOf("killSwitch", "reasonCode", "state"), listOf(), true),
+        "transport-v1:#/\$defs/engine" to GeneratedStructuralShape(listOf("checkMode", "control", "id", "identityBindings", "streamTransfer", "tty"), listOf(), true),
+        "transport-v1:#/\$defs/failure" to GeneratedStructuralShape(listOf("code", "layer", "recoveryAction", "retryClass", "severity"), listOf(), true),
+        "transport-v1:#/properties/decisions" to GeneratedStructuralShape(listOf("connectionReuse", "opensshConvergence", "sftp"), listOf(), true),
         "workspace-layout-v1:#" to GeneratedStructuralShape(listOf("focusedPaneId", "root", "schemaVersion", "sessionMru"), listOf(), true),
         "workspace-layout-v1:#/\$defs/pane" to GeneratedStructuralShape(listOf("id", "kind", "sessionId", "viewMode"), listOf(), true),
         "workspace-layout-v1:#/\$defs/split" to GeneratedStructuralShape(listOf("direction", "first", "id", "kind", "ratio", "second"), listOf(), true)

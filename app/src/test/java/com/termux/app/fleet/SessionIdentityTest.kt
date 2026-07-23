@@ -99,7 +99,10 @@ class SessionIdentityTest {
             ),
             executionTargets = listOf(FleetExecutionTarget("linux", "gaming", "linux", "WSL", "available", ""))
         )
-        assertEquals("healthy · endpoint identity needs verification", physicalHostRecoveryDetail(snapshot, host))
+        assertEquals(
+            "OpenSSH over Tailnet · Endpoint identity needs verification",
+            physicalHostRecoveryDetail(snapshot, host)
+        )
         assertEquals(
             null,
             physicalHostRecoveryDetail(

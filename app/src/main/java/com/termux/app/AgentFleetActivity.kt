@@ -98,6 +98,8 @@ import com.termux.app.fleet.AutomaticSessionTitleSettings
 import com.termux.app.fleet.sessionIdentityPresentation
 import com.termux.app.fleet.transportHostId
 import com.termux.app.fleet.physicalHostRecoveryDetail
+import com.termux.app.fleet.selectedTransportEndpoint
+import com.termux.app.fleet.transportEndpointLabel
 import com.termux.app.fleet.LocalModelUiState
 import com.termux.app.fleet.LocalSuggestionModel
 import com.termux.app.fleet.LocalSuggestionModelManager
@@ -2252,9 +2254,10 @@ private fun MoreScreen(
         }
         item { FeatureCard("Fleet health", "$healthyHosts of $hostCount hosts healthy${snapshot?.generatedAt?.let { " · $it" }.orEmpty()}") }
         if (snapshot != null) {
-            val recoveryHosts = snapshot.physicalHosts.filter { physicalHostRecoveryDetail(snapshot, it) != null }
-            items(recoveryHosts, key = { it.id }) { host ->
-                FeatureCard(host.name, physicalHostRecoveryDetail(snapshot, host).orEmpty())
+            items(snapshot.physicalHosts, key = { it.id }) { host ->
+                val detail = physicalHostRecoveryDetail(snapshot, host)
+                    ?: "${transportEndpointLabel(selectedTransportEndpoint(snapshot, host))} · Connected"
+                FeatureCard(host.name, detail)
             }
         }
         item {
