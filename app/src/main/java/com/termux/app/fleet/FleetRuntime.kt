@@ -104,7 +104,11 @@ internal fun doctorHostWithStaleRetry(
 }
 
 class FleetRuntime(private val context: Context) {
-    private data class BridgeSessionTitleSupport(val identity: String, val supported: Boolean)
+    private data class BridgeOptionSupport(
+        val identity: String,
+        val sessionTitles: Boolean,
+        val identityGraph: Boolean
+    )
 
     private data class RepositoryBridge(
         val process: Process,
@@ -121,8 +125,8 @@ class FleetRuntime(private val context: Context) {
         isAlive = { it.process.isAliveCompat() },
         closeResource = ::closeRepositoryBridge
     )
-    private val bridgeSessionTitleSupportLock = Any()
-    private var bridgeSessionTitleSupport: BridgeSessionTitleSupport? = null
+    private val bridgeOptionSupportLock = Any()
+    private var bridgeOptionSupport: BridgeOptionSupport? = null
 
     fun loadSnapshot(): FleetSnapshot {
         val bridge = executable("wtmux-bridge")
@@ -130,9 +134,11 @@ class FleetRuntime(private val context: Context) {
         val python = executable("python3")
             ?: throw FleetUnavailableException("Python is missing from the restored Termux environment.")
         val titlesEnabled = AutomaticSessionTitleSettings.isEnabled(context)
+        val support = supportsBridgeOptions(python, bridge)
         val process = ProcessBuilder(listOf(python.absolutePath, bridge.absolutePath) + snapshotBridgeArguments(
             titlesEnabled,
-            !titlesEnabled || supportsSessionTitles(python, bridge)
+            !titlesEnabled || support.sessionTitles,
+            support.identityGraph
         ))
             .directory(userHome)
             .redirectErrorStream(true)
@@ -665,9 +671,11 @@ class FleetRuntime(private val context: Context) {
         val bridge = executable("wtmux-bridge") ?: throw FleetUnavailableException("wtmux bridge is not installed.")
         val python = executable("python3") ?: throw FleetUnavailableException("Python is missing from the restored Termux environment.")
         val titlesEnabled = AutomaticSessionTitleSettings.isEnabled(context)
+        val support = supportsBridgeOptions(python, bridge)
         val process = ProcessBuilder(listOf(python.absolutePath, bridge.absolutePath) + stdioBridgeArguments(
             titlesEnabled,
-            !titlesEnabled || supportsSessionTitles(python, bridge)
+            !titlesEnabled || support.sessionTitles,
+            support.identityGraph
         ))
             .directory(userHome)
             .redirectErrorStream(true)
@@ -949,22 +957,22 @@ class FleetRuntime(private val context: Context) {
         File(prefix, "bin/$name")
     ).firstOrNull { it.isFile && it.canExecute() }
 
-    private fun supportsSessionTitles(python: File, bridge: File): Boolean {
+    private fun supportsBridgeOptions(python: File, bridge: File): BridgeOptionSupport {
         val identity = listOf(
             runCatching { bridge.canonicalPath }.getOrDefault(bridge.absolutePath),
             bridge.length().toString(),
             bridge.lastModified().toString()
         ).joinToString("|")
-        return synchronized(bridgeSessionTitleSupportLock) {
-            bridgeSessionTitleSupport?.takeIf { it.identity == identity }?.supported ?: run {
-                val supported = probeSessionTitleSupport(python, bridge)
-                bridgeSessionTitleSupport = BridgeSessionTitleSupport(identity, supported)
+        return synchronized(bridgeOptionSupportLock) {
+            bridgeOptionSupport?.takeIf { it.identity == identity } ?: run {
+                val supported = probeBridgeOptions(python, bridge, identity)
+                bridgeOptionSupport = supported
                 supported
             }
         }
     }
 
-    private fun probeSessionTitleSupport(python: File, bridge: File): Boolean = runCatching {
+    private fun probeBridgeOptions(python: File, bridge: File, identity: String): BridgeOptionSupport = runCatching {
         val process = ProcessBuilder(python.absolutePath, bridge.absolutePath, "--help")
             .directory(userHome)
             .redirectErrorStream(true)
@@ -975,7 +983,7 @@ class FleetRuntime(private val context: Context) {
             runCatching { process.inputStream.close() }
             runCatching { process.outputStream.close() }
             runCatching { process.errorStream.close() }
-            return@runCatching false
+            return@runCatching BridgeOptionSupport(identity, sessionTitles = false, identityGraph = false)
         }
         val output = ByteArrayOutputStream()
         process.inputStream.use { input ->
@@ -986,10 +994,14 @@ class FleetRuntime(private val context: Context) {
                 output.write(chunk, 0, count)
             }
         }
-        output.size() <= MAX_BRIDGE_PROBE_BYTES && bridgeHelpSupportsSessionTitles(
-            process.exitValue(), output.toString(Charsets.UTF_8.name())
+        val help = output.toString(Charsets.UTF_8.name())
+        val valid = output.size() <= MAX_BRIDGE_PROBE_BYTES
+        BridgeOptionSupport(
+            identity,
+            sessionTitles = valid && bridgeHelpSupportsSessionTitles(process.exitValue(), help),
+            identityGraph = valid && bridgeHelpSupportsIdentityGraph(process.exitValue(), help)
         )
-    }.getOrDefault(false)
+    }.getOrDefault(BridgeOptionSupport(identity, sessionTitles = false, identityGraph = false))
 
     private fun configureEnvironment(environment: MutableMap<String, String>) {
         environment["HOME"] = userHome.absolutePath

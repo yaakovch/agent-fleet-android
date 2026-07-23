@@ -131,9 +131,9 @@ fun DesktopWorkspaceScreen(
     onRefresh: () -> Unit
 ) {
     var query by remember { mutableStateOf("") }
-    val hosts = snapshot?.hosts?.associateBy { it.id }.orEmpty()
+    val hosts = snapshot?.physicalHosts?.associateBy { it.id }.orEmpty()
     val filtered = sessions.filter { session ->
-        query.isBlank() || listOf(session.name, session.title, session.project, session.tool, hosts[session.hostId]?.name.orEmpty())
+        query.isBlank() || listOf(session.name, session.title, session.project, session.tool, hosts[session.physicalHostId]?.name.orEmpty())
             .any { it.contains(query.trim(), ignoreCase = true) }
     }
     val panes = workspacePanes(state.layout.root)

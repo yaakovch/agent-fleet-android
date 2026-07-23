@@ -9,6 +9,42 @@ data class FleetHost(
     val capabilities: Set<String>
 )
 
+data class FleetPhysicalHost(
+    val id: String,
+    val name: String,
+    val platform: String,
+    val status: String,
+    val lastSeenAt: String?,
+    val errorCode: String,
+    val endpointIds: List<String>,
+    val executionTargetIds: List<String>,
+    val legacyHostIds: List<String>
+)
+
+data class FleetEndpoint(
+    val id: String,
+    val physicalHostId: String,
+    val network: String,
+    val address: String,
+    val port: Int,
+    val sshEngine: String,
+    val authentication: String,
+    val status: String,
+    val identityState: String,
+    val sshHostKeySha256: String,
+    val tailscaleNodeId: String,
+    val errorCode: String
+)
+
+data class FleetExecutionTarget(
+    val id: String,
+    val physicalHostId: String,
+    val kind: String,
+    val label: String,
+    val status: String,
+    val fingerprint: String
+)
+
 data class FleetSession(
     val id: String,
     val hostId: String,
@@ -24,7 +60,9 @@ data class FleetSession(
     val pendingScheduleCount: Int,
     val projectPath: String = "",
     val locationKind: String = "project",
-    val nameMode: String = "automatic"
+    val nameMode: String = "automatic",
+    val physicalHostId: String = hostId,
+    val executionTargetId: String = if (backend == "windows") "windows" else "linux"
 )
 
 data class FleetDirectoryEntry(val name: String, val path: String)
@@ -164,8 +202,60 @@ data class FleetSnapshot(
     val schedules: List<FleetSchedule>,
     val attention: List<FleetAttention>,
     val limits: List<FleetLimit> = emptyList(),
-    val presentationRevision: String? = null
+    val presentationRevision: String? = null,
+    val fleetId: String = "legacy",
+    val physicalHosts: List<FleetPhysicalHost> = legacyPhysicalHosts(hosts),
+    val endpoints: List<FleetEndpoint> = emptyList(),
+    val executionTargets: List<FleetExecutionTarget> = legacyExecutionTargets(physicalHosts)
 )
+
+private fun legacyPhysicalHosts(hosts: List<FleetHost>): List<FleetPhysicalHost> = hosts.map { host ->
+    FleetPhysicalHost(
+        id = host.id,
+        name = host.name,
+        platform = host.platform,
+        status = host.status,
+        lastSeenAt = host.lastSeenAt,
+        errorCode = "",
+        endpointIds = emptyList(),
+        executionTargetIds = if (host.platform == "wsl") listOf("linux", "windows") else listOf("linux"),
+        legacyHostIds = listOf(host.id)
+    )
+}
+
+private fun legacyExecutionTargets(hosts: List<FleetPhysicalHost>): List<FleetExecutionTarget> =
+    hosts.flatMap { host ->
+        host.executionTargetIds.map { id ->
+            FleetExecutionTarget(
+                id = id,
+                physicalHostId = host.id,
+                kind = if (id == "windows") "windows-git-bash" else "linux",
+                label = if (id == "windows") "Windows Git Bash" else if (host.platform == "wsl") "WSL" else "Linux",
+                status = if (host.status == "healthy") "available" else "unknown",
+                fingerprint = ""
+            )
+        }
+    }
+
+fun physicalHostForSession(snapshot: FleetSnapshot, session: FleetSession): FleetPhysicalHost? =
+    snapshot.physicalHosts.firstOrNull { it.id == session.physicalHostId }
+
+fun transportHostId(snapshot: FleetSnapshot, physicalHostId: String, executionTargetId: String): String? {
+    val physicalHost = snapshot.physicalHosts.firstOrNull { it.id == physicalHostId } ?: return null
+    if (executionTargetId !in physicalHost.executionTargetIds) return null
+    val liveHostIds = snapshot.hosts.map(FleetHost::id).toSet()
+    val candidates = physicalHost.legacyHostIds.filter { it in liveHostIds }
+    return candidates.firstOrNull {
+        if (executionTargetId == "windows") it.endsWith("_windows") else !it.endsWith("_windows")
+    } ?: candidates.firstOrNull()
+}
+
+fun physicalHostRecoveryDetail(snapshot: FleetSnapshot, host: FleetPhysicalHost): String? = when {
+    snapshot.endpoints.any { it.physicalHostId == host.id && it.identityState != "verified" } ->
+        "${host.status} · endpoint identity needs verification"
+    host.status != "healthy" -> "${host.status} · last seen ${host.lastSeenAt ?: "unknown"}"
+    else -> null
+}
 
 data class FleetSessionIdentity(val primary: String, val secondary: String, val stableName: String)
 

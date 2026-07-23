@@ -8,7 +8,7 @@ data class GeneratedStructuralShape(
 )
 
 object GeneratedAgentFleetContracts {
-    const val CONTRACT_PACKAGE_VERSION = "1.0.0"
+    const val CONTRACT_PACKAGE_VERSION = "1.1.0"
     val protocolVersions: Map<String, Int> = mapOf("control" to 1, "conversation" to 2, "workspace-layout" to 1, "release-set" to 1)
     val objectShapes: Map<String, GeneratedStructuralShape> = mapOf(
         "client-policy-v1:#" to GeneratedStructuralShape(listOf("apkManifestUrls", "artifactOrigins", "checkIntervalSeconds", "policyRevision", "runtimeManifestUrls", "schemaVersion"), listOf(), true),
@@ -66,7 +66,7 @@ object GeneratedAgentFleetContracts {
         "control-v1:#/\$defs/sessionCreateParams" to GeneratedStructuralShape(listOf("backend", "expectedRevision", "hostId", "idempotencyKey", "project", "tool"), listOf("locationKind", "path"), true),
         "control-v1:#/\$defs/sessionMutationParams" to GeneratedStructuralShape(listOf("expectedRevision", "hostId", "idempotencyKey", "sessionId"), listOf(), true),
         "control-v1:#/\$defs/sessionRenameParams" to GeneratedStructuralShape(listOf("expectedRevision", "hostId", "idempotencyKey", "name", "sessionId"), listOf(), true),
-        "control-v1:#/\$defs/snapshotParams" to GeneratedStructuralShape(listOf(), listOf("includeSessionTitles"), true),
+        "control-v1:#/\$defs/snapshotParams" to GeneratedStructuralShape(listOf(), listOf("includeIdentityGraph", "includeSessionTitles"), true),
         "control-v1:#/\$defs/successResponse" to GeneratedStructuralShape(listOf("ok", "protocolVersion", "requestId", "result", "timestamp", "type"), listOf(), true),
         "conversation-v2:#/\$defs/answer" to GeneratedStructuralShape(listOf("choiceIds", "questionId", "text"), listOf(), true),
         "conversation-v2:#/\$defs/approvalResponse" to GeneratedStructuralShape(listOf("approvalId", "choice", "protocolVersion", "session", "status", "timestamp", "type"), listOf(), true),
@@ -90,17 +90,30 @@ object GeneratedAgentFleetContracts {
         "diagnostics-v1:#" to GeneratedStructuralShape(listOf("checks", "components", "generatedAt", "schemaVersion"), listOf(), true),
         "diagnostics-v1:#/\$defs/check" to GeneratedStructuralShape(listOf("durationMs", "errorCode", "id", "layer", "recoveryAction", "severity", "status"), listOf(), true),
         "diagnostics-v1:#/\$defs/component" to GeneratedStructuralShape(listOf("capabilities", "contractPackageVersion", "controlVersions", "conversationVersions", "id", "version", "workspaceLayoutVersions"), listOf(), true),
-        "fleet-snapshot-v1:#" to GeneratedStructuralShape(listOf("attention", "generatedAt", "hosts", "revision", "schedules", "sessions"), listOf("limits", "pairingRequests", "presentationRevision", "presets"), true),
+        "fleet-snapshot-v1:#" to GeneratedStructuralShape(listOf("attention", "generatedAt", "hosts", "revision", "schedules", "sessions"), listOf("endpoints", "executionTargets", "fleetId", "limits", "pairingRequests", "physicalHosts", "presentationRevision", "presets"), true),
         "fleet-snapshot-v1:#/\$defs/attention" to GeneratedStructuralShape(listOf("agent", "detectedAt", "hostId", "id", "kind", "resetAt", "sessionId", "state", "updatedAt"), listOf(), true),
+        "fleet-snapshot-v1:#/\$defs/endpoint" to GeneratedStructuralShape(listOf("address", "authentication", "errorCode", "id", "identityState", "network", "physicalHostId", "port", "sshEngine", "sshHostKeySha256", "status", "tailscaleNodeId"), listOf(), true),
+        "fleet-snapshot-v1:#/\$defs/executionTarget" to GeneratedStructuralShape(listOf("fingerprint", "id", "kind", "label", "physicalHostId", "status"), listOf(), true),
         "fleet-snapshot-v1:#/\$defs/host" to GeneratedStructuralShape(listOf("agentVersion", "capabilities", "errorCode", "id", "lastSeenAt", "name", "platform", "protocolVersion", "status", "timeZone", "transport", "wtmuxVersion"), listOf(), true),
         "fleet-snapshot-v1:#/\$defs/limit" to GeneratedStructuralShape(listOf("hostId", "id", "primary", "profileAlias", "provider", "secondary", "status", "updatedAt"), listOf(), true),
         "fleet-snapshot-v1:#/\$defs/limitWindow" to GeneratedStructuralShape(listOf("remainingPercent", "resetsAt", "usedPercent", "windowMinutes"), listOf(), true),
         "fleet-snapshot-v1:#/\$defs/pairingRequest" to GeneratedStructuralShape(listOf("deviceName", "expiresAt", "id", "peer", "platform", "requestedAt", "status"), listOf(), true),
+        "fleet-snapshot-v1:#/\$defs/physicalHost" to GeneratedStructuralShape(listOf("endpointIds", "errorCode", "executionTargetIds", "id", "lastSeenAt", "legacyHostIds", "name", "platform", "status"), listOf(), true),
         "fleet-snapshot-v1:#/\$defs/preset" to GeneratedStructuralShape(listOf("backend", "hostId", "id", "name", "profileAlias", "project", "tool"), listOf(), true),
         "fleet-snapshot-v1:#/\$defs/schedule" to GeneratedStructuralShape(listOf("agent", "backend", "completedAt", "createdAt", "deliverAt", "hostId", "id", "kind", "outcomeCode", "sessionId", "status", "updatedAt"), listOf(), true),
-        "fleet-snapshot-v1:#/\$defs/session" to GeneratedStructuralShape(listOf("activity", "attached", "backend", "hostId", "id", "internalName", "name", "pendingScheduleCount", "project", "title", "tool", "updatedAt"), listOf("locationKind", "nameMode", "projectPath"), true),
+        "fleet-snapshot-v1:#/\$defs/session" to GeneratedStructuralShape(listOf("activity", "attached", "backend", "hostId", "id", "internalName", "name", "pendingScheduleCount", "project", "title", "tool", "updatedAt"), listOf("executionTargetId", "locationKind", "nameMode", "physicalHostId", "projectPath"), true),
+        "identity-graph-v1:#" to GeneratedStructuralShape(listOf("aliases", "endpoints", "executionTargets", "fleetId", "physicalHosts", "schemaVersion"), listOf(), true),
+        "identity-graph-v1:#/\$defs/alias" to GeneratedStructuralShape(listOf("executionTargetId", "id", "physicalHostId"), listOf(), true),
+        "identity-graph-v1:#/\$defs/endpoint" to GeneratedStructuralShape(listOf("address", "authentication", "id", "identityState", "network", "physicalHostId", "port", "sshEngine", "sshHostKeySha256", "tailscaleNodeId"), listOf(), true),
+        "identity-graph-v1:#/\$defs/executionTarget" to GeneratedStructuralShape(listOf("fingerprint", "id", "kind", "label", "physicalHostId"), listOf(), true),
+        "identity-graph-v1:#/\$defs/physicalHost" to GeneratedStructuralShape(listOf("id", "legacyMachineId", "name", "platform"), listOf(), true),
         "machine-v1:#" to GeneratedStructuralShape(listOf("fallback", "hostCommand", "id", "linuxUsername", "name", "platform", "projectsRoot", "roles", "schemaVersion", "tailscaleNode", "transport", "wslDistro"), listOf(), true),
         "machine-v1:#/properties/fallback" to GeneratedStructuralShape(listOf("ip", "sshHost"), listOf(), true),
+        "machine-v2:#" to GeneratedStructuralShape(listOf("aliases", "endpoints", "executionTargets", "fallback", "fleetId", "hostCommand", "id", "linuxUsername", "name", "physicalHostId", "platform", "projectsRoot", "roles", "schemaVersion", "tailscaleNode", "transport", "wslDistro"), listOf(), true),
+        "machine-v2:#/properties/aliases/items" to GeneratedStructuralShape(listOf("executionTargetId", "id"), listOf(), true),
+        "machine-v2:#/properties/endpoints/items" to GeneratedStructuralShape(listOf("address", "authentication", "id", "identityState", "network", "port", "sshEngine", "sshHostKeySha256", "tailscaleNodeId"), listOf(), true),
+        "machine-v2:#/properties/executionTargets/items" to GeneratedStructuralShape(listOf("fingerprint", "id", "kind", "label"), listOf(), true),
+        "machine-v2:#/properties/fallback" to GeneratedStructuralShape(listOf("ip", "sshHost"), listOf(), true),
         "presets-v1:#" to GeneratedStructuralShape(listOf("presets", "schemaVersion"), listOf(), true),
         "presets-v1:#/properties/presets/items" to GeneratedStructuralShape(listOf("backend", "hostId", "id", "name", "profileAlias", "project", "tool"), listOf(), true),
         "release-set-v1:#" to GeneratedStructuralShape(listOf("artifacts", "components", "contractPackageVersion", "expiresAt", "issuedAt", "protocols", "releaseSetSequence", "rollbackFloor", "schemaVersion", "signature"), listOf(), true),
@@ -117,7 +130,7 @@ object GeneratedAgentFleetContracts {
         "workspace-layout-v1:#/\$defs/split" to GeneratedStructuralShape(listOf("direction", "first", "id", "kind", "ratio", "second"), listOf(), true)
     )
     val controlRequestShapes: Map<String, GeneratedStructuralShape> = mapOf(
-        "fleet.snapshot" to GeneratedStructuralShape(listOf(), listOf("includeSessionTitles")),
+        "fleet.snapshot" to GeneratedStructuralShape(listOf(), listOf("includeIdentityGraph", "includeSessionTitles")),
         "protocol.capabilities" to GeneratedStructuralShape(listOf(), listOf()),
         "session.create" to GeneratedStructuralShape(listOf("backend", "expectedRevision", "hostId", "idempotencyKey", "project", "tool"), listOf("locationKind", "path")),
         "session.kill" to GeneratedStructuralShape(listOf("expectedRevision", "hostId", "idempotencyKey", "sessionId"), listOf()),

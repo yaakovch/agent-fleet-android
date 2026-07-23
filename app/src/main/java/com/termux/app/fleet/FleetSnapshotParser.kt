@@ -15,9 +15,15 @@ object FleetSnapshotParser {
         } catch (error: JSONException) {
             throw IllegalArgumentException("Fleet snapshot is not valid JSON", error)
         }
+        val identityFields = setOf("fleetId", "physicalHosts", "endpoints", "executionTargets")
+        val identityFieldCount = identityFields.count(root::has)
+        require(identityFieldCount == 0 || identityFieldCount == identityFields.size) {
+            "Identity graph fields are incomplete"
+        }
+        val hasIdentityGraph = identityFieldCount == identityFields.size
         root.requireExactFields(
             required = setOf("revision", "generatedAt", "hosts", "sessions", "schedules", "attention"),
-            optional = setOf("presentationRevision", "limits", "presets", "pairingRequests")
+            optional = setOf("presentationRevision", "limits", "presets", "pairingRequests") + identityFields
         )
         rejectPrivateFields(root)
 
@@ -52,9 +58,12 @@ object FleetSnapshotParser {
                         "id", "hostId", "internalName", "name", "title", "project", "tool", "backend", "activity",
                         "attached", "updatedAt", "pendingScheduleCount"
                     ),
-                    optional = setOf("nameMode", "projectPath", "locationKind")
+                    optional = setOf("nameMode", "projectPath", "locationKind", "physicalHostId", "executionTargetId")
                 )
                 require(session.has("projectPath") == session.has("locationKind")) { "Incomplete session path metadata" }
+                require(session.has("physicalHostId") == hasIdentityGraph && session.has("executionTargetId") == hasIdentityGraph) {
+                    "Session identity graph fields are incomplete or unnegotiated"
+                }
                 FleetSession(
                     id = session.requiredString("id", 320),
                     hostId = session.requiredString("hostId", 160),
@@ -76,7 +85,11 @@ object FleetSnapshotParser {
                     updatedAt = session.optionalString("updatedAt", 40),
                     pendingScheduleCount = session.requiredInt("pendingScheduleCount", 0, 10_000),
                     projectPath = if (session.has("projectPath")) session.requiredString("projectPath", 2_048, allowEmpty = true) else "",
-                    locationKind = if (session.has("locationKind")) session.requiredString("locationKind", 16) else "project"
+                    locationKind = if (session.has("locationKind")) session.requiredString("locationKind", 16) else "project",
+                    physicalHostId = if (hasIdentityGraph) session.requiredString("physicalHostId", 160) else session.requiredString("hostId", 160),
+                    executionTargetId = if (hasIdentityGraph) session.requiredString("executionTargetId", 16).also {
+                        require(it in setOf("linux", "windows")) { "Invalid executionTargetId" }
+                    } else if (session.requiredString("backend", 32) == "windows") "windows" else "linux"
                 )
             },
             schedules = root.requiredArray("schedules", 500).mapObjects { schedule ->
@@ -129,7 +142,8 @@ object FleetSnapshotParser {
                     updatedAt = limit.requiredString("updatedAt", 40)
                 )
             }
-        ).also { snapshot ->
+        ).let { parsedSnapshot ->
+            val snapshot = if (hasIdentityGraph) parseIdentityGraph(root, parsedSnapshot) else parsedSnapshot
             root.optionalArray("presets", 100).mapObjects { preset ->
                 preset.requireExactFields(setOf("id", "name", "hostId", "project", "backend", "tool", "profileAlias"))
                 preset.requiredString("id", 160)
@@ -154,7 +168,128 @@ object FleetSnapshotParser {
             require(snapshot.sessions.all { it.hostId in hostIds }) { "Session references an unknown host" }
             require(snapshot.sessions.map { it.id }.toSet().size == snapshot.sessions.size) { "Duplicate session id" }
             require(snapshot.limits.all { it.hostId in hostIds }) { "Limit profile references an unknown host" }
+            snapshot
         }
+    }
+
+    private fun parseIdentityGraph(root: JSONObject, snapshot: FleetSnapshot): FleetSnapshot {
+        val fleetId = root.requiredString("fleetId", 160)
+        val physicalHosts = root.requiredArray("physicalHosts", 256).mapObjects { host ->
+            host.requireExactFields(setOf(
+                "id", "name", "platform", "status", "lastSeenAt", "errorCode",
+                "endpointIds", "executionTargetIds", "legacyHostIds"
+            ))
+            FleetPhysicalHost(
+                id = host.requiredString("id", 160),
+                name = host.requiredString("name", 256),
+                platform = host.requiredString("platform", 32).also {
+                    require(it in setOf("wsl", "linux", "termux")) { "Invalid physical host platform" }
+                },
+                status = host.requiredString("status", 32).also {
+                    require(it in setOf("healthy", "connecting", "offline")) { "Invalid physical host status" }
+                },
+                lastSeenAt = host.optionalString("lastSeenAt", 40),
+                errorCode = host.requiredString("errorCode", 64, allowEmpty = true),
+                endpointIds = host.requiredArray("endpointIds", 16).mapStrings(160).also(::requireUnique),
+                executionTargetIds = host.requiredArray("executionTargetIds", 16).mapStrings(16).also { ids ->
+                    requireUnique(ids)
+                    require(ids.all { it in setOf("linux", "windows") }) { "Invalid execution target id" }
+                },
+                legacyHostIds = host.requiredArray("legacyHostIds", 16).mapStrings(160).also(::requireUnique)
+            )
+        }
+        requireUnique(physicalHosts.map(FleetPhysicalHost::id))
+        requireUnique(physicalHosts.flatMap(FleetPhysicalHost::legacyHostIds))
+        val physicalIds = physicalHosts.map(FleetPhysicalHost::id).toSet()
+        val legacyAliases = physicalHosts.flatMap(FleetPhysicalHost::legacyHostIds).toSet()
+        require(snapshot.hosts.all { it.id in legacyAliases }) { "Legacy host is missing from the identity graph" }
+
+        val endpoints = root.requiredArray("endpoints", 512).mapObjects { endpoint ->
+            endpoint.requireExactFields(setOf(
+                "id", "physicalHostId", "network", "address", "port", "sshEngine", "authentication",
+                "status", "identityState", "sshHostKeySha256", "tailscaleNodeId", "errorCode"
+            ))
+            FleetEndpoint(
+                id = endpoint.requiredString("id", 160),
+                physicalHostId = endpoint.requiredString("physicalHostId", 160).also {
+                    require(it in physicalIds) { "Endpoint references an unknown physical host" }
+                },
+                network = endpoint.requiredString("network", 16).also {
+                    require(it in setOf("local", "tailnet", "direct")) { "Invalid endpoint network" }
+                },
+                address = endpoint.requiredString("address", 253),
+                port = endpoint.requiredInt("port", 1, 65_535),
+                sshEngine = endpoint.requiredString("sshEngine", 32).also {
+                    require(it in setOf("openssh", "tailscale-cli")) { "Invalid SSH engine" }
+                },
+                authentication = endpoint.requiredString("authentication", 32).also {
+                    require(it in setOf("tailnet-ssh", "key")) { "Invalid endpoint authentication" }
+                },
+                status = endpoint.requiredString("status", 32).also {
+                    require(it in setOf("healthy", "connecting", "offline")) { "Invalid endpoint status" }
+                },
+                identityState = endpoint.requiredString("identityState", 32).also {
+                    require(it in setOf("verified", "unverified", "reverify-required")) { "Invalid endpoint identity state" }
+                },
+                sshHostKeySha256 = endpoint.requiredString("sshHostKeySha256", 96, allowEmpty = true),
+                tailscaleNodeId = endpoint.requiredString("tailscaleNodeId", 128, allowEmpty = true),
+                errorCode = endpoint.requiredString("errorCode", 64, allowEmpty = true)
+            )
+        }
+        requireUnique(endpoints.map(FleetEndpoint::id))
+
+        val targets = root.requiredArray("executionTargets", 512).mapObjects { target ->
+            target.requireExactFields(setOf("id", "physicalHostId", "kind", "label", "status", "fingerprint"))
+            val id = target.requiredString("id", 16).also {
+                require(it in setOf("linux", "windows")) { "Invalid execution target id" }
+            }
+            val kind = target.requiredString("kind", 32).also {
+                require(it in setOf("linux", "windows-git-bash")) { "Invalid execution target kind" }
+            }
+            require((id == "linux") == (kind == "linux")) { "Execution target kind does not match its id" }
+            FleetExecutionTarget(
+                id = id,
+                physicalHostId = target.requiredString("physicalHostId", 160).also {
+                    require(it in physicalIds) { "Execution target references an unknown physical host" }
+                },
+                kind = kind,
+                label = target.requiredString("label", 128),
+                status = target.requiredString("status", 32).also {
+                    require(it in setOf("available", "unavailable", "unknown")) { "Invalid execution target status" }
+                },
+                fingerprint = target.requiredString("fingerprint", 160, allowEmpty = true)
+            )
+        }
+        requireUnique(targets.map { "${it.physicalHostId}:${it.id}" })
+
+        physicalHosts.forEach { host ->
+            require(host.endpointIds.all { endpointId ->
+                endpoints.any { it.id == endpointId && it.physicalHostId == host.id }
+            }) { "Physical host references an unknown endpoint" }
+            require(host.executionTargetIds.all { targetId ->
+                targets.any { it.id == targetId && it.physicalHostId == host.id }
+            }) { "Physical host references an unknown execution target" }
+        }
+        snapshot.sessions.forEach { session ->
+            val physicalHost = physicalHosts.firstOrNull { it.id == session.physicalHostId }
+            require(physicalHost != null && session.hostId in physicalHost.legacyHostIds) {
+                "Session physical host identity is inconsistent"
+            }
+            require(targets.any {
+                it.physicalHostId == session.physicalHostId && it.id == session.executionTargetId
+            }) { "Session references an unknown execution target" }
+            require(session.executionTargetId == session.backend) { "Session backend and execution target differ" }
+        }
+        return snapshot.copy(
+            fleetId = fleetId,
+            physicalHosts = physicalHosts,
+            endpoints = endpoints,
+            executionTargets = targets
+        )
+    }
+
+    private fun requireUnique(values: List<String>) {
+        require(values.toSet().size == values.size) { "Identity graph contains a duplicate id" }
     }
 
     private fun JSONObject.requiredArray(name: String, maximum: Int = MAX_COLLECTION_ITEMS): JSONArray =

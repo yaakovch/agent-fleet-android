@@ -37,21 +37,75 @@ class SessionIdentityTest {
     }
 
     @Test fun bridgeArgumentsArePrivacyGated() {
-        assertEquals(listOf("--snapshot", "--session-titles"), snapshotBridgeArguments(true))
-        assertEquals(listOf("--snapshot"), snapshotBridgeArguments(false))
+        assertEquals(listOf("--snapshot", "--identity-graph", "--session-titles"), snapshotBridgeArguments(true))
+        assertEquals(listOf("--snapshot", "--identity-graph"), snapshotBridgeArguments(false))
     }
 
     @Test fun oldBridgeFallsBackWithoutBreakingFleetConnection() {
         val oldHelp = "usage: wtmux-bridge [-h] [--snapshot] [--stdio]"
         assertEquals(false, bridgeHelpSupportsSessionTitles(0, oldHelp))
-        assertEquals(listOf("--snapshot"), snapshotBridgeArguments(enabled = true, supported = false))
-        assertEquals(listOf("--stdio"), stdioBridgeArguments(enabled = true, supported = false))
+        assertEquals(false, bridgeHelpSupportsIdentityGraph(0, oldHelp))
+        assertEquals(
+            listOf("--snapshot"),
+            snapshotBridgeArguments(titlesEnabled = true, titlesSupported = false, identityGraphSupported = false)
+        )
+        assertEquals(
+            listOf("--stdio"),
+            stdioBridgeArguments(titlesEnabled = true, titlesSupported = false, identityGraphSupported = false)
+        )
     }
 
     @Test fun compatibleBridgeKeepsAutomaticTitlesEnabled() {
-        val currentHelp = "usage: wtmux-bridge [--snapshot] [--stdio] [--session-titles]"
+        val currentHelp = "usage: wtmux-bridge [--snapshot] [--stdio] [--identity-graph] [--session-titles]"
         assertEquals(true, bridgeHelpSupportsSessionTitles(0, currentHelp))
-        assertEquals(listOf("--snapshot", "--session-titles"), snapshotBridgeArguments(true, true))
-        assertEquals(listOf("--stdio", "--session-titles"), stdioBridgeArguments(true, true))
+        assertEquals(true, bridgeHelpSupportsIdentityGraph(0, currentHelp))
+        assertEquals(listOf("--snapshot", "--identity-graph", "--session-titles"), snapshotBridgeArguments(true, true, true))
+        assertEquals(listOf("--stdio", "--identity-graph", "--session-titles"), stdioBridgeArguments(true, true, true))
+    }
+
+    @Test fun physicalTargetUsesTheCorrectLegacyTransportAlias() {
+        val linuxHost = FleetHost("gaming", "Gaming", "healthy", "wsl", null, emptySet())
+        val windowsHost = linuxHost.copy(id = "gaming_windows")
+        val physical = FleetPhysicalHost(
+            "gaming", "Gaming", "wsl", "healthy", null, "", emptyList(),
+            listOf("linux", "windows"), listOf("gaming", "gaming_windows")
+        )
+        val snapshot = FleetSnapshot(
+            "revision", "", listOf(linuxHost, windowsHost), emptyList(), emptyList(), emptyList(),
+            physicalHosts = listOf(physical),
+            executionTargets = listOf(
+                FleetExecutionTarget("linux", "gaming", "linux", "WSL", "available", ""),
+                FleetExecutionTarget("windows", "gaming", "windows-git-bash", "Windows", "available", "")
+            )
+        )
+        assertEquals("gaming", transportHostId(snapshot, "gaming", "linux"))
+        assertEquals("gaming_windows", transportHostId(snapshot, "gaming", "windows"))
+    }
+
+    @Test fun changedEndpointIdentityRequiresVisibleRecovery() {
+        val host = FleetPhysicalHost(
+            "gaming", "Gaming", "wsl", "healthy", null, "", listOf("endpoint"),
+            listOf("linux"), listOf("gaming")
+        )
+        val snapshot = FleetSnapshot(
+            "revision", "", listOf(FleetHost("gaming", "Gaming", "healthy", "wsl", null, emptySet())),
+            emptyList(), emptyList(), emptyList(),
+            physicalHosts = listOf(host),
+            endpoints = listOf(
+                FleetEndpoint(
+                    "endpoint", "gaming", "tailnet", "gaming.example.ts.net", 22, "openssh",
+                    "tailnet-ssh", "healthy", "reverify-required", "SHA256:changed", "node", ""
+                )
+            ),
+            executionTargets = listOf(FleetExecutionTarget("linux", "gaming", "linux", "WSL", "available", ""))
+        )
+        assertEquals("healthy · endpoint identity needs verification", physicalHostRecoveryDetail(snapshot, host))
+        assertEquals(
+            null,
+            physicalHostRecoveryDetail(
+                snapshot.copy(endpoints = snapshot.endpoints.map { it.copy(identityState = "verified") }),
+                host
+            )
+        )
     }
 }

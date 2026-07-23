@@ -96,6 +96,8 @@ import com.termux.app.fleet.FleetSnapshot
 import com.termux.app.fleet.NativeSessionSettings
 import com.termux.app.fleet.AutomaticSessionTitleSettings
 import com.termux.app.fleet.sessionIdentityPresentation
+import com.termux.app.fleet.transportHostId
+import com.termux.app.fleet.physicalHostRecoveryDetail
 import com.termux.app.fleet.LocalModelUiState
 import com.termux.app.fleet.LocalSuggestionModel
 import com.termux.app.fleet.LocalSuggestionModelManager
@@ -1047,6 +1049,7 @@ fun AgentFleetApp(
         val available = currentSnapshot?.let { isFleetSessionAvailable(it, session) } == true
         SessionActionsDialog(
             session = session,
+            snapshot = currentSnapshot,
             available = available,
             onDismiss = { actionSession = null; actionPane = null },
             onOpen = { actionSession = null; actionPane = null; onOpenSession(session) },
@@ -1101,7 +1104,7 @@ fun AgentFleetApp(
     }
     if (showCreateSession && currentSnapshot != null) {
         CreateSessionDialog(
-            hosts = currentSnapshot.hosts,
+            snapshot = currentSnapshot,
             onListDirectory = onListDirectory,
             onCreateDirectory = onCreateDirectory,
             onDismiss = { showCreateSession = false }
@@ -1187,6 +1190,7 @@ private fun SessionsScreen(
     var query by rememberSaveable { mutableStateOf("") }
     val snapshot = (fleetState as? FleetLoadState.Ready)?.snapshot
     val hosts = snapshot?.hosts?.associateBy { it.id }.orEmpty()
+    val physicalHosts = snapshot?.physicalHosts?.associateBy { it.id }.orEmpty()
     val filtered = filterSessions(sessions, hosts, query)
 
     LazyColumn(
@@ -1199,7 +1203,7 @@ private fun SessionsScreen(
                 Column(modifier = Modifier.weight(1f)) {
                     Text("Your sessions", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
                     Text(
-                        if (snapshot == null) "Connect to your fleet" else "${snapshot.sessions.size} sessions across ${snapshot.hosts.size} machines",
+                        if (snapshot == null) "Connect to your fleet" else "${snapshot.sessions.size} sessions across ${snapshot.physicalHosts.size} machines",
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         fontSize = 16.sp
                     )
@@ -1230,7 +1234,7 @@ private fun SessionsScreen(
                         val available = snapshot?.let { isFleetSessionAvailable(it, session) } == true
                         SessionCard(
                             session,
-                            hosts[session.hostId]?.name ?: session.hostId,
+                            physicalHosts[session.physicalHostId]?.name ?: session.physicalHostId,
                             available,
                             session.id in localAttachments,
                             { onOpenSession(session) },
@@ -1302,6 +1306,7 @@ private fun SessionCard(
 @Composable
 private fun SessionActionsDialog(
     session: FleetSession,
+    snapshot: FleetSnapshot?,
     available: Boolean,
     onDismiss: () -> Unit,
     onOpen: () -> Unit,
@@ -1314,13 +1319,20 @@ private fun SessionActionsDialog(
     onHide: () -> Unit,
     onDetach: (() -> Unit)? = null
 ) {
+    val physicalHost = snapshot?.physicalHosts?.firstOrNull { it.id == session.physicalHostId }
+    val target = snapshot?.executionTargets?.firstOrNull {
+        it.physicalHostId == session.physicalHostId && it.id == session.executionTargetId
+    }
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text(sessionIdentityPresentation(session).primary, fontWeight = FontWeight.Bold) },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 Text("Session details", fontWeight = FontWeight.SemiBold)
-                Text("${session.hostId} · ${session.backend} · ${session.tool}", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text(
+                    "${physicalHost?.name ?: session.physicalHostId} · ${target?.label ?: session.executionTargetId} · ${session.tool}",
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
                 Text(session.projectPath.ifBlank { "Path unavailable for this older session" }, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 if (session.title.isNotBlank()) Text("Automatic title: ${session.title}", color = MaterialTheme.colorScheme.onSurfaceVariant)
                 if (!available) Text("This is a cached session. Its host is offline.", color = WarningAmber)
@@ -1594,14 +1606,21 @@ private fun ConfirmKillDialog(session: FleetSession, onDismiss: () -> Unit, onCo
 
 @Composable
 private fun CreateSessionDialog(
-    hosts: List<FleetHost>,
+    snapshot: FleetSnapshot,
     onListDirectory: (String, String, String, (Result<FleetDirectoryListing>) -> Unit) -> Unit,
     onCreateDirectory: (String, String, String, String, (Result<String>) -> Unit) -> Unit,
     onDismiss: () -> Unit,
     onConfirm: (String, String, String, String, String, String) -> Unit
 ) {
-    var hostId by rememberSaveable { mutableStateOf(hosts.firstOrNull { it.status == "healthy" }?.id ?: hosts.firstOrNull()?.id.orEmpty()) }
-    var backend by rememberSaveable { mutableStateOf("linux") }
+    val hosts = snapshot.physicalHosts.filter { it.status == "healthy" }
+    var hostId by rememberSaveable {
+        mutableStateOf(hosts.firstOrNull()?.id ?: snapshot.physicalHosts.firstOrNull()?.id.orEmpty())
+    }
+    var backend by rememberSaveable {
+        mutableStateOf(snapshot.executionTargets.firstOrNull {
+            it.physicalHostId == hostId && it.status != "unavailable"
+        }?.id ?: "linux")
+    }
     var locationKind by rememberSaveable { mutableStateOf("project") }
     var tool by rememberSaveable { mutableStateOf("codex") }
     var selectedPath by rememberSaveable { mutableStateOf("") }
@@ -1614,11 +1633,20 @@ private fun CreateSessionDialog(
     val context = LocalContext.current
     val recentStore = remember(context) { RecentLocationStore(context) }
     val recents = remember(hostId, backend, recentVersion) { recentStore.load(hostId, backend) }
+    val targets = snapshot.executionTargets.filter {
+        it.physicalHostId == hostId && it.status != "unavailable"
+    }
 
     fun browse(path: String, preferProjects: Boolean = false, recent: Boolean = false) {
+        val transportHost = transportHostId(snapshot, hostId, backend)
+        if (transportHost == null) {
+            loading = false
+            error = "The selected execution target is unavailable."
+            return
+        }
         loading = true
         error = ""
-        onListDirectory(hostId, backend, path) { first ->
+        onListDirectory(transportHost, backend, path) { first ->
             first.onSuccess { value ->
                 if (preferProjects) {
                     val projects = value.shortcuts.firstOrNull { it.id == "projects" }
@@ -1640,13 +1668,17 @@ private fun CreateSessionDialog(
         }
     }
 
+    LaunchedEffect(hostId, targets.map { it.id }) {
+        if (targets.none { it.id == backend }) backend = targets.firstOrNull()?.id ?: "linux"
+    }
     LaunchedEffect(hostId, backend, locationKind) {
         listing = null
         selectedPath = ""
         label = ""
         browse("", locationKind == "project")
     }
-    val valid = hostId.isNotBlank() && selectedPath.isNotBlank() && label.matches(Regex("[A-Za-z0-9][A-Za-z0-9._ -]{0,63}"))
+    val valid = transportHostId(snapshot, hostId, backend) != null && selectedPath.isNotBlank() &&
+        label.matches(Regex("[A-Za-z0-9][A-Za-z0-9._ -]{0,63}"))
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text("New session") },
@@ -1654,13 +1686,22 @@ private fun CreateSessionDialog(
             Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 Text("Machine", fontWeight = FontWeight.SemiBold)
                 Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    hosts.filter { it.status == "healthy" }.forEach { host ->
-                        AssistChip(onClick = { hostId = host.id }, label = { Text(if (host.id == hostId) "✓ ${host.name}" else host.name) })
+                    hosts.forEach { host ->
+                        AssistChip(onClick = {
+                            hostId = host.id
+                            val hostTargets = snapshot.executionTargets.filter {
+                                it.physicalHostId == host.id && it.status != "unavailable"
+                            }
+                            if (hostTargets.none { it.id == backend }) backend = hostTargets.firstOrNull()?.id ?: "linux"
+                        }, label = { Text(if (host.id == hostId) "✓ ${host.name}" else host.name) })
                     }
                 }
                 Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    listOf("linux", "windows").forEach { choice ->
-                        AssistChip(onClick = { backend = choice }, label = { Text(if (backend == choice) "✓ $choice" else choice) })
+                    targets.forEach { target ->
+                        AssistChip(
+                            onClick = { backend = target.id },
+                            label = { Text(if (backend == target.id) "✓ ${target.label}" else target.label) }
+                        )
                     }
                 }
                 Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -1698,7 +1739,9 @@ private fun CreateSessionDialog(
                         OutlinedTextField(newFolder, { newFolder = it }, Modifier.weight(1f), label = { Text("New folder") }, singleLine = true)
                         OutlinedButton(onClick = {
                             val parent = directory.path
-                            onCreateDirectory(hostId, backend, parent, newFolder.trim()) { result ->
+                            val transportHost = transportHostId(snapshot, hostId, backend)
+                                ?: return@OutlinedButton
+                            onCreateDirectory(transportHost, backend, parent, newFolder.trim()) { result ->
                                 result.onSuccess { path -> newFolder = ""; browse(path) }
                                     .onFailure { error = it.message ?: "Folder could not be created." }
                             }
@@ -1722,7 +1765,8 @@ private fun CreateSessionDialog(
         },
         confirmButton = { TextButton(onClick = {
             recentStore.record(hostId, backend, selectedPath)
-            onConfirm(hostId, label.trim(), backend, tool, selectedPath, locationKind)
+            val transportHost = transportHostId(snapshot, hostId, backend) ?: return@TextButton
+            onConfirm(transportHost, label.trim(), backend, tool, selectedPath, locationKind)
         }, enabled = valid) { Text("Create") } },
         dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } }
     )
@@ -2012,8 +2056,8 @@ private fun MoreScreen(
     var confirmMeteredModelDownload by rememberSaveable { mutableStateOf(false) }
     val snapshot = (fleetState as? FleetLoadState.Ready)?.snapshot
     val pendingSchedules = snapshot?.schedules?.count { it.status == "pending" } ?: 0
-    val healthyHosts = snapshot?.hosts?.count { it.status == "healthy" } ?: 0
-    val hostCount = snapshot?.hosts?.size ?: 0
+    val healthyHosts = snapshot?.physicalHosts?.count { it.status == "healthy" } ?: 0
+    val hostCount = snapshot?.physicalHosts?.size ?: 0
     LazyColumn(
         modifier = Modifier.fillMaxSize().padding(padding).testTag("more-screen"),
         contentPadding = PaddingValues(18.dp),
@@ -2190,8 +2234,9 @@ private fun MoreScreen(
         }
         item { FeatureCard("Fleet health", "$healthyHosts of $hostCount hosts healthy${snapshot?.generatedAt?.let { " · $it" }.orEmpty()}") }
         if (snapshot != null) {
-            items(snapshot.hosts.filter { it.status != "healthy" }, key = { it.id }) { host ->
-                FeatureCard(host.name, "${host.status} · last seen ${host.lastSeenAt ?: "unknown"}")
+            val recoveryHosts = snapshot.physicalHosts.filter { physicalHostRecoveryDetail(snapshot, it) != null }
+            items(recoveryHosts, key = { it.id }) { host ->
+                FeatureCard(host.name, physicalHostRecoveryDetail(snapshot, host).orEmpty())
             }
         }
         item {

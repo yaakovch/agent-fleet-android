@@ -45,6 +45,33 @@ class FleetSnapshotParserTest {
     }
 
     @Test
+    fun parsesNegotiatedCanonicalIdentityWithoutChangingLegacySessionId() {
+        val fixture = requireNotNull(javaClass.classLoader?.getResource("contracts/fleet-snapshot-identity-v1.json")).readText()
+        val snapshot = FleetSnapshotParser.parse(fixture)
+        assertEquals("agent-fleet", snapshot.fleetId)
+        assertEquals("gaming-desktop", snapshot.physicalHosts.single().id)
+        assertEquals(listOf("linux", "windows"), snapshot.physicalHosts.single().executionTargetIds)
+        assertEquals("verified", snapshot.endpoints.single().identityState)
+        assertEquals("gaming-desktop-ubuntu:wtmux-project-1", snapshot.sessions.single().id)
+        assertEquals("gaming-desktop", snapshot.sessions.single().physicalHostId)
+        assertEquals("linux", snapshot.sessions.single().executionTargetId)
+    }
+
+    @Test
+    fun rejectsDuplicateOrInconsistentCanonicalIdentityMappings() {
+        val fixture = requireNotNull(javaClass.classLoader?.getResource("contracts/fleet-snapshot-identity-v1.json")).readText()
+        val duplicate = JSONObject(fixture)
+        duplicate.getJSONArray("executionTargets").put(
+            JSONObject(duplicate.getJSONArray("executionTargets").getJSONObject(0).toString())
+        )
+        assertThrows(IllegalArgumentException::class.java) { FleetSnapshotParser.parse(duplicate.toString()) }
+
+        val inconsistent = JSONObject(fixture)
+        inconsistent.getJSONArray("sessions").getJSONObject(0).put("executionTargetId", "windows")
+        assertThrows(IllegalArgumentException::class.java) { FleetSnapshotParser.parse(inconsistent.toString()) }
+    }
+
+    @Test
     fun rejectsSharedUnknownAndPrivateSnapshotFields() {
         listOf("fleet-snapshot-unknown-field-v1.json", "fleet-snapshot-content-field-v1.json").forEach { name ->
             val fixture = requireNotNull(javaClass.classLoader?.getResource("contracts/$name")).readText()

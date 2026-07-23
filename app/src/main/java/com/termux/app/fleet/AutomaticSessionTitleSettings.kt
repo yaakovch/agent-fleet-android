@@ -24,8 +24,25 @@ object AutomaticSessionTitleSettings {
 internal fun bridgeHelpSupportsSessionTitles(exitCode: Int, output: String): Boolean =
     exitCode == 0 && output.lineSequence().any { line -> "--session-titles" in line }
 
-internal fun snapshotBridgeArguments(enabled: Boolean, supported: Boolean = true): List<String> =
-    listOf("--snapshot") + if (enabled && supported) listOf("--session-titles") else emptyList()
+internal fun bridgeHelpSupportsIdentityGraph(exitCode: Int, output: String): Boolean =
+    exitCode == 0 && output.lineSequence().any { line -> "--identity-graph" in line }
 
-internal fun stdioBridgeArguments(enabled: Boolean, supported: Boolean = true): List<String> =
-    listOf("--stdio") + if (enabled && supported) listOf("--session-titles") else emptyList()
+internal fun snapshotBridgeArguments(
+    titlesEnabled: Boolean,
+    titlesSupported: Boolean = true,
+    identityGraphSupported: Boolean = true
+): List<String> = buildList {
+    add("--snapshot")
+    if (identityGraphSupported) add("--identity-graph")
+    if (titlesEnabled && titlesSupported) add("--session-titles")
+}
+
+internal fun stdioBridgeArguments(
+    titlesEnabled: Boolean,
+    titlesSupported: Boolean = true,
+    identityGraphSupported: Boolean = true
+): List<String> = buildList {
+    add("--stdio")
+    if (identityGraphSupported) add("--identity-graph")
+    if (titlesEnabled && titlesSupported) add("--session-titles")
+}
