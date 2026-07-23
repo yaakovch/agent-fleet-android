@@ -1,0 +1,51 @@
+{
+  "schemaVersion": 1,
+  "contract": {
+    "version": 1,
+    "maxFrameBytes": 262144,
+    "maxQueuedControl": 16,
+    "maxInFlightControl": 1,
+    "requestDeadlineMs": 20000,
+    "heartbeatTimeoutMs": 30000,
+    "reconnectDelaysMs": [1000],
+    "foregroundControlProcesses": 1,
+    "windowsBackgroundControlProcesses": 1,
+    "androidBackgroundControlProcesses": 0,
+    "maxSupervisorRssBytes": 67108864,
+    "channels": [
+      { "id": "control", "failureDomain": "supervisor", "persistence": "metadata-cache", "backgroundPolicy": "retain" },
+      { "id": "conversation", "failureDomain": "visible-session", "persistence": "memory-only", "backgroundPolicy": "stop" },
+      { "id": "terminal", "failureDomain": "pty", "persistence": "none", "backgroundPolicy": "service-owned" },
+      { "id": "transfer", "failureDomain": "operation", "persistence": "explicit-destination", "backgroundPolicy": "visible-operation" },
+      { "id": "diagnostics", "failureDomain": "application", "persistence": "bounded-local", "backgroundPolicy": "stop" },
+      { "id": "update", "failureDomain": "application", "persistence": "signed-slots", "backgroundPolicy": "system-owned" }
+    ],
+    "unexpected": true
+  },
+  "scenarios": [
+    {
+      "id": "otherwise-valid",
+      "initial": {
+        "phase": "stopped",
+        "foreground": false,
+        "connectionGeneration": 0,
+        "controlProcessCount": 0,
+        "health": "stopped",
+        "lastError": ""
+      },
+      "steps": [
+        {
+          "action": { "type": "foreground-start" },
+          "expected": {
+            "phase": "initializing",
+            "foreground": true,
+            "connectionGeneration": 1,
+            "controlProcessCount": 1,
+            "health": "connecting",
+            "lastError": ""
+          }
+        }
+      ]
+    }
+  ]
+}

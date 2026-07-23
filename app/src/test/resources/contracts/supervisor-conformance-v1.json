@@ -1,0 +1,332 @@
+{
+  "schemaVersion": 1,
+  "contract": {
+    "version": 1,
+    "maxFrameBytes": 262144,
+    "maxQueuedControl": 16,
+    "maxInFlightControl": 1,
+    "requestDeadlineMs": 20000,
+    "heartbeatTimeoutMs": 30000,
+    "reconnectDelaysMs": [1000, 2000, 5000, 10000, 30000],
+    "foregroundControlProcesses": 1,
+    "windowsBackgroundControlProcesses": 1,
+    "androidBackgroundControlProcesses": 0,
+    "maxSupervisorRssBytes": 67108864,
+    "channels": [
+      {
+        "id": "control",
+        "failureDomain": "supervisor",
+        "persistence": "metadata-cache",
+        "backgroundPolicy": "retain"
+      },
+      {
+        "id": "conversation",
+        "failureDomain": "visible-session",
+        "persistence": "memory-only",
+        "backgroundPolicy": "stop"
+      },
+      {
+        "id": "terminal",
+        "failureDomain": "pty",
+        "persistence": "none",
+        "backgroundPolicy": "service-owned"
+      },
+      {
+        "id": "transfer",
+        "failureDomain": "operation",
+        "persistence": "explicit-destination",
+        "backgroundPolicy": "visible-operation"
+      },
+      {
+        "id": "diagnostics",
+        "failureDomain": "application",
+        "persistence": "bounded-local",
+        "backgroundPolicy": "stop"
+      },
+      {
+        "id": "update",
+        "failureDomain": "application",
+        "persistence": "signed-slots",
+        "backgroundPolicy": "system-owned"
+      }
+    ]
+  },
+  "scenarios": [
+    {
+      "id": "initialize-ready",
+      "initial": {
+        "phase": "stopped",
+        "foreground": false,
+        "connectionGeneration": 0,
+        "controlProcessCount": 0,
+        "health": "stopped",
+        "lastError": ""
+      },
+      "steps": [
+        {
+          "action": { "type": "foreground-start" },
+          "expected": {
+            "phase": "initializing",
+            "foreground": true,
+            "connectionGeneration": 1,
+            "controlProcessCount": 1,
+            "health": "connecting",
+            "lastError": ""
+          }
+        },
+        {
+          "action": { "type": "ready" },
+          "expected": {
+            "phase": "ready",
+            "foreground": true,
+            "connectionGeneration": 1,
+            "controlProcessCount": 1,
+            "health": "healthy",
+            "lastError": ""
+          }
+        }
+      ]
+    },
+    {
+      "id": "heartbeat-reconnect",
+      "initial": {
+        "phase": "ready",
+        "foreground": true,
+        "connectionGeneration": 3,
+        "controlProcessCount": 1,
+        "health": "healthy",
+        "lastError": ""
+      },
+      "steps": [
+        {
+          "action": { "type": "heartbeat-missed" },
+          "expected": {
+            "phase": "degraded",
+            "foreground": true,
+            "connectionGeneration": 3,
+            "controlProcessCount": 1,
+            "health": "degraded",
+            "lastError": "heartbeat_late"
+          }
+        },
+        {
+          "action": { "type": "heartbeat-expired" },
+          "expected": {
+            "phase": "backoff",
+            "foreground": true,
+            "connectionGeneration": 3,
+            "controlProcessCount": 0,
+            "health": "unhealthy",
+            "lastError": "heartbeat_timeout"
+          }
+        },
+        {
+          "action": { "type": "retry-elapsed" },
+          "expected": {
+            "phase": "initializing",
+            "foreground": true,
+            "connectionGeneration": 4,
+            "controlProcessCount": 1,
+            "health": "connecting",
+            "lastError": ""
+          }
+        },
+        {
+          "action": { "type": "ready" },
+          "expected": {
+            "phase": "ready",
+            "foreground": true,
+            "connectionGeneration": 4,
+            "controlProcessCount": 1,
+            "health": "healthy",
+            "lastError": ""
+          }
+        }
+      ]
+    },
+    {
+      "id": "android-background-resume",
+      "initial": {
+        "phase": "ready",
+        "foreground": true,
+        "connectionGeneration": 1,
+        "controlProcessCount": 1,
+        "health": "healthy",
+        "lastError": ""
+      },
+      "steps": [
+        {
+          "action": { "type": "background-stop" },
+          "expected": {
+            "phase": "shutting-down",
+            "foreground": false,
+            "connectionGeneration": 1,
+            "controlProcessCount": 1,
+            "health": "degraded",
+            "lastError": ""
+          }
+        },
+        {
+          "action": { "type": "shutdown-complete" },
+          "expected": {
+            "phase": "stopped",
+            "foreground": false,
+            "connectionGeneration": 1,
+            "controlProcessCount": 0,
+            "health": "stopped",
+            "lastError": ""
+          }
+        },
+        {
+          "action": { "type": "foreground-resume" },
+          "expected": {
+            "phase": "initializing",
+            "foreground": true,
+            "connectionGeneration": 2,
+            "controlProcessCount": 1,
+            "health": "connecting",
+            "lastError": ""
+          }
+        }
+      ]
+    },
+    {
+      "id": "windows-background-retain",
+      "initial": {
+        "phase": "ready",
+        "foreground": true,
+        "connectionGeneration": 2,
+        "controlProcessCount": 1,
+        "health": "healthy",
+        "lastError": ""
+      },
+      "steps": [
+        {
+          "action": { "type": "background-retain" },
+          "expected": {
+            "phase": "ready",
+            "foreground": false,
+            "connectionGeneration": 2,
+            "controlProcessCount": 1,
+            "health": "healthy",
+            "lastError": ""
+          }
+        },
+        {
+          "action": { "type": "foreground-resume" },
+          "expected": {
+            "phase": "ready",
+            "foreground": true,
+            "connectionGeneration": 2,
+            "controlProcessCount": 1,
+            "health": "healthy",
+            "lastError": ""
+          }
+        }
+      ]
+    },
+    {
+      "id": "deadline-and-process-death",
+      "initial": {
+        "phase": "ready",
+        "foreground": true,
+        "connectionGeneration": 8,
+        "controlProcessCount": 1,
+        "health": "healthy",
+        "lastError": ""
+      },
+      "steps": [
+        {
+          "action": { "type": "request-timed-out" },
+          "expected": {
+            "phase": "backoff",
+            "foreground": true,
+            "connectionGeneration": 8,
+            "controlProcessCount": 0,
+            "health": "unhealthy",
+            "lastError": "request_timeout"
+          }
+        },
+        {
+          "action": { "type": "retry-elapsed" },
+          "expected": {
+            "phase": "initializing",
+            "foreground": true,
+            "connectionGeneration": 9,
+            "controlProcessCount": 1,
+            "health": "connecting",
+            "lastError": ""
+          }
+        },
+        {
+          "action": { "type": "process-exited" },
+          "expected": {
+            "phase": "backoff",
+            "foreground": true,
+            "connectionGeneration": 9,
+            "controlProcessCount": 0,
+            "health": "unhealthy",
+            "lastError": "process_exit"
+          }
+        }
+      ]
+    },
+    {
+      "id": "channel-failure-isolation",
+      "initial": {
+        "phase": "ready",
+        "foreground": true,
+        "connectionGeneration": 5,
+        "controlProcessCount": 1,
+        "health": "healthy",
+        "lastError": ""
+      },
+      "steps": [
+        {
+          "action": { "type": "channel-failed", "channel": "transfer" },
+          "expected": {
+            "phase": "ready",
+            "foreground": true,
+            "connectionGeneration": 5,
+            "controlProcessCount": 1,
+            "health": "healthy",
+            "lastError": ""
+          }
+        },
+        {
+          "action": { "type": "channel-failed", "channel": "conversation" },
+          "expected": {
+            "phase": "ready",
+            "foreground": true,
+            "connectionGeneration": 5,
+            "controlProcessCount": 1,
+            "health": "healthy",
+            "lastError": ""
+          }
+        },
+        {
+          "action": { "type": "queue-saturated" },
+          "expected": {
+            "phase": "ready",
+            "foreground": true,
+            "connectionGeneration": 5,
+            "controlProcessCount": 1,
+            "health": "healthy",
+            "lastError": "backpressure"
+          }
+        },
+        {
+          "action": { "type": "channel-failed", "channel": "control" },
+          "expected": {
+            "phase": "backoff",
+            "foreground": true,
+            "connectionGeneration": 5,
+            "controlProcessCount": 0,
+            "health": "unhealthy",
+            "lastError": "control_failure"
+          }
+        }
+      ]
+    }
+  ]
+}

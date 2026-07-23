@@ -334,8 +334,10 @@ class EmbeddedRuntimeManager(private val context: Context) {
             require(restored.usable && restored.baseline == descriptor.baselineVersion && restored.current == previousCurrent) {
                 "The newer healthy runtime could not be restored after baseline repair"
             }
+            FleetControlSupervisor.restartForConfigurationChange()
             return restored
         }
+        FleetControlSupervisor.restartForConfigurationChange()
         return status
     }
 
@@ -350,7 +352,7 @@ class EmbeddedRuntimeManager(private val context: Context) {
         )
         require(result.exitCode == 0) { result.safeError("Runtime rollback failed") }
         runSetupAndDoctor()
-        return inspect()
+        return inspect().also { FleetControlSupervisor.restartForConfigurationChange() }
     }
 
     @Synchronized
@@ -364,7 +366,7 @@ class EmbeddedRuntimeManager(private val context: Context) {
         )
         require(result.exitCode == 0) { result.safeError("APK baseline recovery failed") }
         runSetupAndDoctor()
-        return inspect()
+        return inspect().also { FleetControlSupervisor.restartForConfigurationChange() }
     }
 
     @Synchronized
@@ -397,7 +399,7 @@ class EmbeddedRuntimeManager(private val context: Context) {
             runCatching { rollback() }
             throw error
         }
-        return inspect()
+        return inspect().also { FleetControlSupervisor.restartForConfigurationChange() }
     }
 
     /** Reinstalls only the verified offline packages owning a missing image-upload command. */

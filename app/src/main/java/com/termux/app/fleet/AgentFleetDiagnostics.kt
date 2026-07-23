@@ -213,6 +213,24 @@ class AgentFleetDiagnosticsRunner(
             "Contracts ${CompatibilityContract.CONTRACT_PACKAGE_VERSION} are supported",
             "Control ${CompatibilityContract.CONTROL_VERSIONS.joinToString()} · conversation ${CompatibilityContract.CONVERSATION_VERSIONS.joinToString()} · workspace ${CompatibilityContract.WORKSPACE_LAYOUT_VERSIONS.joinToString()}."
         )
+        val supervisor = FleetControlSupervisor.metrics()
+        checks += AgentFleetDiagnosticCheck(
+            "control-supervisor",
+            "Control supervisor",
+            if (supervisor.currentControlProcesses <= 1 && supervisor.queuedControlRequests <= SUPERVISOR_MAX_QUEUED_CONTROL) {
+                DiagnosticStatus.Healthy
+            } else {
+                DiagnosticStatus.Failure
+            },
+            if (ClientSupervisorSettings.usesSharedControl(context)) {
+                "${supervisor.currentControlProcesses} shared control process"
+            } else {
+                "Legacy one-shot control adapter enabled"
+            },
+            "Starts ${supervisor.processStarts} · generation ${supervisor.connectionGeneration} · " +
+                "queued ${supervisor.queuedControlRequests} · ready ${supervisor.lastReadyLatencyMs ?: 0}ms · " +
+                "request ${supervisor.lastRequestDurationMs ?: 0}ms."
+        )
         checks += check("shell", "Local process") {
             val bash = executable("bash") ?: error("Bash is missing")
             val process = ProcessBuilder(localShellDiagnosticCommand(bash))

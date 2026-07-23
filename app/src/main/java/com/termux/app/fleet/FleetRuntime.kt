@@ -129,6 +129,13 @@ class FleetRuntime(private val context: Context) {
     private var bridgeOptionSupport: BridgeOptionSupport? = null
 
     fun loadSnapshot(): FleetSnapshot {
+        if (ClientSupervisorSettings.usesSharedControl(context)) {
+            return FleetControlSupervisor.loadSnapshot(context)
+        }
+        return loadSnapshotLegacy()
+    }
+
+    private fun loadSnapshotLegacy(): FleetSnapshot {
         val bridge = executable("wtmux-bridge")
             ?: throw FleetUnavailableException("Pair or restore wtmux to connect this phone to your fleet.")
         val python = executable("python3")
@@ -422,7 +429,7 @@ class FleetRuntime(private val context: Context) {
     }
 
     fun getSessionModel(session: FleetSession, includeCatalog: Boolean): FleetModelControlState = parseModelControl(
-        repositoryRequest(
+        request(
             "session.model.get",
             JSONObject()
                 .put("hostId", session.hostId)
@@ -443,7 +450,7 @@ class FleetRuntime(private val context: Context) {
         require(modelId.matches(Regex("[A-Za-z0-9][A-Za-z0-9._:/@+\\-]{0,159}"))) { "Model ID is invalid." }
         require(effortId.matches(Regex("[A-Za-z0-9][A-Za-z0-9._+\\-]{0,63}"))) { "Effort ID is invalid." }
         require(expectedConfigRevision.matches(Regex("[a-f0-9]{16}"))) { "Model state changed; refresh and try again." }
-        val result = repositoryRequest(
+        val result = request(
             "session.model.set",
             JSONObject()
                 .put("hostId", session.hostId)
@@ -460,7 +467,7 @@ class FleetRuntime(private val context: Context) {
 
     fun cancelSessionModel(session: FleetSession, expectedConfigRevision: String): FleetModelControlState {
         require(expectedConfigRevision.matches(Regex("[a-f0-9]{16}"))) { "Model state changed; refresh and try again." }
-        val result = repositoryRequest(
+        val result = request(
             "session.model.cancel",
             JSONObject()
                 .put("hostId", session.hostId)
@@ -668,6 +675,13 @@ class FleetRuntime(private val context: Context) {
     }
 
     private fun request(method: String, params: JSONObject): JSONObject {
+        if (ClientSupervisorSettings.usesSharedControl(context)) {
+            return FleetControlSupervisor.request(context, method, params)
+        }
+        return requestLegacy(method, params)
+    }
+
+    private fun requestLegacy(method: String, params: JSONObject): JSONObject {
         val bridge = executable("wtmux-bridge") ?: throw FleetUnavailableException("wtmux bridge is not installed.")
         val python = executable("python3") ?: throw FleetUnavailableException("Python is missing from the restored Termux environment.")
         val titlesEnabled = AutomaticSessionTitleSettings.isEnabled(context)

@@ -8,8 +8,8 @@ data class GeneratedStructuralShape(
 )
 
 object GeneratedAgentFleetContracts {
-    const val CONTRACT_PACKAGE_VERSION = "1.1.0"
-    val protocolVersions: Map<String, Int> = mapOf("control" to 1, "conversation" to 2, "workspace-layout" to 1, "release-set" to 1)
+    const val CONTRACT_PACKAGE_VERSION = "1.2.0"
+    val protocolVersions: Map<String, Int> = mapOf("control" to 1, "conversation" to 2, "workspace-layout" to 1, "release-set" to 1, "supervisor" to 1)
     val objectShapes: Map<String, GeneratedStructuralShape> = mapOf(
         "client-policy-v1:#" to GeneratedStructuralShape(listOf("apkManifestUrls", "artifactOrigins", "checkIntervalSeconds", "policyRevision", "runtimeManifestUrls", "schemaVersion"), listOf(), true),
         "compatibility-v1:#" to GeneratedStructuralShape(listOf("components", "contractPackageVersion", "schemaVersion"), listOf(), true),
@@ -125,6 +125,13 @@ object GeneratedAgentFleetContracts {
         "release-set-v1:#/properties/rollbackFloor" to GeneratedStructuralShape(listOf("androidVersionCode", "releaseSetSequence", "runtimeSequence"), listOf(), true),
         "release-set-v1:#/properties/signature" to GeneratedStructuralShape(listOf("algorithm", "keyId", "value"), listOf(), true),
         "runtime-update-v1:#" to GeneratedStructuralShape(listOf("keyId", "payload", "schemaVersion", "signature"), listOf(), true),
+        "supervisor-v1:#" to GeneratedStructuralShape(listOf("contract", "scenarios", "schemaVersion"), listOf(), true),
+        "supervisor-v1:#/\$defs/action" to GeneratedStructuralShape(listOf("type"), listOf("channel"), true),
+        "supervisor-v1:#/\$defs/channel" to GeneratedStructuralShape(listOf("backgroundPolicy", "failureDomain", "id", "persistence"), listOf(), true),
+        "supervisor-v1:#/\$defs/contract" to GeneratedStructuralShape(listOf("androidBackgroundControlProcesses", "channels", "foregroundControlProcesses", "heartbeatTimeoutMs", "maxFrameBytes", "maxInFlightControl", "maxQueuedControl", "maxSupervisorRssBytes", "reconnectDelaysMs", "requestDeadlineMs", "version", "windowsBackgroundControlProcesses"), listOf(), true),
+        "supervisor-v1:#/\$defs/scenario" to GeneratedStructuralShape(listOf("id", "initial", "steps"), listOf(), true),
+        "supervisor-v1:#/\$defs/state" to GeneratedStructuralShape(listOf("connectionGeneration", "controlProcessCount", "foreground", "health", "lastError", "phase"), listOf(), true),
+        "supervisor-v1:#/\$defs/step" to GeneratedStructuralShape(listOf("action", "expected"), listOf(), true),
         "workspace-layout-v1:#" to GeneratedStructuralShape(listOf("focusedPaneId", "root", "schemaVersion", "sessionMru"), listOf(), true),
         "workspace-layout-v1:#/\$defs/pane" to GeneratedStructuralShape(listOf("id", "kind", "sessionId", "viewMode"), listOf(), true),
         "workspace-layout-v1:#/\$defs/split" to GeneratedStructuralShape(listOf("direction", "first", "id", "kind", "ratio", "second"), listOf(), true)

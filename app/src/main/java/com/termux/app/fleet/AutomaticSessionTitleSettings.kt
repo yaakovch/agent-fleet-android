@@ -17,6 +17,9 @@ object AutomaticSessionTitleSettings {
             RecentSessionStore(application).clearCachedTitles()
             FleetSnapshotStore.redactTitles()
         }
+        if (ClientSupervisorSettings.usesSharedControl(application)) {
+            FleetControlSupervisor.restartForConfigurationChange()
+        }
         FleetSnapshotStore.refresh(showLoading = false)
     }
 }

@@ -24,6 +24,7 @@ object FleetSnapshotStore {
     )
 
     private val observers = linkedMapOf<Any, Observer>()
+    private val supervisorOwners = ForegroundSupervisorOwners()
     private var contextReference: WeakReference<Context>? = null
     private var state: FleetLoadState = FleetLoadState.Loading
 
@@ -50,23 +51,31 @@ object FleetSnapshotStore {
         observer: (FleetLoadState) -> Unit
     ) {
         val current: FleetLoadState
+        var lifecycleChange: Boolean? = null
         synchronized(this) {
             contextReference = WeakReference(context.applicationContext)
             observers[owner] = Observer(observer, continuous)
+            lifecycleChange = supervisorOwners.set(owner, continuous)
             current = state
             if (continuous) {
                 main.removeCallbacks(refreshRunnable)
                 main.post(refreshRunnable)
             }
         }
+        lifecycleChange?.let { FleetControlSupervisor.setForeground(context.applicationContext, it) }
         main.post { observer(current) }
     }
 
     fun removeObserver(owner: Any) {
+        var lifecycleChange: Boolean? = null
+        var context: Context? = null
         synchronized(this) {
             observers.remove(owner)
+            lifecycleChange = supervisorOwners.remove(owner)
+            context = contextReference?.get()
             if (observers.values.none { it.continuous }) main.removeCallbacks(refreshRunnable)
         }
+        if (lifecycleChange == false) context?.let { FleetControlSupervisor.setForeground(it, false) }
     }
 
     fun refresh(showLoading: Boolean = false) {
