@@ -92,7 +92,8 @@ def verify(root: Path) -> dict:
     descriptor_path = root / "embedded-runtime-v1.json"
     descriptor = json.loads(descriptor_path.read_text(encoding="utf-8"))
     if set(descriptor) != {
-        "schemaVersion", "baselineVersion", "wtmuxCommit", "protocolVersion", "supportedAbis",
+        "schemaVersion", "baselineVersion", "sourceRepository", "wtmuxCommit",
+        "contractPackageVersion", "components", "protocolVersion", "supportedAbis",
         "runtime", "packageLock", "sbom", "trustedRuntimeKeys",
     } or descriptor["schemaVersion"] != 1:
         raise ValueError("embedded-runtime-v1 fields are invalid")
@@ -102,10 +103,41 @@ def verify(root: Path) -> dict:
         raise ValueError("embedded wtmux commit is invalid")
     if descriptor["baselineVersion"] != "git-" + descriptor["wtmuxCommit"][:7]:
         raise ValueError("embedded baseline version and wtmux commit disagree")
+    if (
+        descriptor["sourceRepository"] != "https://github.com/yaakovch/wtmux"
+        or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._+-]{0,127}", descriptor["contractPackageVersion"])
+        or set(descriptor["components"]) != {"clientRuntime", "hostRuntime", "providerAdapters", "contracts"}
+    ):
+        raise ValueError("embedded runtime component metadata is invalid")
+    for name, component in descriptor["components"].items():
+        if (
+            set(component) != {"sequence", "version"} or type(component["sequence"]) is not int
+            or component["sequence"] < 1
+            or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._+-]{0,127}", component["version"])
+        ):
+            raise ValueError(f"embedded runtime component is invalid: {name}")
+    if (
+        any(descriptor["components"][name]["version"] != descriptor["baselineVersion"]
+            for name in ("clientRuntime", "hostRuntime", "providerAdapters"))
+        or descriptor["components"]["contracts"]["version"] != descriptor["contractPackageVersion"]
+    ):
+        raise ValueError("embedded runtime component versions disagree")
     if descriptor["protocolVersion"] != 2 or descriptor["supportedAbis"] != ["arm64-v8a"]:
         raise ValueError("embedded protocol or ABI declaration is unexpected")
 
-    runtime = checked_file(root, descriptor["runtime"], 32 * 1024 * 1024)
+    runtime_value = descriptor["runtime"]
+    if set(runtime_value) != {"file", "sha256", "size", "formatVersion", "sbomSha256", "licenseSha256"}:
+        raise ValueError("embedded wtmux runtime descriptor fields are invalid")
+    if (
+        runtime_value["formatVersion"] != 2
+        or not re.fullmatch(r"[a-f0-9]{64}", runtime_value["sbomSha256"])
+        or not re.fullmatch(r"[a-f0-9]{64}", runtime_value["licenseSha256"])
+    ):
+        raise ValueError("embedded wtmux runtime metadata is invalid")
+    runtime = checked_file(
+        root, {key: runtime_value[key] for key in ("file", "sha256", "size")},
+        32 * 1024 * 1024,
+    )
     with tarfile.open(runtime, "r:") as archive:
         members = archive.getmembers()
         if not members or any(not member.isfile() for member in members):
@@ -117,7 +149,23 @@ def verify(root: Path) -> dict:
         if manifest_handle is None:
             raise ValueError("runtime archive manifest is unreadable")
         manifest = json.load(manifest_handle)
-        if manifest.get("formatVersion") != 1 or manifest.get("version") != descriptor["baselineVersion"]:
+        if (
+            set(manifest) != {"formatVersion", "version", "components", "source", "target", "files"}
+            or manifest.get("formatVersion") != 2 or manifest.get("version") != descriptor["baselineVersion"]
+            or manifest.get("components") != descriptor["components"]
+            or manifest.get("source") != {
+                "schemaVersion": 1,
+                "repository": descriptor["sourceRepository"],
+                "commit": descriptor["wtmuxCommit"],
+                "license": "NOASSERTION",
+                "contractPackageVersion": descriptor["contractPackageVersion"],
+            }
+            or manifest.get("target") != {
+                "platform": "termux",
+                "architecture": "arm64",
+                "prefix": "/data/data/com.yaakovch.fleet/files/home/.local/share/agent-fleet/wtmux",
+            }
+        ):
             raise ValueError("runtime archive version does not match embedded baseline")
         expected = {"runtime-manifest.json"}
         for item in manifest.get("files", []):
@@ -128,6 +176,13 @@ def verify(root: Path) -> dict:
                 raise ValueError(f"runtime member verification failed: {item['path']}")
         if expected != set(names):
             raise ValueError("runtime archive contents do not match its manifest")
+        entries = {item["path"]: item for item in manifest["files"]}
+        if (
+            entries.get("runtime.spdx.json", {}).get("sha256") != runtime_value["sbomSha256"]
+            or entries.get("runtime-license.txt", {}).get("sha256") != runtime_value["licenseSha256"]
+            or "fleet/contracts/schemas/release-set-v1.schema.json" not in entries
+        ):
+            raise ValueError("runtime archive SBOM, license, or contracts are missing")
 
     package_value = descriptor["packageLock"]
     if set(package_value) != {"file", "sha256", "size", "packages", "payloadSize"}:
@@ -254,6 +309,8 @@ def verify(root: Path) -> dict:
     return {
         "baselineVersion": descriptor["baselineVersion"],
         "wtmuxCommit": descriptor["wtmuxCommit"],
+        "contractPackageVersion": descriptor["contractPackageVersion"],
+        "components": descriptor["components"],
         "packages": len(packages),
         "payloadSize": package_value["payloadSize"],
         "trustedKeyIds": sorted(key_ids),

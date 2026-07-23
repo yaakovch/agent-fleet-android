@@ -48,6 +48,15 @@ def archive_runtime(apk):
         descriptor = json.loads(archive.read(prefix + "embedded-runtime-v1.json"))
         if descriptor.get("schemaVersion") != 1 or descriptor.get("supportedAbis") != ["arm64-v8a"]:
             raise SystemExit("APK embedded runtime descriptor is invalid")
+        if (
+            descriptor.get("sourceRepository") != "https://github.com/yaakovch/wtmux"
+            or descriptor.get("baselineVersion") != "git-" + descriptor.get("wtmuxCommit", "")[:7]
+            or descriptor.get("runtime", {}).get("formatVersion") != 2
+            or set(descriptor.get("components", {})) != {
+                "clientRuntime", "hostRuntime", "providerAdapters", "contracts",
+            }
+        ):
+            raise SystemExit("APK embedded runtime provenance is invalid")
         for key in ("runtime", "packageLock", "sbom"):
             value = descriptor[key]
             payload = archive.read(prefix + value["file"])

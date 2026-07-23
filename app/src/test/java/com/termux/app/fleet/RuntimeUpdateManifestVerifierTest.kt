@@ -117,6 +117,27 @@ class RuntimeUpdateManifestVerifierTest {
         assertEquals(versionCode, manager.healthySequence())
         assertFalse(manager.shouldPreserveCurrentRuntime(status.copy(baseline = "git-older-baseline")))
     }
+
+    @Test
+    fun releaseSetSequencesRemainIndependentFromLegacyAppRuntimeCounters() {
+        val context = RuntimeEnvironment.getApplication()
+        val preferences = context.getSharedPreferences("agent-fleet-runtime-updates", 0)
+        preferences.edit().clear()
+            .putLong("accepted-release-set-sequence", 7)
+            .putLong("healthy-release-set-sequence", 7)
+            .putLong("component-floor-clientRuntime", 44)
+            .commit()
+        val manager = RuntimeUpdateManager(context)
+        val status = EmbeddedRuntimeStatus(
+            supported = true, usable = true, repairNeeded = false,
+            embeddedBaseline = "git-baseline", baseline = "git-baseline",
+            current = "git-release-set-hotfix", previous = "git-baseline",
+            missingOrOldPackages = 0, packageCount = 70, trustedKeyIds = emptyList(), detail = "ready"
+        )
+        assertEquals(0L, manager.acceptedSequence())
+        assertEquals(7L, manager.acceptedReleaseSetSequence())
+        assertTrue(manager.shouldPreserveCurrentRuntime(status))
+    }
 }
 
 private fun ByteArray.base64Url(): String = Base64.encodeToString(this, Base64.URL_SAFE or Base64.NO_PADDING or Base64.NO_WRAP)

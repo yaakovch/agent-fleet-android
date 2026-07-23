@@ -658,7 +658,8 @@ class AgentFleetActivity : ComponentActivity() {
             runOnUiThread {
                 result.onSuccess { status ->
                     runtimeUi.value = RuntimeUiState(
-                        status = status, detail = status.detail, blocking = false
+                        status = status, detail = status.detail, blocking = false,
+                        compatibilityDetail = runtimeCompatibilityDetail()
                     )
                     refreshFleet()
                     if (status.usable && runtimeUpdateManager.shouldCheck()) checkRuntimeUpdate(manual = false)
@@ -709,11 +710,27 @@ class AgentFleetActivity : ComponentActivity() {
         runtimeExecutor.execute {
             val result = runCatching(action)
             runOnUiThread {
-                result.onSuccess { status -> runtimeUi.value = RuntimeUiState(status = status, detail = status.detail) }
+                result.onSuccess { status -> runtimeUi.value = RuntimeUiState(
+                    status = status, detail = status.detail,
+                    compatibilityDetail = runtimeCompatibilityDetail()
+                ) }
                     .onFailure { error -> runtimeUi.value = runtimeUi.value.copy(
                         busy = false, error = error.message ?: "Runtime recovery failed"
                     ) }
             }
+        }
+    }
+
+    private fun runtimeCompatibilityDetail(): String {
+        val descriptor = embeddedRuntime.descriptor()
+        val components = descriptor.components
+        val releaseSet = runtimeUpdateManager.healthyReleaseSetSequence()
+        return buildString {
+            append("Client ").append(components.getValue("clientRuntime").sequence)
+            append(" · Host ").append(components.getValue("hostRuntime").sequence)
+            append(" · Adapters ").append(components.getValue("providerAdapters").sequence)
+            append(" · Contracts ").append(descriptor.contractPackageVersion)
+            if (releaseSet > 0) append(" · Set ").append(releaseSet)
         }
     }
 
@@ -795,6 +812,7 @@ data class RuntimeUiState(
     val blocking: Boolean = false,
     val detail: String = "Checking the built-in terminal…",
     val updateDetail: String = "",
+    val compatibilityDetail: String = "",
     val error: String = ""
 )
 
@@ -2255,6 +2273,13 @@ private fun MoreScreen(
                             fontSize = 14.sp,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
+                        if (runtimeUi.compatibilityDetail.isNotBlank()) {
+                            Text(
+                                runtimeUi.compatibilityDetail,
+                                fontSize = 13.sp,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
                     }
                     Row(
                         Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),

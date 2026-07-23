@@ -17,6 +17,7 @@ import java.text.ParsePosition
 import java.text.SimpleDateFormat
 import java.util.Locale
 import java.util.TimeZone
+import java.time.Instant
 import org.json.JSONObject
 
 data class RuntimeUpdate(
@@ -141,8 +142,8 @@ class RuntimeUpdateManager(
     fun shouldPreserveCurrentRuntime(status: EmbeddedRuntimeStatus): Boolean {
         return shouldPreserveVerifiedRuntime(
             status,
-            acceptedSequence(),
-            healthySequence()
+            maxOf(acceptedSequence(), acceptedReleaseSetSequence()),
+            maxOf(healthySequence(), healthyReleaseSetSequence())
         )
     }
 
@@ -187,6 +188,11 @@ class RuntimeUpdateManager(
                 val manifestOrigin = ClientPolicyParser.canonicalOrigin(manifestUrl)
                 require(manifestOrigin in policy.artifactOrigins) { "Runtime manifest origin is not approved" }
                 val text = readUrl(manifestUrl, 64 * 1024).toString(Charsets.UTF_8)
+                if (JSONObject(text).has("releaseSetSequence")) {
+                    return installReleaseSet(
+                        text, manifestUrl, policy, descriptor, keys
+                    )
+                }
                 val update = RuntimeUpdateManifestVerifier.verify(
                     text, keys, descriptor.protocolVersion, installedVersionCode(), policy.artifactOrigins
                 )
@@ -221,15 +227,107 @@ class RuntimeUpdateManager(
 
     fun acceptedSequence(): Long = preferences.getLong("accepted-sequence", 0)
     fun healthySequence(): Long = preferences.getLong("healthy-sequence", 0)
+    fun acceptedReleaseSetSequence(): Long = preferences.getLong("accepted-release-set-sequence", 0)
+    fun healthyReleaseSetSequence(): Long = preferences.getLong("healthy-release-set-sequence", 0)
     fun lastCheckAt(): Long = preferences.getLong("last-check-at", 0)
     fun lastSource(): String = preferences.getString("last-source", "").orEmpty()
     fun lastKeyId(): String = preferences.getString("last-key-id", "").orEmpty()
     fun lastError(): String = preferences.getString("last-error", "").orEmpty()
 
+    private fun installReleaseSet(
+        text: String,
+        manifestUrl: String,
+        policy: ClientPolicy,
+        descriptor: EmbeddedRuntimeDescriptor,
+        keys: Map<String, ByteArray>
+    ): RuntimeUpdateResult {
+        val releaseSet = ReleaseSetContract.verify(
+            json = text,
+            trustedKeys = keys,
+            now = Instant.now(),
+            allowedOrigins = policy.artifactOrigins,
+            installedAndroidVersion = installedVersionName(),
+            minimumReleaseSetSequence = maxOf(
+                acceptedReleaseSetSequence(),
+                preferences.getLong("release-set-floor", 0)
+            ),
+            componentFloors = releaseComponentFloors()
+        )
+        if (releaseSet.releaseSetSequence <= acceptedReleaseSetSequence()) {
+            require(releaseSet.releaseSetSequence <= healthyReleaseSetSequence()) {
+                "This signed release set previously failed its health check and will not be retried"
+            }
+            preferences.edit().putString("last-source", manifestUrl).putString("last-error", "").apply()
+            return RuntimeUpdateResult.Current(manifestUrl, acceptedReleaseSetSequence())
+        }
+        val artifact = releaseSet.artifacts.singleOrNull {
+            it.component == "clientRuntime" && it.platform in setOf("termux", "any") &&
+                it.architecture in setOf("arm64", "universal", "any")
+        } ?: throw IllegalArgumentException("release_set_incompatible: no Android client runtime artifact")
+        val selected = releaseSet.components.getValue("clientRuntime")
+        require(artifact.componentSequence == selected.sequence && artifact.version == selected.version)
+        val update = RuntimeUpdate(
+            sequence = selected.sequence,
+            version = selected.version,
+            protocolVersion = descriptor.protocolVersion,
+            artifactUrl = artifact.url,
+            sha256 = artifact.sha256,
+            size = artifact.size,
+            minAppVersionCode = installedVersionCode(),
+            createdAt = releaseSet.issuedAt,
+            keyId = releaseSet.signature.keyId
+        )
+        val current = embedded.inspect()
+        val sameRuntime = current.current == update.version && current.usable
+        check(preferences.edit()
+            .putLong("accepted-release-set-sequence", releaseSet.releaseSetSequence)
+            .putLong("release-set-floor", maxOf(
+                preferences.getLong("release-set-floor", 0),
+                releaseSet.rollbackFloor.releaseSetSequence
+            ))
+            .also { editor ->
+                releaseSet.rollbackFloor.componentSequences.forEach { (name, floor) ->
+                    editor.putLong("component-floor-$name", maxOf(
+                        preferences.getLong("component-floor-$name", 0), floor
+                    ))
+                }
+            }
+            .commit()
+        ) { "Release-set replay-protection state could not be persisted" }
+        if (!sameRuntime) {
+            val downloaded = download(update)
+            embedded.installHotfix(downloaded, update.sha256)
+        }
+        val healthy = embedded.inspect()
+        require(healthy.usable && healthy.current == update.version) {
+            "Activated runtime does not match the signed release set"
+        }
+        preferences.edit()
+            .putLong("healthy-release-set-sequence", releaseSet.releaseSetSequence)
+            .putString("last-source", manifestUrl)
+            .putString("last-key-id", update.keyId)
+            .putString("last-error", "")
+            .apply()
+        return if (sameRuntime) {
+            RuntimeUpdateResult.Current(manifestUrl, releaseSet.releaseSetSequence)
+        } else {
+            RuntimeUpdateResult.Installed(manifestUrl, update)
+        }
+    }
+
+    private fun releaseComponentFloors(): Map<String, Long> = listOf(
+        "windowsApp", "androidApp", "clientRuntime", "hostRuntime", "providerAdapters", "contracts"
+    ).associateWith { preferences.getLong("component-floor-$it", 0) }
+
     @Suppress("DEPRECATION")
     private fun installedVersionCode(): Long {
         val info = context.packageManager.getPackageInfo(context.packageName, 0)
         return if (android.os.Build.VERSION.SDK_INT >= 28) info.longVersionCode else info.versionCode.toLong()
+    }
+
+    @Suppress("DEPRECATION")
+    private fun installedVersionName(): String {
+        return context.packageManager.getPackageInfo(context.packageName, 0).versionName.orEmpty()
     }
 
     private fun trustedKey(key: EmbeddedRuntimeKey): ByteArray {

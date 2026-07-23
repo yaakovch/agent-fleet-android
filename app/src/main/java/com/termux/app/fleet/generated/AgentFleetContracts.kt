@@ -8,9 +8,12 @@ data class GeneratedStructuralShape(
 )
 
 object GeneratedAgentFleetContracts {
-    const val CONTRACT_PACKAGE_VERSION = "1.2.0"
+    const val CONTRACT_PACKAGE_VERSION = "1.3.0"
     val protocolVersions: Map<String, Int> = mapOf("control" to 1, "conversation" to 2, "workspace-layout" to 1, "release-set" to 1, "supervisor" to 1)
     val objectShapes: Map<String, GeneratedStructuralShape> = mapOf(
+        "activation-journal-v1:#" to GeneratedStructuralShape(listOf("candidate", "current", "failureCode", "phase", "previous", "schemaVersion", "transactionId", "updatedAt"), listOf(), true),
+        "activation-journal-v1:#/\$defs/componentSequences" to GeneratedStructuralShape(listOf("androidApp", "clientRuntime", "contracts", "hostRuntime", "providerAdapters", "windowsApp"), listOf(), true),
+        "activation-journal-v1:#/\$defs/slot" to GeneratedStructuralShape(listOf("componentSequences", "manifestSha256", "releaseSetSequence"), listOf(), true),
         "client-policy-v1:#" to GeneratedStructuralShape(listOf("apkManifestUrls", "artifactOrigins", "checkIntervalSeconds", "policyRevision", "runtimeManifestUrls", "schemaVersion"), listOf(), true),
         "compatibility-v1:#" to GeneratedStructuralShape(listOf("components", "contractPackageVersion", "schemaVersion"), listOf(), true),
         "compatibility-v1:#/\$defs/component" to GeneratedStructuralShape(listOf("controlVersions", "conversationVersions", "sourceVersion", "workspaceLayoutVersions"), listOf(), true),
@@ -117,12 +120,15 @@ object GeneratedAgentFleetContracts {
         "presets-v1:#" to GeneratedStructuralShape(listOf("presets", "schemaVersion"), listOf(), true),
         "presets-v1:#/properties/presets/items" to GeneratedStructuralShape(listOf("backend", "hostId", "id", "name", "profileAlias", "project", "tool"), listOf(), true),
         "release-set-v1:#" to GeneratedStructuralShape(listOf("artifacts", "components", "contractPackageVersion", "expiresAt", "issuedAt", "protocols", "releaseSetSequence", "rollbackFloor", "schemaVersion", "signature"), listOf(), true),
-        "release-set-v1:#/\$defs/artifact" to GeneratedStructuralShape(listOf("architecture", "component", "id", "platform", "sha256", "size", "url"), listOf(), true),
-        "release-set-v1:#/\$defs/component" to GeneratedStructuralShape(listOf("maximumCompatibleVersion", "minimumCompatibleVersion", "version"), listOf(), true),
+        "release-set-v1:#/\$defs/artifact" to GeneratedStructuralShape(listOf("architecture", "component", "componentSequence", "contractPackageVersion", "id", "licenseSha256", "platform", "sbomSha256", "sha256", "size", "sourceCommit", "sourceRepository", "url", "version"), listOf(), true),
+        "release-set-v1:#/\$defs/component" to GeneratedStructuralShape(listOf("compatibility", "sequence", "version"), listOf(), true),
+        "release-set-v1:#/\$defs/componentCompatibility" to GeneratedStructuralShape(listOf(), listOf("androidApp", "clientRuntime", "contracts", "hostRuntime", "providerAdapters", "windowsApp"), true),
+        "release-set-v1:#/\$defs/componentSequences" to GeneratedStructuralShape(listOf("androidApp", "clientRuntime", "contracts", "hostRuntime", "providerAdapters", "windowsApp"), listOf(), true),
         "release-set-v1:#/\$defs/range" to GeneratedStructuralShape(listOf("maximum", "minimum"), listOf(), true),
+        "release-set-v1:#/\$defs/sequenceRange" to GeneratedStructuralShape(listOf("maximum", "minimum"), listOf(), true),
         "release-set-v1:#/properties/components" to GeneratedStructuralShape(listOf("androidApp", "clientRuntime", "contracts", "hostRuntime", "providerAdapters", "windowsApp"), listOf(), true),
         "release-set-v1:#/properties/protocols" to GeneratedStructuralShape(listOf("control", "conversation", "workspaceLayout"), listOf(), true),
-        "release-set-v1:#/properties/rollbackFloor" to GeneratedStructuralShape(listOf("androidVersionCode", "releaseSetSequence", "runtimeSequence"), listOf(), true),
+        "release-set-v1:#/properties/rollbackFloor" to GeneratedStructuralShape(listOf("componentSequences", "releaseSetSequence"), listOf(), true),
         "release-set-v1:#/properties/signature" to GeneratedStructuralShape(listOf("algorithm", "keyId", "value"), listOf(), true),
         "runtime-update-v1:#" to GeneratedStructuralShape(listOf("keyId", "payload", "schemaVersion", "signature"), listOf(), true),
         "supervisor-v1:#" to GeneratedStructuralShape(listOf("contract", "scenarios", "schemaVersion"), listOf(), true),

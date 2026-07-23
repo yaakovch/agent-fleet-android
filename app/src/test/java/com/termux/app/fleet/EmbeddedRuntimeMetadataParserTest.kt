@@ -65,10 +65,21 @@ class EmbeddedRuntimeMetadataParserTest {
         {
           "schemaVersion":1,
           "baselineVersion":"git-abcdef0",
+          "sourceRepository":"https://github.com/yaakovch/wtmux",
           "wtmuxCommit":"abcdef0123456789abcdef0123456789abcdef01",
+          "contractPackageVersion":"1.3.0",
+          "components":{
+            "clientRuntime":{"sequence":45,"version":"git-abcdef0"},
+            "hostRuntime":{"sequence":38,"version":"git-abcdef0"},
+            "providerAdapters":{"sequence":13,"version":"git-abcdef0"},
+            "contracts":{"sequence":13,"version":"1.3.0"}
+          },
           "protocolVersion":2,
           "supportedAbis":["arm64-v8a"],
-          "runtime":{"file":"runtime.tar","sha256":"${"ab".repeat(32)}","size":123},
+          "runtime":{
+            "file":"runtime.tar","sha256":"${"ab".repeat(32)}","size":123,
+            "formatVersion":2,"sbomSha256":"${"bc".repeat(32)}","licenseSha256":"${"de".repeat(32)}"
+          },
           "packageLock":{"file":"packages.json","sha256":"${"cd".repeat(32)}","size":456,"packages":1,"payloadSize":789},
           "sbom":{"file":"packages.spdx.json","sha256":"${"ef".repeat(32)}","size":321},
           "trustedRuntimeKeys":[{"keyId":"${"12".repeat(16)}","file":"key.pem","sha256":"${"34".repeat(32)}"}]
@@ -100,6 +111,8 @@ class EmbeddedRuntimeMetadataParserTest {
     fun parsesCrossRepositoryDescriptorAndPackageFloors() {
         val value = EmbeddedRuntimeMetadataParser.descriptor(descriptor)
         assertEquals("git-abcdef0", value.baselineVersion)
+        assertEquals(45L, value.components.getValue("clientRuntime").sequence)
+        assertEquals("1.3.0", value.contractPackageVersion)
         assertEquals(2, value.protocolVersion)
         assertEquals("12".repeat(16), value.trustedRuntimeKeys.single().keyId)
         assertEquals("python", EmbeddedRuntimeMetadataParser.packages(packages).single().name)

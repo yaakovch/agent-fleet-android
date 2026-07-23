@@ -15,6 +15,17 @@ import org.json.JSONObject
 
 data class EmbeddedRuntimeFile(val file: String, val sha256: String, val size: Long)
 
+data class EmbeddedWtmuxRuntimeFile(
+    val file: String,
+    val sha256: String,
+    val size: Long,
+    val formatVersion: Int,
+    val sbomSha256: String,
+    val licenseSha256: String
+)
+
+data class EmbeddedRuntimeComponent(val sequence: Long, val version: String)
+
 data class EmbeddedRuntimeKey(val keyId: String, val file: String, val sha256: String)
 
 data class LockedTermuxPackage(
@@ -28,10 +39,13 @@ data class LockedTermuxPackage(
 
 data class EmbeddedRuntimeDescriptor(
     val baselineVersion: String,
+    val sourceRepository: String,
     val wtmuxCommit: String,
+    val contractPackageVersion: String,
+    val components: Map<String, EmbeddedRuntimeComponent>,
     val protocolVersion: Int,
     val supportedAbis: List<String>,
-    val runtime: EmbeddedRuntimeFile,
+    val runtime: EmbeddedWtmuxRuntimeFile,
     val packageLock: EmbeddedRuntimeFile,
     val sbom: EmbeddedRuntimeFile,
     val trustedRuntimeKeys: List<EmbeddedRuntimeKey>
@@ -123,23 +137,43 @@ object EmbeddedRuntimeMetadataParser {
     private val FILE = Regex("^[A-Za-z0-9][A-Za-z0-9._+-]{0,159}$")
     private val DEB_FILE = Regex("^[A-Za-z0-9][A-Za-z0-9._+~-]{0,199}\\.deb$")
     private val RECIPE = Regex("^(?:NOASSERTION|(?:packages|root-packages|x11-packages)/[a-z0-9][a-z0-9+.-]*/build\\.sh)$")
+    private val RUNTIME_COMPONENTS = listOf("clientRuntime", "hostRuntime", "providerAdapters", "contracts")
 
     fun descriptor(text: String): EmbeddedRuntimeDescriptor {
         require(text.length <= 64 * 1024) { "Embedded runtime descriptor is too large" }
         val root = JSONObject(text)
         root.requireFields(
-            "schemaVersion", "baselineVersion", "wtmuxCommit", "protocolVersion", "supportedAbis",
+            "schemaVersion", "baselineVersion", "sourceRepository", "wtmuxCommit",
+            "contractPackageVersion", "components", "protocolVersion", "supportedAbis",
             "runtime", "packageLock", "sbom", "trustedRuntimeKeys"
         )
         require(root.getInt("schemaVersion") == 1) { "Unsupported embedded runtime descriptor" }
         val baseline = root.getString("baselineVersion").also { require(VERSION.matches(it)) }
+        val sourceRepository = root.getString("sourceRepository").also {
+            requireHttps(it)
+            require(it == "https://github.com/yaakovch/wtmux")
+        }
         val commit = root.getString("wtmuxCommit").also { require(COMMIT.matches(it)) }
+        require(baseline == "git-${commit.take(7)}")
+        val contractPackageVersion = root.getString("contractPackageVersion").also { require(VERSION.matches(it)) }
+        val componentObject = root.getJSONObject("components").also {
+            it.requireFields(*RUNTIME_COMPONENTS.toTypedArray())
+        }
+        val components = RUNTIME_COMPONENTS.associateWith { name ->
+            val value = componentObject.getJSONObject(name).also { it.requireFields("sequence", "version") }
+            EmbeddedRuntimeComponent(
+                sequence = value.getLong("sequence").also { require(it > 0) },
+                version = value.getString("version").also { require(VERSION.matches(it)) }
+            )
+        }
+        require(RUNTIME_COMPONENTS.take(3).all { components.getValue(it).version == baseline })
+        require(components.getValue("contracts").version == contractPackageVersion)
         val protocol = root.getInt("protocolVersion").also { require(it in 1..1024) }
         val abis = root.getJSONArray("supportedAbis").strings(4).also { values ->
             require(values.isNotEmpty() && values.distinct().size == values.size)
             require(values.all { it in setOf("arm64-v8a", "armeabi-v7a", "x86", "x86_64") })
         }
-        val runtime = file(root.getJSONObject("runtime"), 32L * 1024L * 1024L)
+        val runtime = runtimeFile(root.getJSONObject("runtime"))
         val packageLock = packageLockFile(root.getJSONObject("packageLock"))
         val sbom = file(root.getJSONObject("sbom"), 2L * 1024L * 1024L)
         val keys = root.getJSONArray("trustedRuntimeKeys").objects(4).map { value ->
@@ -150,7 +184,10 @@ object EmbeddedRuntimeMetadataParser {
                 value.getString("sha256").also { require(SHA256.matches(it)) }
             )
         }.also { require(it.isNotEmpty() && it.map(EmbeddedRuntimeKey::keyId).distinct().size == it.size) }
-        return EmbeddedRuntimeDescriptor(baseline, commit, protocol, abis, runtime, packageLock, sbom, keys)
+        return EmbeddedRuntimeDescriptor(
+            baseline, sourceRepository, commit, contractPackageVersion, components,
+            protocol, abis, runtime, packageLock, sbom, keys
+        )
     }
 
     fun packages(text: String, expectedArchitecture: String = "aarch64"): List<LockedTermuxPackage> {
@@ -223,6 +260,18 @@ object EmbeddedRuntimeMetadataParser {
         )
     }
 
+    private fun runtimeFile(value: JSONObject): EmbeddedWtmuxRuntimeFile {
+        value.requireFields("file", "sha256", "size", "formatVersion", "sbomSha256", "licenseSha256")
+        return EmbeddedWtmuxRuntimeFile(
+            file = value.getString("file").also { require(FILE.matches(it)) },
+            sha256 = value.getString("sha256").also { require(SHA256.matches(it)) },
+            size = value.getLong("size").also { require(it in 1..32L * 1024L * 1024L) },
+            formatVersion = value.getInt("formatVersion").also { require(it == 2) },
+            sbomSha256 = value.getString("sbomSha256").also { require(SHA256.matches(it)) },
+            licenseSha256 = value.getString("licenseSha256").also { require(SHA256.matches(it)) }
+        )
+    }
+
     private fun packageLockFile(value: JSONObject): EmbeddedRuntimeFile {
         value.requireFields("file", "sha256", "size", "packages", "payloadSize")
         require(value.getInt("packages") in 1..512)
@@ -253,7 +302,8 @@ class EmbeddedRuntimeManager(private val context: Context) {
     private val dataRoot = context.filesDir.parentFile ?: error("Application data directory is unavailable")
     private val prefix = File(dataRoot, "files/usr")
     private val home = File(dataRoot, "files/home")
-    private val runtimeRoot = File(home, ".local/share/wtmux")
+    private val runtimeRoot = File(home, ".local/share/agent-fleet/wtmux")
+    private val legacyRuntimeRoot = File(home, ".local/share/wtmux")
     private val binDir = File(prefix, "bin")
     private val config = File(home, ".config/wtmux/wtmux.conf")
     private val staging = File(context.cacheDir, "agent-fleet-embedded-runtime")
@@ -271,6 +321,7 @@ class EmbeddedRuntimeManager(private val context: Context) {
     }
 
     fun inspect(): EmbeddedRuntimeStatus {
+        migrateLegacyRuntimeRoot()
         val descriptor = descriptor()
         val locked = packages(descriptor)
         val supported = supportsEmbeddedRuntime(Build.SUPPORTED_ABIS.firstOrNull(), descriptor.supportedAbis)
@@ -292,6 +343,16 @@ class EmbeddedRuntimeManager(private val context: Context) {
             links["baseline"].orEmpty(), links["current"].orEmpty(), links["previous"].orEmpty(),
             outdated.size, locked.size, descriptor.trustedRuntimeKeys.map(EmbeddedRuntimeKey::keyId), detail
         )
+    }
+
+    private fun migrateLegacyRuntimeRoot() {
+        if (runtimeRoot.exists() || !legacyRuntimeRoot.isDirectory) return
+        require(runtimeRoot.parentFile?.mkdirs() == true || runtimeRoot.parentFile?.isDirectory == true) {
+            "App-owned runtime directory is unavailable"
+        }
+        require(legacyRuntimeRoot.renameTo(runtimeRoot)) {
+            "The previous app-owned runtime could not be migrated"
+        }
     }
 
     @Synchronized

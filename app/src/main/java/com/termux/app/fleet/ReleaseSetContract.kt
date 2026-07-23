@@ -1,34 +1,46 @@
 package com.termux.app.fleet
 
+import android.util.Base64
 import org.json.JSONArray
 import org.json.JSONException
 import org.json.JSONObject
 import java.net.URI
 import java.time.Instant
 import java.time.format.DateTimeParseException
+import java.security.KeyFactory
+import java.security.Signature
+import java.security.spec.X509EncodedKeySpec
 
 data class ReleaseProtocolRange(val minimum: Int, val maximum: Int)
 
 data class ReleaseComponent(
+    val sequence: Long,
     val version: String,
-    val minimumCompatibleVersion: String,
-    val maximumCompatibleVersion: String
+    val compatibility: Map<String, ReleaseSequenceRange>
 )
+
+data class ReleaseSequenceRange(val minimum: Long, val maximum: Long)
 
 data class ReleaseArtifact(
     val id: String,
     val component: String,
+    val componentSequence: Long,
+    val version: String,
     val platform: String,
     val architecture: String,
     val url: String,
     val sha256: String,
-    val size: Long
+    val size: Long,
+    val sourceRepository: String,
+    val sourceCommit: String,
+    val contractPackageVersion: String,
+    val sbomSha256: String,
+    val licenseSha256: String
 )
 
 data class ReleaseRollbackFloor(
     val releaseSetSequence: Long,
-    val androidVersionCode: Long,
-    val runtimeSequence: Long
+    val componentSequences: Map<String, Long>
 )
 
 data class ReleaseSignature(val algorithm: String, val keyId: String, val value: String)
@@ -53,6 +65,7 @@ object ReleaseSetContract {
     private val VERSION = Regex("^[A-Za-z0-9][A-Za-z0-9._+\\-]{0,127}$")
     private val TOKEN = Regex("^[a-z][a-z0-9._-]{0,95}$")
     private val SHA256 = Regex("^[a-f0-9]{64}$")
+    private val COMMIT = Regex("^[a-f0-9]{40}$")
     private val KEY_ID = Regex("^[a-f0-9]{32}$")
     private val SIGNATURE = Regex("^[A-Za-z0-9_-]{64,128}$")
     private val COMPONENTS = listOf(
@@ -103,43 +116,88 @@ object ReleaseSetContract {
         }
         val components = COMPONENTS.associateWith { id ->
             val value = componentObject.requiredObject(id).also {
-                it.requireExactFields("version", "minimumCompatibleVersion", "maximumCompatibleVersion")
+                it.requireExactFields("sequence", "version", "compatibility")
+            }
+            val compatibilityObject = value.requiredObject("compatibility").also {
+                it.requireAllowedFields(*COMPONENTS.toTypedArray())
+            }
+            val compatibility = compatibilityObject.keys().asSequence().associateWith { dependency ->
+                require(dependency != id) { "Invalid release set: $id cannot depend on itself" }
+                val accepted = compatibilityObject.requiredObject(dependency).also {
+                    it.requireExactFields("minimum", "maximum")
+                }
+                val minimum = accepted.requiredLong("minimum", 1, MAX_SAFE_INTEGER)
+                val maximum = accepted.requiredLong("maximum", 1, MAX_SAFE_INTEGER)
+                require(minimum <= maximum) { "Invalid release set: compatibility range is inverted" }
+                ReleaseSequenceRange(minimum, maximum)
             }
             ReleaseComponent(
+                sequence = value.requiredLong("sequence", 1, MAX_SAFE_INTEGER),
                 version = value.requiredPattern("version", VERSION),
-                minimumCompatibleVersion = value.requiredPattern("minimumCompatibleVersion", VERSION),
-                maximumCompatibleVersion = value.requiredPattern("maximumCompatibleVersion", VERSION)
+                compatibility = compatibility
             )
+        }
+        components.forEach { (id, component) ->
+            component.compatibility.forEach { (dependency, accepted) ->
+                val selected = components.getValue(dependency).sequence
+                require(selected in accepted.minimum..accepted.maximum) {
+                    "Invalid release set: $id is incompatible with $dependency"
+                }
+            }
         }
 
         val artifactsArray = root.requiredArray("artifacts")
         require(artifactsArray.length() <= 64) { "Invalid release set: artifacts are invalid" }
         val artifactIds = mutableSetOf<String>()
         val artifacts = artifactsArray.mapObjects { value ->
-            value.requireExactFields("id", "component", "platform", "architecture", "url", "sha256", "size")
+            value.requireExactFields(
+                "id", "component", "componentSequence", "version", "platform", "architecture", "url",
+                "sha256", "size", "sourceRepository", "sourceCommit", "contractPackageVersion",
+                "sbomSha256", "licenseSha256"
+            )
             val id = value.requiredPattern("id", TOKEN)
             require(artifactIds.add(id)) { "Invalid release set: artifact id is duplicated" }
             val component = value.requiredMember("component", COMPONENTS.toSet())
             val platform = value.requiredMember("platform", PLATFORMS)
             val architecture = value.requiredMember("architecture", ARCHITECTURES)
+            val componentSequence = value.requiredLong("componentSequence", 1, MAX_SAFE_INTEGER)
+            val version = value.requiredPattern("version", VERSION)
+            val artifactContractVersion = value.requiredPattern("contractPackageVersion", VERSION)
+            require(componentSequence == components.getValue(component).sequence &&
+                version == components.getValue(component).version
+            ) { "Invalid release set: artifact component identity does not match" }
+            require(artifactContractVersion == contractPackageVersion) {
+                "Invalid release set: artifact contract package version does not match"
+            }
             ReleaseArtifact(
                 id = id,
                 component = component,
+                componentSequence = componentSequence,
+                version = version,
                 platform = platform,
                 architecture = architecture,
                 url = value.requiredHttpsUrl("url"),
                 sha256 = value.requiredPattern("sha256", SHA256),
-                size = value.requiredLong("size", 1, 2L * 1024 * 1024 * 1024)
+                size = value.requiredLong("size", 1, 2L * 1024 * 1024 * 1024),
+                sourceRepository = value.requiredHttpsUrl("sourceRepository"),
+                sourceCommit = value.requiredPattern("sourceCommit", COMMIT),
+                contractPackageVersion = artifactContractVersion,
+                sbomSha256 = value.requiredPattern("sbomSha256", SHA256),
+                licenseSha256 = value.requiredPattern("licenseSha256", SHA256)
             )
         }
 
         val floor = root.requiredObject("rollbackFloor").also {
-            it.requireExactFields("releaseSetSequence", "androidVersionCode", "runtimeSequence")
+            it.requireExactFields("releaseSetSequence", "componentSequences")
+        }
+        val floorSequences = floor.requiredObject("componentSequences").also {
+            it.requireExactFields(*COMPONENTS.toTypedArray())
         }
         val rollbackFloor = ReleaseRollbackFloor(
             releaseSetSequence = floor.requiredLong("releaseSetSequence", 0, releaseSetSequence),
-            androidVersionCode = floor.requiredLong("androidVersionCode", 0, MAX_SAFE_INTEGER),
-            runtimeSequence = floor.requiredLong("runtimeSequence", 0, MAX_SAFE_INTEGER)
+            componentSequences = COMPONENTS.associateWith { id ->
+                floorSequences.requiredLong(id, 0, components.getValue(id).sequence)
+            }
         )
 
         val signatureObject = root.requiredObject("signature").also {
@@ -167,9 +225,93 @@ object ReleaseSetContract {
         )
     }
 
+    fun verify(
+        json: String,
+        trustedKeys: Map<String, ByteArray>,
+        now: Instant,
+        allowedOrigins: Set<String>,
+        installedAndroidVersion: String,
+        minimumReleaseSetSequence: Long = 0,
+        componentFloors: Map<String, Long> = emptyMap()
+    ): AgentFleetReleaseSet {
+        val root = try {
+            JSONObject(json)
+        } catch (error: JSONException) {
+            throw IllegalArgumentException("Invalid release set: release set is not valid JSON", error)
+        }
+        val releaseSet = parse(root)
+        require(now >= Instant.parse(releaseSet.issuedAt)) { "release_set_not_yet_valid" }
+        require(now < Instant.parse(releaseSet.expiresAt)) { "release_set_expired" }
+        require(releaseSet.releaseSetSequence >=
+            maxOf(minimumReleaseSetSequence, releaseSet.rollbackFloor.releaseSetSequence)
+        ) { "release_set_downgrade" }
+        require(releaseSet.components.getValue("androidApp").version == installedAndroidVersion) {
+            "release_set_incompatible: Android app version is outside the selected set"
+        }
+        COMPONENTS.forEach { name ->
+            val selected = releaseSet.components.getValue(name).sequence
+            val floor = maxOf(
+                componentFloors[name] ?: 0,
+                releaseSet.rollbackFloor.componentSequences.getValue(name)
+            )
+            require(selected >= floor) { "release_set_component_downgrade: $name" }
+        }
+        releaseSet.artifacts.forEach { artifact ->
+            require(ClientPolicyParser.canonicalOrigin(artifact.url) in allowedOrigins) {
+                "Release-set artifact origin is not approved"
+            }
+            require(ClientPolicyParser.canonicalOrigin(artifact.sourceRepository) in allowedOrigins) {
+                "Release-set source origin is not approved"
+            }
+        }
+        val key = trustedKeys[releaseSet.signature.keyId]
+            ?: throw IllegalArgumentException("Release set uses an unknown signing key")
+        val signatureBytes = decodeSignature(releaseSet.signature.value)
+        val publicKey = KeyFactory.getInstance("Ed25519").generatePublic(X509EncodedKeySpec(key))
+        val verifier = Signature.getInstance("Ed25519")
+        verifier.initVerify(publicKey)
+        verifier.update(canonicalSignaturePayload(root))
+        require(verifier.verify(signatureBytes)) { "Release-set signature verification failed" }
+        return releaseSet
+    }
+
+    internal fun canonicalSignaturePayload(root: JSONObject): ByteArray {
+        val signable = JSONObject(root.toString())
+        val signature = signable.getJSONObject("signature")
+        signature.remove("value")
+        return canonicalJson(signable).toByteArray(Charsets.UTF_8)
+    }
+
+    private fun canonicalJson(value: Any?): String = when (value) {
+        is JSONObject -> value.keys().asSequence().toList().sorted().joinToString(
+            prefix = "{", postfix = "}", separator = ","
+        ) { key -> "${JSONObject.quote(key)}:${canonicalJson(value.get(key))}" }
+        is JSONArray -> (0 until value.length()).joinToString(
+            prefix = "[", postfix = "]", separator = ","
+        ) { index -> canonicalJson(value.get(index)) }
+        is String -> JSONObject.quote(value).replace("\\/", "/")
+        is Number, is Boolean -> value.toString()
+        JSONObject.NULL, null -> "null"
+        else -> throw IllegalArgumentException("Invalid release set: canonical JSON value is unsupported")
+    }
+
+    private fun decodeSignature(value: String): ByteArray {
+        val decoded = Base64.decode(value, Base64.URL_SAFE or Base64.NO_PADDING or Base64.NO_WRAP)
+        require(decoded.size == 64 &&
+            Base64.encodeToString(decoded, Base64.URL_SAFE or Base64.NO_PADDING or Base64.NO_WRAP) == value
+        ) { "Release-set signature is not canonical" }
+        return decoded
+    }
+
     private fun JSONObject.requireExactFields(vararg expected: String) {
         val actual = keys().asSequence().toSet()
         require(actual == expected.toSet()) { "Invalid release set: object fields are invalid" }
+    }
+
+    private fun JSONObject.requireAllowedFields(vararg allowed: String) {
+        require(keys().asSequence().all { it in allowed }) {
+            "Invalid release set: object fields are invalid"
+        }
     }
 
     private fun JSONObject.requiredObject(name: String): JSONObject = try {
