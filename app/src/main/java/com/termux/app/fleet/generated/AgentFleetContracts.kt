@@ -8,8 +8,8 @@ data class GeneratedStructuralShape(
 )
 
 object GeneratedAgentFleetContracts {
-    const val CONTRACT_PACKAGE_VERSION = "1.7.0"
-    val protocolVersions: Map<String, Int> = mapOf("control" to 1, "conversation" to 2, "workspace-layout" to 1, "release-set" to 1, "supervisor" to 1, "transport" to 1, "host-runtime" to 1, "diagnostics" to 2)
+    const val CONTRACT_PACKAGE_VERSION = "1.8.0"
+    val protocolVersions: Map<String, Int> = mapOf("control" to 1, "conversation" to 2, "workspace-layout" to 1, "release-set" to 1, "supervisor" to 1, "transport" to 1, "host-runtime" to 1, "diagnostics" to 2, "provider-confidence" to 1)
     val objectShapes: Map<String, GeneratedStructuralShape> = mapOf(
         "activation-journal-v1:#" to GeneratedStructuralShape(listOf("candidate", "current", "failureCode", "phase", "previous", "schemaVersion", "transactionId", "updatedAt"), listOf(), true),
         "activation-journal-v1:#/\$defs/componentSequences" to GeneratedStructuralShape(listOf("androidApp", "clientRuntime", "contracts", "hostRuntime", "providerAdapters", "windowsApp"), listOf(), true),
@@ -80,17 +80,19 @@ object GeneratedAgentFleetContracts {
         "conversation-v2:#/\$defs/directory/properties/entries/items" to GeneratedStructuralShape(listOf("name", "symlink"), listOf(), true),
         "conversation-v2:#/\$defs/error" to GeneratedStructuralShape(listOf("error", "protocolVersion", "timestamp", "type"), listOf(), true),
         "conversation-v2:#/\$defs/error/properties/error" to GeneratedStructuralShape(listOf("code", "message"), listOf(), true),
-        "conversation-v2:#/\$defs/event" to GeneratedStructuralShape(listOf("adapter", "item", "protocolVersion", "session", "timestamp", "type"), listOf(), true),
-        "conversation-v2:#/\$defs/heartbeat" to GeneratedStructuralShape(listOf("adapter", "interactionMode", "protocolVersion", "session", "status", "timestamp", "type"), listOf("providerActivity"), true),
+        "conversation-v2:#/\$defs/event" to GeneratedStructuralShape(listOf("adapter", "item", "protocolVersion", "session", "timestamp", "type"), listOf("providerState"), true),
+        "conversation-v2:#/\$defs/heartbeat" to GeneratedStructuralShape(listOf("adapter", "interactionMode", "protocolVersion", "session", "status", "timestamp", "type"), listOf("providerActivity", "providerState"), true),
         "conversation-v2:#/\$defs/item" to GeneratedStructuralShape(listOf("attachments", "choices", "detail", "id", "kind", "role", "state", "text", "timestamp", "title", "tool"), listOf("action", "answers", "completedAt", "input", "presentation", "questions", "result", "revision", "source", "startedAt", "target", "taskListId", "tasks", "turnId", "updateMode"), true),
         "conversation-v2:#/\$defs/presentation" to GeneratedStructuralShape(listOf("inputBlocks", "previewLines", "resultBlocks", "subtitle", "title", "version"), listOf(), true),
         "conversation-v2:#/\$defs/presentationBlock" to GeneratedStructuralShape(listOf("content", "kind", "title"), listOf(), true),
         "conversation-v2:#/\$defs/providerActivity" to GeneratedStructuralShape(listOf("elapsedSeconds", "label", "observedAt"), listOf(), true),
+        "conversation-v2:#/\$defs/providerComponent" to GeneratedStructuralShape(listOf("id", "version"), listOf(), true),
+        "conversation-v2:#/\$defs/providerState" to GeneratedStructuralShape(listOf("actions", "confidence", "eventPosition", "fallback", "mutationsAllowed", "observedRevision", "parser", "reasonCode"), listOf(), true),
         "conversation-v2:#/\$defs/question" to GeneratedStructuralShape(listOf("allowOther", "header", "id", "options", "prompt", "required", "type"), listOf(), true),
         "conversation-v2:#/\$defs/questionOption" to GeneratedStructuralShape(listOf("description", "id", "label"), listOf(), true),
         "conversation-v2:#/\$defs/questionResponse" to GeneratedStructuralShape(listOf("protocolVersion", "questionId", "session", "status", "timestamp", "type"), listOf(), true),
-        "conversation-v2:#/\$defs/snapshot" to GeneratedStructuralShape(listOf("adapter", "hasMore", "interactionMode", "items", "mode", "nextCursor", "protocolVersion", "revision", "session", "type"), listOf("providerActivity", "timestamp"), true),
-        "conversation-v2:#/\$defs/status" to GeneratedStructuralShape(listOf("adapter", "interactionMode", "protocolVersion", "session", "status", "timestamp", "type"), listOf("providerActivity"), true),
+        "conversation-v2:#/\$defs/snapshot" to GeneratedStructuralShape(listOf("adapter", "hasMore", "interactionMode", "items", "mode", "nextCursor", "protocolVersion", "revision", "session", "type"), listOf("providerActivity", "providerState", "timestamp"), true),
+        "conversation-v2:#/\$defs/status" to GeneratedStructuralShape(listOf("adapter", "interactionMode", "protocolVersion", "session", "status", "timestamp", "type"), listOf("providerActivity", "providerState"), true),
         "conversation-v2:#/\$defs/task" to GeneratedStructuralShape(listOf("activeTitle", "detail", "id", "state", "title"), listOf(), true),
         "diagnostics-v1:#" to GeneratedStructuralShape(listOf("checks", "components", "generatedAt", "schemaVersion"), listOf(), true),
         "diagnostics-v1:#/\$defs/check" to GeneratedStructuralShape(listOf("durationMs", "errorCode", "id", "layer", "recoveryAction", "severity", "status"), listOf(), true),
@@ -134,15 +136,21 @@ object GeneratedAgentFleetContracts {
         "pairing-bundle-v1:#/properties/integrity" to GeneratedStructuralShape(listOf("algorithm", "digest"), listOf(), true),
         "presets-v1:#" to GeneratedStructuralShape(listOf("presets", "schemaVersion"), listOf(), true),
         "presets-v1:#/properties/presets/items" to GeneratedStructuralShape(listOf("backend", "hostId", "id", "name", "profileAlias", "project", "tool"), listOf(), true),
-        "release-set-v1:#" to GeneratedStructuralShape(listOf("artifacts", "components", "contractPackageVersion", "expiresAt", "issuedAt", "protocols", "releaseSetSequence", "rollbackFloor", "schemaVersion", "signature"), listOf(), true),
+        "provider-confidence-v1:#" to GeneratedStructuralShape(listOf("adapters", "cases", "schemaVersion"), listOf(), true),
+        "provider-confidence-v1:#/properties/adapters/items" to GeneratedStructuralShape(listOf("actionVersion", "id", "parserVersion"), listOf(), true),
+        "provider-confidence-v1:#/properties/cases/items" to GeneratedStructuralShape(listOf("adapter", "condition", "confidence", "fallback", "id", "mutationsAllowed", "reasonCode"), listOf(), true),
+        "release-set-v1:#" to GeneratedStructuralShape(listOf("artifacts", "components", "contractPackageVersion", "expiresAt", "issuedAt", "protocols", "providerAdapterVersions", "releaseSetSequence", "rollbackFloor", "schemaVersion", "signature"), listOf(), true),
         "release-set-v1:#/\$defs/artifact" to GeneratedStructuralShape(listOf("architecture", "component", "componentSequence", "contractPackageVersion", "id", "licenseSha256", "platform", "sbomSha256", "sha256", "size", "sourceCommit", "sourceRepository", "url", "version"), listOf(), true),
         "release-set-v1:#/\$defs/component" to GeneratedStructuralShape(listOf("compatibility", "sequence", "version"), listOf(), true),
         "release-set-v1:#/\$defs/componentCompatibility" to GeneratedStructuralShape(listOf(), listOf("androidApp", "clientRuntime", "contracts", "hostRuntime", "providerAdapters", "windowsApp"), true),
         "release-set-v1:#/\$defs/componentSequences" to GeneratedStructuralShape(listOf("androidApp", "clientRuntime", "contracts", "hostRuntime", "providerAdapters", "windowsApp"), listOf(), true),
+        "release-set-v1:#/\$defs/providerAdapterVersion" to GeneratedStructuralShape(listOf("actions", "parser"), listOf(), true),
+        "release-set-v1:#/\$defs/providerUnitVersion" to GeneratedStructuralShape(listOf("sequence", "version"), listOf(), true),
         "release-set-v1:#/\$defs/range" to GeneratedStructuralShape(listOf("maximum", "minimum"), listOf(), true),
         "release-set-v1:#/\$defs/sequenceRange" to GeneratedStructuralShape(listOf("maximum", "minimum"), listOf(), true),
         "release-set-v1:#/properties/components" to GeneratedStructuralShape(listOf("androidApp", "clientRuntime", "contracts", "hostRuntime", "providerAdapters", "windowsApp"), listOf(), true),
         "release-set-v1:#/properties/protocols" to GeneratedStructuralShape(listOf("control", "conversation", "workspaceLayout"), listOf(), true),
+        "release-set-v1:#/properties/providerAdapterVersions" to GeneratedStructuralShape(listOf("claude", "codex", "copilot", "shell"), listOf(), true),
         "release-set-v1:#/properties/rollbackFloor" to GeneratedStructuralShape(listOf("componentSequences", "releaseSetSequence"), listOf(), true),
         "release-set-v1:#/properties/signature" to GeneratedStructuralShape(listOf("algorithm", "keyId", "value"), listOf(), true),
         "runtime-update-v1:#" to GeneratedStructuralShape(listOf("keyId", "payload", "schemaVersion", "signature"), listOf(), true),

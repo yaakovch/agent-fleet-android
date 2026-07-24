@@ -23,7 +23,7 @@ class ReleaseSetContractTest {
     fun matchesCanonicalFixtureLockByteForByte() {
         val lock = JSONObject(fixture("contract-lock-v1.json"))
         assertEquals(1, lock.getInt("schemaVersion"))
-        assertEquals("1.7.0", lock.getString("packageVersion"))
+        assertEquals("1.8.0", lock.getString("packageVersion"))
         assertEquals("sha256", lock.getString("algorithm"))
         val files = lock.getJSONObject("files")
         val fixtures = mapOf(
@@ -73,6 +73,8 @@ class ReleaseSetContractTest {
     fun acceptsSharedReleaseSetAndBaseFleetSnapshot() {
         val release = ReleaseSetContract.parse(fixture("release-set-v1.json"))
         assertEquals(1083L, release.releaseSetSequence)
+        assertEquals(3L, release.providerAdapterVersions.getValue("codex").parser.sequence)
+        assertEquals("2.0.0", release.providerAdapterVersions.getValue("codex").actions.version)
         assertEquals(
             listOf("windowsApp", "androidApp", "clientRuntime", "clientRuntime"),
             release.artifacts.map { it.component }

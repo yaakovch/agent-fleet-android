@@ -50,6 +50,8 @@ import com.termux.app.fleet.FleetSnapshot
 import com.termux.app.fleet.NativeSessionScreen
 import com.termux.app.fleet.NativeSessionUiState
 import com.termux.app.fleet.ProviderActivity
+import com.termux.app.fleet.ProviderComponent
+import com.termux.app.fleet.ProviderState
 import com.termux.app.fleet.AgentFleetTerminalSessionChrome
 import com.termux.app.fleet.ToolPresentation
 import com.termux.app.fleet.ToolPresentationBlock
@@ -493,8 +495,10 @@ class AgentFleetComposeTest {
         compose.onNodeWithTag("more-screen").performScrollToNode(hasTestTag("open-diagnostics-button"))
         compose.onNodeWithTag("open-diagnostics-button").performClick()
         compose.onNodeWithTag("diagnostics-report").assertIsDisplayed()
-        compose.onNodeWithTag("diagnostics-export").performClick()
-        compose.onNodeWithText("Privacy: metadata only.", substring = true, ignoreCase = true).assertIsDisplayed()
+        compose.onNodeWithTag("diagnostics-export").performScrollTo().performClick()
+        compose.onNodeWithTag("diagnostics-preview")
+            .assertIsDisplayed()
+            .assertTextContains("\"schemaVersion\": 2", substring = true)
         assertEquals(0, exports.get())
         compose.onNodeWithTag("diagnostics-share").performClick()
         assertEquals(1, exports.get())
@@ -534,6 +538,33 @@ class AgentFleetComposeTest {
         compose.onNodeWithTag("local-suggest-composer").assertIsDisplayed()
         compose.onNodeWithTag("native-message-input").performTextInput("I will answer manually")
         compose.onAllNodes(hasTestTag("local-suggest-composer")).assertCountEquals(0)
+    }
+
+    @Test
+    fun uncertainProviderStateIsVisiblyReadOnlyAndFallsBackToTerminal() {
+        val stale = ProviderState(
+            confidence = "stale",
+            reasonCode = "PROVIDER_STATE_STALE",
+            observedRevision = "revision-1",
+            eventPosition = 42,
+            parser = ProviderComponent("codex-parser", "3.0.0"),
+            actions = ProviderComponent("codex-actions", "2.0.0"),
+            mutationsAllowed = false,
+            fallback = "read_only_native"
+        )
+        compose.setContent {
+            NativeStateFixture(
+                NativeSessionUiState(
+                    "Fixture", "gaming", "wtmux-main", adapter = "codex", connection = "Live",
+                    providerState = stale
+                ),
+                inlineComposer = true
+            )
+        }
+        compose.onNodeWithTag("native-provider-confidence").assertIsDisplayed()
+        compose.onNodeWithText("Native view is read-only").assertIsDisplayed()
+        compose.onNodeWithTag("native-provider-fallback").assertIsDisplayed()
+        compose.onAllNodes(hasTestTag("native-message-input")).assertCountEquals(0)
     }
 
     @Test
@@ -825,9 +856,12 @@ class AgentFleetComposeTest {
         localSuggestionModeOverride: LocalSuggestionMode? = null,
         localSuggestionDebugFakeOutput: String? = null
     ) {
+        val fixtureState = if (state.providerState.reasonCode == "PROVIDER_STATE_UNAVAILABLE") {
+            state.copy(providerState = verifiedProviderState(state.adapter))
+        } else state
         AgentFleetTheme(darkTheme = true) {
             NativeSessionScreen(
-                state = state,
+                state = fixtureState,
                 aiComposer = true,
                 onToggleTerminal = {},
                 onRetry = {},
@@ -851,6 +885,17 @@ class AgentFleetComposeTest {
             )
         }
     }
+
+    private fun verifiedProviderState(adapter: String) = ProviderState(
+        confidence = "verified",
+        reasonCode = "PROVIDER_STATE_VERIFIED",
+        observedRevision = "fixture-revision",
+        eventPosition = 1,
+        parser = ProviderComponent("${adapter.ifBlank { "codex" }}-parser", "3.0.0"),
+        actions = ProviderComponent("${adapter.ifBlank { "codex" }}-actions", "2.0.0"),
+        mutationsAllowed = true,
+        fallback = "none"
+    )
 
     @androidx.compose.runtime.Composable
     private fun FixtureApp(

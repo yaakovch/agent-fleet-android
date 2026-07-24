@@ -20,6 +20,11 @@ data class ReleaseComponent(
 )
 
 data class ReleaseSequenceRange(val minimum: Long, val maximum: Long)
+data class ProviderUnitVersion(val sequence: Long, val version: String)
+data class ProviderAdapterVersion(
+    val parser: ProviderUnitVersion,
+    val actions: ProviderUnitVersion
+)
 
 data class ReleaseArtifact(
     val id: String,
@@ -53,6 +58,7 @@ data class AgentFleetReleaseSet(
     val contractPackageVersion: String,
     val protocols: Map<String, ReleaseProtocolRange>,
     val components: Map<String, ReleaseComponent>,
+    val providerAdapterVersions: Map<String, ProviderAdapterVersion>,
     val artifacts: List<ReleaseArtifact>,
     val rollbackFloor: ReleaseRollbackFloor,
     val signature: ReleaseSignature
@@ -63,6 +69,7 @@ object ReleaseSetContract {
     private const val MAX_BYTES = 256 * 1024
     private const val MAX_SAFE_INTEGER = 9_007_199_254_740_991L
     private val VERSION = Regex("^[A-Za-z0-9][A-Za-z0-9._+\\-]{0,127}$")
+    private val SEMVER = Regex("^[0-9]+\\.[0-9]+\\.[0-9]+$")
     private val TOKEN = Regex("^[a-z][a-z0-9._-]{0,95}$")
     private val SHA256 = Regex("^[a-f0-9]{64}$")
     private val COMMIT = Regex("^[a-f0-9]{40}$")
@@ -71,6 +78,7 @@ object ReleaseSetContract {
     private val COMPONENTS = listOf(
         "windowsApp", "androidApp", "clientRuntime", "hostRuntime", "providerAdapters", "contracts"
     )
+    private val PROVIDERS = listOf("codex", "claude", "copilot", "shell")
     private val PLATFORMS = setOf("windows", "android", "linux", "termux", "any")
     private val ARCHITECTURES = setOf("x86_64", "arm64", "universal", "any")
 
@@ -87,7 +95,7 @@ object ReleaseSetContract {
     fun parse(root: JSONObject): AgentFleetReleaseSet {
         root.requireExactFields(
             "schemaVersion", "releaseSetSequence", "issuedAt", "expiresAt", "contractPackageVersion",
-            "protocols", "components", "artifacts", "rollbackFloor", "signature"
+            "protocols", "components", "providerAdapterVersions", "artifacts", "rollbackFloor", "signature"
         )
         require(root.requiredLong("schemaVersion", 1, 1) == SCHEMA_VERSION.toLong()) {
             "Invalid release set: schema version is unsupported"
@@ -144,6 +152,24 @@ object ReleaseSetContract {
                     "Invalid release set: $id is incompatible with $dependency"
                 }
             }
+        }
+        val providerObject = root.requiredObject("providerAdapterVersions").also {
+            it.requireExactFields(*PROVIDERS.toTypedArray())
+        }
+        val providerAdapterVersions = PROVIDERS.associateWith { provider ->
+            val adapter = providerObject.requiredObject(provider).also {
+                it.requireExactFields("parser", "actions")
+            }
+            fun unit(name: String): ProviderUnitVersion {
+                val value = adapter.requiredObject(name).also {
+                    it.requireExactFields("sequence", "version")
+                }
+                return ProviderUnitVersion(
+                    sequence = value.requiredLong("sequence", 1, MAX_SAFE_INTEGER),
+                    version = value.requiredPattern("version", SEMVER)
+                )
+            }
+            ProviderAdapterVersion(parser = unit("parser"), actions = unit("actions"))
         }
 
         val artifactsArray = root.requiredArray("artifacts")
@@ -219,6 +245,7 @@ object ReleaseSetContract {
             contractPackageVersion = contractPackageVersion,
             protocols = protocols,
             components = components,
+            providerAdapterVersions = providerAdapterVersions,
             artifacts = artifacts,
             rollbackFloor = rollbackFloor,
             signature = signature

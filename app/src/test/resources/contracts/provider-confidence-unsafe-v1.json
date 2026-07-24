@@ -1,0 +1,12 @@
+{
+  "schemaVersion": 1,
+  "adapters": [
+    {"id": "codex", "parserVersion": "3.0.0", "actionVersion": "2.0.0"},
+    {"id": "claude", "parserVersion": "3.0.0", "actionVersion": "2.0.0"},
+    {"id": "copilot", "parserVersion": "2.0.0", "actionVersion": "1.0.0"},
+    {"id": "shell", "parserVersion": "1.0.0", "actionVersion": "1.0.0"}
+  ],
+  "cases": [
+    {"id": "unsafe-reconstructed", "adapter": "codex", "condition": "partial", "confidence": "reconstructed", "mutationsAllowed": true, "fallback": "none", "reasonCode": "PROVIDER_OUTPUT_PARTIAL"}
+  ]
+}

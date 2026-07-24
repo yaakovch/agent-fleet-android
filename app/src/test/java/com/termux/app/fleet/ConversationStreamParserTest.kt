@@ -62,6 +62,60 @@ class ConversationStreamParserTest {
     }
 
     @Test
+    fun consumesProviderConfidenceReplayCorpusAndFailsClosed() {
+        val fixture = checkNotNull(
+            javaClass.classLoader?.getResourceAsStream("contracts/provider-confidence-replay-v1.json")
+        ).bufferedReader().use { it.readText() }
+        val root = org.json.JSONObject(fixture)
+        val adapters = root.getJSONArray("adapters").let { values ->
+            (0 until values.length()).associate { index ->
+                val value = values.getJSONObject(index)
+                value.getString("id") to Pair(
+                    value.getString("parserVersion"),
+                    value.getString("actionVersion")
+                )
+            }
+        }
+        val cases = root.getJSONArray("cases")
+        assertEquals(24, cases.length())
+        val conditions = mutableMapOf<String, MutableSet<String>>()
+        repeat(cases.length()) { index ->
+            val value = cases.getJSONObject(index)
+            val adapter = value.getString("adapter")
+            val confidence = value.getString("confidence")
+            val allowed = value.getBoolean("mutationsAllowed")
+            val fallback = value.getString("fallback")
+            conditions.getOrPut(adapter) { mutableSetOf() } += value.getString("condition")
+            assertTrue(adapter in adapters)
+            assertEquals(confidence == "verified", allowed)
+            assertEquals(allowed, fallback == "none")
+            if (!allowed) assertTrue(fallback in setOf("read_only_native", "terminal_only"))
+        }
+        assertEquals(setOf("codex", "claude", "copilot", "shell"), conditions.keys)
+        assertTrue(conditions.values.all {
+            it == setOf("current", "truncated", "reordered", "partial", "stale", "mixed_version")
+        })
+
+        val (parserVersion, actionVersion) = checkNotNull(adapters["codex"])
+        val providerState = """
+            {"confidence":"verified","reasonCode":"PROVIDER_STATE_VERIFIED","observedRevision":"r1","eventPosition":42,"parser":{"id":"codex-parser","version":"$parserVersion"},"actions":{"id":"codex-actions","version":"$actionVersion"},"mutationsAllowed":true,"fallback":"none"}
+        """.trimIndent()
+        val frame = ConversationStreamParser.parseFrame(
+            """{"protocolVersion":2,"type":"conversation.snapshot","session":"s","adapter":"codex","mode":"ai","interactionMode":"default","revision":"r1","items":[],"nextCursor":null,"hasMore":false,"providerState":$providerState}"""
+        ) as ConversationFrame.Snapshot
+        assertTrue(checkNotNull(frame.providerState).mutationsAllowed)
+
+        val unsafe = org.json.JSONObject(providerState)
+            .put("confidence", "stale")
+            .put("mutationsAllowed", true)
+        assertThrows(IllegalArgumentException::class.java) {
+            ConversationStreamParser.parseFrame(
+                """{"protocolVersion":2,"type":"conversation.snapshot","session":"s","adapter":"codex","mode":"ai","interactionMode":"default","revision":"r1","items":[],"nextCursor":null,"hasMore":false,"providerState":$unsafe}"""
+            )
+        }
+    }
+
+    @Test
     fun rejectsSharedUnknownFieldsAndOverLimitFrames() {
         listOf("conversation-unknown-field-v2.json", "conversation-item-unknown-field-v2.json").forEach { name ->
             val fixture = checkNotNull(javaClass.classLoader?.getResourceAsStream("contracts/$name"))

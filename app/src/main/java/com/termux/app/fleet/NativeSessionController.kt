@@ -284,6 +284,12 @@ class NativeSessionController @JvmOverloads constructor(
     }
 
     private fun sendComposerText(text: String, appendEnter: Boolean): Boolean {
+        if (!localSession && !uiState.value.providerState.mutationsAllowed) {
+            uiState.value = uiState.value.copy(
+                error = "Native input is read-only for this provider state. Open Terminal to send."
+            )
+            return false
+        }
         val sent = activity.sendAgentFleetComposerText(text, appendEnter)
         if (sent) onComposerMessageSent(text, appendEnter)
         return sent
@@ -682,6 +688,7 @@ class NativeSessionController @JvmOverloads constructor(
             historyLimitReached = false,
             providerActivity = null,
             providerActivityAuthoritative = false,
+            providerState = ProviderState.unavailable(),
             connection = "Connecting…"
         )
         if (shouldRunStream()) startStream()
@@ -722,6 +729,7 @@ class NativeSessionController @JvmOverloads constructor(
                     optimisticWorkStartedAt = optimisticWorkStartedAt,
                     providerActivity = frame.providerActivity,
                     providerActivityAuthoritative = frame.hasProviderActivity,
+                    providerState = frame.providerState ?: ProviderState.unavailable(),
                     error = null
                 )
                 if (frame.mode == "shell") refreshDirectories()
@@ -739,7 +747,8 @@ class NativeSessionController @JvmOverloads constructor(
                         liveEventSerial = uiState.value.liveEventSerial + if (isNew) 1 else 0,
                         optimisticWorkStartedAt = optimisticWorkAfterEvent(
                             uiState.value.optimisticWorkStartedAt, frame.item
-                        )
+                        ),
+                        providerState = frame.providerState ?: uiState.value.providerState
                     )
                     updateComposerState()
                 }
@@ -752,6 +761,9 @@ class NativeSessionController @JvmOverloads constructor(
                         providerActivityAuthoritative = true,
                         optimisticWorkStartedAt = null
                     )
+                }
+                if (frame.providerState != null) {
+                    uiState.value = uiState.value.copy(providerState = frame.providerState)
                 }
                 if (frame.status == "reload_required") restartNow()
                 else {
@@ -832,6 +844,13 @@ class NativeSessionController @JvmOverloads constructor(
 
     private fun respondApproval(value: ConversationItem, choice: ConversationChoice) {
         val revision = value.revision ?: return
+        val provider = uiState.value.providerState
+        if (!provider.mutationsAllowed) {
+            uiState.value = uiState.value.copy(
+                error = "Native actions are read-only for this provider state. Open Terminal to respond."
+            )
+            return
+        }
         val running = value.copy(state = "running", title = "Sending approval…")
         uiState.value = uiState.value.copy(items = mergeConversationItems(uiState.value.items, listOf(running)))
         updateComposerState()
@@ -839,6 +858,7 @@ class NativeSessionController @JvmOverloads constructor(
             "--approval", value.id,
             "--choice", choice.id,
             "--revision", revision,
+            "--event-position", provider.eventPosition.toString(),
             "--idempotency-key", UUID.randomUUID().toString()
         ))) { action ->
             val delivered = action.exitCode == 0 && runCatching { JSONObject(action.stdout.lineSequence().last { it.isNotBlank() }).optString("status") == "delivered" }.getOrDefault(false)
@@ -854,6 +874,13 @@ class NativeSessionController @JvmOverloads constructor(
 
     private fun respondQuestion(value: ConversationItem, answers: List<ConversationAnswer>) {
         val revision = value.revision ?: return
+        val provider = uiState.value.providerState
+        if (!provider.mutationsAllowed) {
+            uiState.value = uiState.value.copy(
+                error = "Native actions are read-only for this provider state. Open Terminal to respond."
+            )
+            return
+        }
         val payload = JSONObject().put("answers", JSONArray().apply {
             answers.forEach { answer ->
                 put(JSONObject().apply {
@@ -878,6 +905,7 @@ class NativeSessionController @JvmOverloads constructor(
         runOneShot(conversationCommand("answer", listOf(
             "--question", value.id,
             "--revision", revision,
+            "--event-position", provider.eventPosition.toString(),
             "--answers-b64", encoded,
             "--idempotency-key", UUID.randomUUID().toString()
         )), timeoutSeconds = 30) { action ->

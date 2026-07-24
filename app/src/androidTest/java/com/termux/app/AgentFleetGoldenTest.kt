@@ -17,6 +17,8 @@ import com.termux.app.fleet.ConversationQuestionOption
 import com.termux.app.fleet.ConversationTask
 import com.termux.app.fleet.NativeSessionScreen
 import com.termux.app.fleet.NativeSessionUiState
+import com.termux.app.fleet.ProviderComponent
+import com.termux.app.fleet.ProviderState
 import com.termux.app.fleet.ToolPresentation
 import com.termux.app.fleet.ToolPresentationBlock
 import com.termux.app.fleet.DrawerLocalSession
@@ -169,10 +171,22 @@ class AgentFleetGoldenTest {
         )
 
     private fun setNative(state: NativeSessionUiState, inlineComposer: Boolean = false) {
+        val fixtureState = if (state.providerState.reasonCode == "PROVIDER_STATE_UNAVAILABLE") {
+            state.copy(providerState = ProviderState(
+                confidence = "verified",
+                reasonCode = "PROVIDER_STATE_VERIFIED",
+                observedRevision = "golden-revision",
+                eventPosition = 1,
+                parser = ProviderComponent("codex-parser", "3.0.0"),
+                actions = ProviderComponent("codex-actions", "2.0.0"),
+                mutationsAllowed = true,
+                fallback = "none"
+            ))
+        } else state
         compose.setContent {
             AgentFleetTheme(darkTheme = true) {
                 NativeSessionScreen(
-                    state = state, aiComposer = true, onToggleTerminal = {}, onRetry = {}, onLoadOlder = {},
+                    state = fixtureState, aiComposer = true, onToggleTerminal = {}, onRetry = {}, onLoadOlder = {},
                     onApproval = { _, _ -> }, onQuestion = { _: ConversationItem, _: List<ConversationAnswer> -> },
                     onShellCommand = {}, onShellKey = {}, onDirectory = {}, onRefreshDirectory = {}, onControlC = {},
                     onCloseSession = {}, onKillSession = {}, onScheduleContinue = {}, onDismissAttention = {},

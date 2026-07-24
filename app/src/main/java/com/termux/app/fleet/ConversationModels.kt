@@ -9,6 +9,27 @@ data class ProviderActivity(
     val receivedAtMillis: Long = System.currentTimeMillis()
 )
 
+data class ProviderComponent(val id: String, val version: String)
+data class ProviderState(
+    val confidence: String,
+    val reasonCode: String,
+    val observedRevision: String,
+    val eventPosition: Long,
+    val parser: ProviderComponent,
+    val actions: ProviderComponent,
+    val mutationsAllowed: Boolean,
+    val fallback: String
+) {
+    companion object {
+        fun unavailable() = ProviderState(
+            "unsupported", "PROVIDER_STATE_UNAVAILABLE", "", 0,
+            ProviderComponent("fallback-parser", "1.0.0"),
+            ProviderComponent("fallback-actions", "1.0.0"),
+            false, "terminal_only"
+        )
+    }
+}
+
 data class ConversationQuestionOption(val id: String, val label: String, val description: String)
 
 data class ConversationQuestion(
@@ -79,17 +100,24 @@ sealed class ConversationFrame {
         val nextCursor: String?,
         val hasMore: Boolean,
         val providerActivity: ProviderActivity?,
-        val hasProviderActivity: Boolean
+        val hasProviderActivity: Boolean,
+        val providerState: ProviderState? = null
     ) : ConversationFrame()
 
-    data class Event(val session: String, val adapter: String, val item: ConversationItem) : ConversationFrame()
+    data class Event(
+        val session: String,
+        val adapter: String,
+        val item: ConversationItem,
+        val providerState: ProviderState? = null
+    ) : ConversationFrame()
     data class Status(
         val session: String,
         val adapter: String,
         val status: String,
         val interactionMode: String,
         val providerActivity: ProviderActivity?,
-        val hasProviderActivity: Boolean
+        val hasProviderActivity: Boolean,
+        val providerState: ProviderState? = null
     ) : ConversationFrame()
     data class Error(val code: String, val message: String) : ConversationFrame()
 }
@@ -148,6 +176,7 @@ data class NativeSessionUiState(
     val optimisticWorkStartedAt: Long? = null,
     val providerActivity: ProviderActivity? = null,
     val providerActivityAuthoritative: Boolean = false,
+    val providerState: ProviderState = ProviderState.unavailable(),
     val focusQuestionId: String = "",
     val focusQuestionSerial: Long = 0,
     val viewMode: NativeViewMode = NativeViewMode.Native,

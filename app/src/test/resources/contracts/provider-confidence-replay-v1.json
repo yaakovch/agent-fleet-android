@@ -1,0 +1,38 @@
+{
+  "schemaVersion": 1,
+  "adapters": [
+    {"id": "codex", "parserVersion": "3.0.0", "actionVersion": "2.0.0"},
+    {"id": "claude", "parserVersion": "3.0.0", "actionVersion": "2.0.0"},
+    {"id": "copilot", "parserVersion": "2.0.0", "actionVersion": "1.0.0"},
+    {"id": "shell", "parserVersion": "1.0.0", "actionVersion": "1.0.0"}
+  ],
+  "cases": [
+    {"id": "codex-current", "adapter": "codex", "condition": "current", "confidence": "verified", "mutationsAllowed": true, "fallback": "none", "reasonCode": "PROVIDER_STATE_VERIFIED"},
+    {"id": "codex-truncated", "adapter": "codex", "condition": "truncated", "confidence": "reconstructed", "mutationsAllowed": false, "fallback": "read_only_native", "reasonCode": "PROVIDER_OUTPUT_TRUNCATED"},
+    {"id": "codex-reordered", "adapter": "codex", "condition": "reordered", "confidence": "reconstructed", "mutationsAllowed": false, "fallback": "read_only_native", "reasonCode": "PROVIDER_OUTPUT_REORDERED"},
+    {"id": "codex-partial", "adapter": "codex", "condition": "partial", "confidence": "reconstructed", "mutationsAllowed": false, "fallback": "read_only_native", "reasonCode": "PROVIDER_OUTPUT_PARTIAL"},
+    {"id": "codex-stale", "adapter": "codex", "condition": "stale", "confidence": "stale", "mutationsAllowed": false, "fallback": "read_only_native", "reasonCode": "PROVIDER_STATE_STALE"},
+    {"id": "codex-mixed", "adapter": "codex", "condition": "mixed_version", "confidence": "unsupported", "mutationsAllowed": false, "fallback": "terminal_only", "reasonCode": "PROVIDER_VERSION_UNSUPPORTED"},
+
+    {"id": "claude-current", "adapter": "claude", "condition": "current", "confidence": "verified", "mutationsAllowed": true, "fallback": "none", "reasonCode": "PROVIDER_STATE_VERIFIED"},
+    {"id": "claude-truncated", "adapter": "claude", "condition": "truncated", "confidence": "reconstructed", "mutationsAllowed": false, "fallback": "read_only_native", "reasonCode": "PROVIDER_OUTPUT_TRUNCATED"},
+    {"id": "claude-reordered", "adapter": "claude", "condition": "reordered", "confidence": "reconstructed", "mutationsAllowed": false, "fallback": "read_only_native", "reasonCode": "PROVIDER_OUTPUT_REORDERED"},
+    {"id": "claude-partial", "adapter": "claude", "condition": "partial", "confidence": "reconstructed", "mutationsAllowed": false, "fallback": "read_only_native", "reasonCode": "PROVIDER_OUTPUT_PARTIAL"},
+    {"id": "claude-stale", "adapter": "claude", "condition": "stale", "confidence": "stale", "mutationsAllowed": false, "fallback": "read_only_native", "reasonCode": "PROVIDER_STATE_STALE"},
+    {"id": "claude-mixed", "adapter": "claude", "condition": "mixed_version", "confidence": "unsupported", "mutationsAllowed": false, "fallback": "terminal_only", "reasonCode": "PROVIDER_VERSION_UNSUPPORTED"},
+
+    {"id": "copilot-current", "adapter": "copilot", "condition": "current", "confidence": "verified", "mutationsAllowed": true, "fallback": "none", "reasonCode": "PROVIDER_STATE_VERIFIED"},
+    {"id": "copilot-truncated", "adapter": "copilot", "condition": "truncated", "confidence": "reconstructed", "mutationsAllowed": false, "fallback": "read_only_native", "reasonCode": "PROVIDER_OUTPUT_TRUNCATED"},
+    {"id": "copilot-reordered", "adapter": "copilot", "condition": "reordered", "confidence": "reconstructed", "mutationsAllowed": false, "fallback": "read_only_native", "reasonCode": "PROVIDER_OUTPUT_REORDERED"},
+    {"id": "copilot-partial", "adapter": "copilot", "condition": "partial", "confidence": "reconstructed", "mutationsAllowed": false, "fallback": "read_only_native", "reasonCode": "PROVIDER_OUTPUT_PARTIAL"},
+    {"id": "copilot-stale", "adapter": "copilot", "condition": "stale", "confidence": "stale", "mutationsAllowed": false, "fallback": "read_only_native", "reasonCode": "PROVIDER_STATE_STALE"},
+    {"id": "copilot-mixed", "adapter": "copilot", "condition": "mixed_version", "confidence": "unsupported", "mutationsAllowed": false, "fallback": "terminal_only", "reasonCode": "PROVIDER_VERSION_UNSUPPORTED"},
+
+    {"id": "shell-current", "adapter": "shell", "condition": "current", "confidence": "unsupported", "mutationsAllowed": false, "fallback": "terminal_only", "reasonCode": "PROVIDER_ACTIONS_UNSUPPORTED"},
+    {"id": "shell-truncated", "adapter": "shell", "condition": "truncated", "confidence": "unsupported", "mutationsAllowed": false, "fallback": "terminal_only", "reasonCode": "PROVIDER_ACTIONS_UNSUPPORTED"},
+    {"id": "shell-reordered", "adapter": "shell", "condition": "reordered", "confidence": "unsupported", "mutationsAllowed": false, "fallback": "terminal_only", "reasonCode": "PROVIDER_ACTIONS_UNSUPPORTED"},
+    {"id": "shell-partial", "adapter": "shell", "condition": "partial", "confidence": "unsupported", "mutationsAllowed": false, "fallback": "terminal_only", "reasonCode": "PROVIDER_ACTIONS_UNSUPPORTED"},
+    {"id": "shell-stale", "adapter": "shell", "condition": "stale", "confidence": "unsupported", "mutationsAllowed": false, "fallback": "terminal_only", "reasonCode": "PROVIDER_ACTIONS_UNSUPPORTED"},
+    {"id": "shell-mixed", "adapter": "shell", "condition": "mixed_version", "confidence": "unsupported", "mutationsAllowed": false, "fallback": "terminal_only", "reasonCode": "PROVIDER_ACTIONS_UNSUPPORTED"}
+  ]
+}

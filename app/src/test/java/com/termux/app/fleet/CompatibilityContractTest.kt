@@ -31,7 +31,7 @@ class CompatibilityContractTest {
     @Test
     fun acceptsSharedCompatibilityMatrix() {
         val matrix = CompatibilityContract.parse(fixture("compatibility-v1.json"))
-        assertEquals("1.7.0", matrix.contractPackageVersion)
+        assertEquals("1.8.0", matrix.contractPackageVersion)
         assertTrue(matrix.components.values.all(CompatibilityContract::supportsCurrentContracts))
     }
 
@@ -63,6 +63,11 @@ class CompatibilityContractTest {
             report.getJSONArray("components").getJSONObject(0).getJSONArray("capabilities")
                 .let { values -> (0 until values.length()).map(values::getString) }
                 .contains("host-runtime.v1")
+        )
+        assertTrue(
+            report.getJSONArray("components").getJSONObject(0).getJSONArray("capabilities")
+                .let { values -> (0 until values.length()).map(values::getString) }
+                .contains("provider-confidence.v1")
         )
     }
 }

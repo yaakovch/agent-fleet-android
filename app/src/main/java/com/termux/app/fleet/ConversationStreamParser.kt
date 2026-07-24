@@ -41,7 +41,7 @@ object ConversationStreamParser {
             "conversation.snapshot" -> {
                 root.requireConversationFields(
                     setOf("protocolVersion", "type", "session", "adapter", "mode", "interactionMode", "revision", "items", "nextCursor", "hasMore"),
-                    setOf("timestamp", "providerActivity")
+                    setOf("timestamp", "providerActivity", "providerState")
                 )
                 val items = root.getJSONArray("items").also { require(it.length() <= 200) }
                 ConversationFrame.Snapshot(
@@ -54,21 +54,26 @@ object ConversationStreamParser {
                 nextCursor = root.optString("nextCursor").takeIf { it.isNotBlank() },
                 hasMore = root.getBoolean("hasMore"),
                 providerActivity = providerActivity(root),
-                hasProviderActivity = root.has("providerActivity")
+                hasProviderActivity = root.has("providerActivity"),
+                providerState = providerState(root)
             )
             }
             "conversation.event" -> {
-                root.requireConversationFields(setOf("protocolVersion", "type", "session", "adapter", "item"), setOf("timestamp"))
+                root.requireConversationFields(
+                    setOf("protocolVersion", "type", "session", "adapter", "item"),
+                    setOf("timestamp", "providerState")
+                )
                 ConversationFrame.Event(
                     safe(root.getString("session"), 160),
                     safe(root.getString("adapter"), 32),
-                    parseItem(root.getJSONObject("item"))
+                    parseItem(root.getJSONObject("item")),
+                    providerState(root)
                 )
             }
             "conversation.status", "conversation.heartbeat" -> {
                 root.requireConversationFields(
                     setOf("protocolVersion", "type", "session", "adapter", "status", "interactionMode"),
-                    setOf("timestamp", "providerActivity")
+                    setOf("timestamp", "providerActivity", "providerState")
                 )
                 ConversationFrame.Status(
                     safe(root.getString("session"), 160),
@@ -76,7 +81,8 @@ object ConversationStreamParser {
                     safe(root.getString("status"), 64),
                     interactionMode(root),
                     providerActivity(root),
-                    root.has("providerActivity")
+                    root.has("providerActivity"),
+                    providerState(root)
                 )
             }
             "conversation.error" -> {
@@ -244,6 +250,40 @@ object ConversationStreamParser {
             label = safe(value.getString("label"), 80),
             elapsedSeconds = value.getLong("elapsedSeconds").also { require(it in 0..7L * 24L * 60L * 60L) },
             observedAt = safe(value.getString("observedAt"), 64)
+        )
+    }
+
+    private fun providerState(root: JSONObject): ProviderState? {
+        val value = root.optJSONObject("providerState") ?: return null
+        value.requireConversationFields(setOf(
+            "confidence", "reasonCode", "observedRevision", "eventPosition", "parser",
+            "actions", "mutationsAllowed", "fallback"
+        ))
+        fun component(name: String): ProviderComponent {
+            val component = value.getJSONObject(name)
+            component.requireConversationFields(setOf("id", "version"))
+            val id = safe(component.getString("id"), 64)
+            val version = safe(component.getString("version"), 32)
+            require(id.matches(Regex("^[a-z][a-z0-9._-]{0,63}$")))
+            require(version.matches(Regex("^[0-9]+\\.[0-9]+\\.[0-9]+$")))
+            return ProviderComponent(id, version)
+        }
+        val confidence = safe(value.getString("confidence"), 32).also {
+            require(it in setOf("verified", "reconstructed", "stale", "unsupported"))
+        }
+        val reason = safe(value.getString("reasonCode"), 64).also {
+            require(it.matches(Regex("^[A-Z][A-Z0-9_]{0,63}$")))
+        }
+        val fallback = safe(value.getString("fallback"), 32).also {
+            require(it in setOf("none", "read_only_native", "terminal_only"))
+        }
+        val allowed = value.getBoolean("mutationsAllowed")
+        require(allowed == (confidence == "verified"))
+        require(if (allowed) fallback == "none" else fallback != "none")
+        return ProviderState(
+            confidence, reason, safe(value.getString("observedRevision"), 160),
+            value.getLong("eventPosition").also { require(it >= 0) },
+            component("parser"), component("actions"), allowed, fallback
         )
     }
 

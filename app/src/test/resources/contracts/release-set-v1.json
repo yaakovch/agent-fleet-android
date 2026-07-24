@@ -57,6 +57,24 @@
       "compatibility": {}
     }
   },
+  "providerAdapterVersions": {
+    "codex": {
+      "parser": { "sequence": 3, "version": "3.0.0" },
+      "actions": { "sequence": 2, "version": "2.0.0" }
+    },
+    "claude": {
+      "parser": { "sequence": 3, "version": "3.0.0" },
+      "actions": { "sequence": 2, "version": "2.0.0" }
+    },
+    "copilot": {
+      "parser": { "sequence": 2, "version": "2.0.0" },
+      "actions": { "sequence": 1, "version": "1.0.0" }
+    },
+    "shell": {
+      "parser": { "sequence": 1, "version": "1.0.0" },
+      "actions": { "sequence": 1, "version": "1.0.0" }
+    }
+  },
   "artifacts": [
     {
       "id": "windows-x86_64",

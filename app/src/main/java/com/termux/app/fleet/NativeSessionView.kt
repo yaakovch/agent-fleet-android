@@ -178,10 +178,18 @@ fun NativeSessionScreen(
             localSuggestions.request(state.items, automaticQuestionTarget, automatic = true)
         }
     }
-    LaunchedEffect(pendingAction?.id, feedNearBottom, viewerOpen, state.focusQuestionSerial) {
+    LaunchedEffect(
+        pendingAction?.id,
+        feedNearBottom,
+        viewerOpen,
+        state.focusQuestionSerial,
+        state.providerState.mutationsAllowed
+    ) {
         if (pendingAction == null) {
             actionSheetId = ""
             dismissedActionId = ""
+        } else if (!state.providerState.mutationsAllowed) {
+            actionSheetId = ""
         } else if (state.focusQuestionSerial > 0 && pendingAction.id == state.focusQuestionId) {
             dismissedActionId = ""
             actionSheetId = pendingAction.id
@@ -220,7 +228,7 @@ fun NativeSessionScreen(
             }
         },
         bottomBar = {
-            if (pendingAction != null) {
+            if (pendingAction != null && state.providerState.mutationsAllowed) {
                 Surface(
                     modifier = Modifier.windowInsetsPadding(WindowInsets.navigationBars),
                     color = MaterialTheme.colorScheme.surface,
@@ -237,12 +245,22 @@ fun NativeSessionScreen(
                         Text("Open", color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold)
                     }
                 }
+            } else if (pendingAction != null) {
+                ProviderFallbackBar(
+                    label = "Response is available in Terminal",
+                    onOpenTerminal = onToggleTerminal
+                )
             } else if (state.sourceMode == "shell" && !aiComposer) {
                 ShellCommandBar(onShellCommand, onShellKey, onControlC)
-            } else if (aiComposer && inlineComposer) {
+            } else if (aiComposer && inlineComposer && state.providerState.mutationsAllowed) {
                 NativeAiComposer(
                     state.interactionMode, state.items, state.revision, state.liveEventSerial,
                     localSuggestions, onComposerText, onAttach
+                )
+            } else if (aiComposer && inlineComposer) {
+                ProviderFallbackBar(
+                    label = "Continue this session in Terminal",
+                    onOpenTerminal = onToggleTerminal
                 )
             }
         }
@@ -267,7 +285,11 @@ fun NativeSessionScreen(
             )
         }
         }
-    if (pendingAction != null && actionSheetId == pendingAction.id) {
+    if (
+        pendingAction != null &&
+        state.providerState.mutationsAllowed &&
+        actionSheetId == pendingAction.id
+    ) {
         Dialog(
             onDismissRequest = { actionSheetId = ""; dismissedActionId = pendingAction.id },
             properties = DialogProperties(usePlatformDefaultWidth = false)
@@ -296,6 +318,30 @@ fun NativeSessionScreen(
             }
         }
     }
+    }
+}
+
+@Composable
+private fun ProviderFallbackBar(
+    label: String,
+    onOpenTerminal: () -> Unit
+) {
+    Surface(
+        modifier = Modifier.windowInsetsPadding(WindowInsets.navigationBars),
+        color = MaterialTheme.colorScheme.surface,
+        tonalElevation = 5.dp
+    ) {
+        Row(
+            Modifier
+                .fillMaxWidth()
+                .clickable(onClick = onOpenTerminal)
+                .padding(horizontal = 12.dp, vertical = 9.dp)
+                .testTag("native-provider-fallback"),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(label, Modifier.weight(1f), color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text("Open", color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold)
+        }
     }
 }
 
@@ -912,6 +958,11 @@ private fun ConversationFeed(
                     LimitAttentionCard(state, attention, onScheduleContinue, onDismissAttention)
                 }
             }
+            if (!state.providerState.mutationsAllowed && state.sourceMode != "shell") {
+                item("provider-confidence") {
+                    ProviderConfidenceCard(state.providerState, onOpenTerminal)
+                }
+            }
             items(rows.asReversed(), key = { "conversation:${it.id}" }) { row ->
                 when (row) {
                     is ConversationRow.Item -> ConversationItemCard(
@@ -997,6 +1048,39 @@ private fun ConversationFeed(
             actionIndex = viewerActionIndex.takeIf { it >= 0 },
             onDismiss = { viewerItemId = ""; viewerActionIndex = -1 }
         )
+    }
+}
+
+@Composable
+private fun ProviderConfidenceCard(
+    providerState: ProviderState,
+    onOpenTerminal: () -> Unit
+) {
+    val title = when (providerState.fallback) {
+        "terminal_only" -> "Terminal-only provider state"
+        else -> "Native view is read-only"
+    }
+    val detail = when (providerState.confidence) {
+        "reconstructed" -> "The provider transcript was reconstructed, so actions are disabled."
+        "stale" -> "The provider transcript changed after this view was loaded."
+        "unsupported" -> "This provider does not expose verified Native actions."
+        else -> providerState.reasonCode.ifBlank { "Provider state could not be verified." }
+    }
+    Card(
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.secondaryContainer),
+        shape = RoundedCornerShape(18.dp),
+        modifier = Modifier.testTag("native-provider-confidence")
+    ) {
+        Column(
+            Modifier.fillMaxWidth().padding(14.dp),
+            verticalArrangement = Arrangement.spacedBy(6.dp)
+        ) {
+            Text(title, fontWeight = FontWeight.Bold, fontSize = 16.sp)
+            Text(detail, color = MaterialTheme.colorScheme.onSecondaryContainer, fontSize = 14.sp)
+            TextButton(onClick = onOpenTerminal, modifier = Modifier.align(Alignment.End)) {
+                Text("Open Terminal")
+            }
+        }
     }
 }
 
