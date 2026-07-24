@@ -189,10 +189,13 @@ class AgentFleetDiagnosticsRunner(
             "Android ${Build.VERSION.RELEASE} · $supported" to "App metadata and runtime architecture are readable."
         }
         checks += check("tools", "Required tools") {
-            val names = listOf("bash", "python3", "wtmux", "wtmux-bridge", "wtmux-host", "wtmux-scheduler")
+            val names = listOf(
+                "bash", "python3", "wtmux", "wtmux-bridge", "wtmux-host-runtime", "wtmux-scheduler"
+            )
             val missing = names.filter { executable(it) == null }
             require(missing.isEmpty()) { "Missing ${missing.joinToString()}" }
-            "${names.size} required tools ready" to "Built-in shell, Python, fleet bridge, host, and scheduler launchers are executable."
+            "${names.size} required tools ready" to
+                "Built-in shell, Python, fleet bridge, stable host runtime, and scheduler launchers are executable."
         }
         val runtimeStatus = runCatching { withTimeout(LOCAL_TIMEOUT_SECONDS) { runtime.inspect() } }.getOrNull()
         checks += if (runtimeStatus == null) failedCheck("runtime", "Built-in runtime", "Runtime inspection timed out or failed") else {

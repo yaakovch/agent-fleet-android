@@ -90,6 +90,43 @@ class EmulatorBackendTest(unittest.TestCase):
         self.assertNotEqual(0, result.returncode)
         self.assertIn("physical device", result.stderr)
 
+    def test_focused_mode_requires_an_app_test_class_before_device_work(self):
+        result = run(["bash", "scripts/debug/android-check.sh", "focused"])
+        self.assertNotEqual(0, result.returncode)
+        self.assertIn("AGENT_FLEET_INSTRUMENTATION_CLASS", result.stderr)
+
+
+class InstrumentationResultTest(unittest.TestCase):
+    def check(self, content):
+        with tempfile.TemporaryDirectory() as temporary:
+            report = pathlib.Path(temporary) / "instrumentation.txt"
+            report.write_text(content, encoding="utf-8")
+            return run(["scripts/debug/check-instrumentation-result.sh", str(report)])
+
+    def test_accepts_only_a_complete_success_result(self):
+        result = self.check(
+            "INSTRUMENTATION_RESULT: stream=\n\n"
+            "Time: 71.371\n\n"
+            "OK (46 tests)\n\n"
+            "INSTRUMENTATION_CODE: -1\n"
+        )
+        self.assertEqual(0, result.returncode, result.stderr)
+
+    def test_rejects_android_process_crash_even_when_instrumentation_exits_zero(self):
+        result = self.check(
+            "INSTRUMENTATION_STATUS_CODE: -2\n"
+            "INSTRUMENTATION_RESULT: shortMsg=Process crashed.\n"
+            "INSTRUMENTATION_CODE: 0\n"
+        )
+        self.assertNotEqual(0, result.returncode)
+
+    def test_rejects_truncated_output_without_the_final_ok_record(self):
+        result = self.check(
+            "INSTRUMENTATION_STATUS_CODE: 0\n"
+            "INSTRUMENTATION_CODE: -1\n"
+        )
+        self.assertNotEqual(0, result.returncode)
+
 
 class ReleasePreflightTest(unittest.TestCase):
     def fake_jdk(self, directory: pathlib.Path):

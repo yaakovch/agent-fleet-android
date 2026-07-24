@@ -66,8 +66,12 @@ class AgentFleetImagesTest {
             agentFleetImageUploadFailure("line 38: sha256sum: command not found", 127)
         )
         assertEquals(
-            "The host image helper is unavailable. Refresh the host setup and retry.",
-            agentFleetImageUploadFailure("bash: /home/user/.local/bin/wtmux-host: command not found", 127)
+            "The host rejected the selected image destination. Refresh the session and retry.",
+            agentFleetImageUploadFailure("[wtmux][error] TRANSFER_REJECTED", 1)
+        )
+        assertEquals(
+            "The stable host runtime is unavailable. Refresh the host setup and retry.",
+            agentFleetImageUploadFailure("bash: /home/user/.local/bin/wtmux-host-runtime: command not found", 127)
         )
         assertEquals(
             "The image transfer command is unavailable on the phone or host. Repair the runtime, refresh the session, and retry.",

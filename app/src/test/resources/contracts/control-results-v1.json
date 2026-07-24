@@ -4,17 +4,43 @@
     {
       "agentVersion": "0.1.0",
       "protocolVersion": 1,
-      "contractPackageVersion": "1.4.0",
+      "contractPackageVersion": "1.5.0",
       "controlVersions": [1],
       "conversationVersions": [2],
       "workspaceLayoutVersions": [1],
       "methods": ["fleet.snapshot", "protocol.capabilities"],
-      "events": ["host.heartbeat"]
+      "events": ["host.heartbeat"],
+      "hostRuntime": {
+        "entrypoint": "wtmux-host-runtime",
+        "apiVersions": [1],
+        "errorCodes": [
+          "invalid_request",
+          "not_found",
+          "conflict",
+          "stale_revision",
+          "unsupported",
+          "unavailable",
+          "timeout",
+          "resource_limit",
+          "tmux_unavailable",
+          "helper_unavailable",
+          "unsafe_state",
+          "internal_failure"
+        ],
+        "resourceBudgets": {
+          "maxControlFrameBytes": 262144,
+          "maxHelperOutputBytes": 262144,
+          "maxHelperErrorBytes": 8192,
+          "maxInFlightControl": 1,
+          "maxChildProcessesPerControl": 1,
+          "maxOperationTimeoutMs": 120000
+        }
+      }
     },
     {
       "bridgeVersion": "0.1.0",
       "protocolVersion": 1,
-      "contractPackageVersion": "1.4.0",
+      "contractPackageVersion": "1.5.0",
       "controlVersions": [1],
       "conversationVersions": [2],
       "workspaceLayoutVersions": [1],
@@ -107,7 +133,7 @@
         "hostId": "test-host",
         "checkedAt": "2026-07-22T12:00:00Z",
         "status": "healthy",
-        "checks": [{ "id": "compatibility", "status": "healthy", "summary": "Protocol compatibility is ready", "detail": "contracts 1.4.0" }]
+        "checks": [{ "id": "compatibility", "status": "healthy", "summary": "Protocol compatibility is ready", "detail": "contracts 1.5.0" }]
       }
     },
     {

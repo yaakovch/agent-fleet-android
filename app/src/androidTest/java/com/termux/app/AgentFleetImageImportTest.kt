@@ -12,6 +12,7 @@ import com.termux.app.fleet.parsePaneScrollbackSnapshot
 import java.io.File
 import java.io.FileOutputStream
 import java.security.MessageDigest
+import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
 import androidx.test.platform.app.InstrumentationRegistry
 import org.junit.Assert.assertArrayEquals
@@ -100,9 +101,17 @@ class AgentFleetImageImportTest {
     private fun ensureBootstrap(context: android.content.Context) {
         val prefix = File(requireNotNull(context.filesDir.parentFile), "files/usr")
         if (File(prefix, "bin/bash").canExecute()) return
-        ActivityScenario.launch(AgentFleetActivity::class.java).use {
-            waitUntil(45_000, "Timed out waiting for the packaged Termux bootstrap") { File(prefix, "bin/bash").canExecute() }
+        val completed = CountDownLatch(1)
+        ActivityScenario.launch(DrawerComposeTestHostActivity::class.java).use { scenario ->
+            scenario.onActivity { activity ->
+                TermuxInstaller.setupBootstrapIfNeeded(activity) { completed.countDown() }
+            }
+            assertTrue(
+                "Timed out waiting for the packaged Termux bootstrap",
+                completed.await(3, TimeUnit.MINUTES)
+            )
         }
+        assertTrue("The packaged Termux bootstrap did not install bash", File(prefix, "bin/bash").canExecute())
     }
 
     private fun installPackagedWtmuxRuntime(context: android.content.Context) {
@@ -168,12 +177,6 @@ class AgentFleetImageImportTest {
         assertTrue("${command.first()} failed: $output", process.waitFor(60, TimeUnit.SECONDS))
         assertEquals("${command.first()} failed: $output", 0, process.exitValue())
         return output
-    }
-
-    private fun waitUntil(timeoutMillis: Long, message: String, condition: () -> Boolean) {
-        val deadline = System.currentTimeMillis() + timeoutMillis
-        while (!condition() && System.currentTimeMillis() < deadline) Thread.sleep(100)
-        assertTrue(message, condition())
     }
 
     private fun File.sha256(): String = inputStream().use { input ->

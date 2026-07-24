@@ -135,11 +135,23 @@ import com.termux.app.fleet.WorkspaceTerminalBroker
 import com.termux.app.fleet.isDesktopPresentation
 import com.termux.app.fleet.workspacePanes
 import java.io.File
-import java.util.concurrent.Executors
 import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.ExecutorService
+import java.util.concurrent.Executors
+import java.util.concurrent.RejectedExecutionException
 import java.text.SimpleDateFormat
 import java.util.Locale
 import java.util.TimeZone
+
+internal fun ExecutorService.executeLifecycleTask(task: () -> Unit): Boolean {
+    if (isShutdown) return false
+    return try {
+        execute(task)
+        true
+    } catch (_: RejectedExecutionException) {
+        false
+    }
+}
 
 class AgentFleetActivity : ComponentActivity() {
     private val fleetState = mutableStateOf<FleetLoadState>(FleetLoadState.Loading)
@@ -297,7 +309,9 @@ class AgentFleetActivity : ComponentActivity() {
             }
         }
         TermuxInstaller.setupBootstrapIfNeeded(this) {
-            prepareEmbeddedRuntime(autoRepair = automaticPreparation, blocking = automaticPreparation)
+            if (!isFinishing && !isDestroyed) {
+                prepareEmbeddedRuntime(autoRepair = automaticPreparation, blocking = automaticPreparation)
+            }
         }
     }
 
@@ -642,11 +656,12 @@ class AgentFleetActivity : ComponentActivity() {
     }
 
     private fun prepareEmbeddedRuntime(autoRepair: Boolean, blocking: Boolean) {
+        if (isFinishing || isDestroyed || runtimeExecutor.isShutdown) return
         runtimeUi.value = runtimeUi.value.copy(
             busy = true, blocking = blocking, error = "",
             detail = if (autoRepair) "Preparing the built-in terminal…" else "Checking the built-in terminal…"
         )
-        runtimeExecutor.execute {
+        runtimeExecutor.executeLifecycleTask {
             val result = runCatching {
                 val inspected = embeddedRuntime.inspect()
                 val preserveCurrent = runtimeUpdateManager.shouldPreserveCurrentRuntime(inspected)

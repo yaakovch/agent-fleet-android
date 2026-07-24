@@ -18,6 +18,12 @@ Run the fast Compose scenario suite on the existing Windows AVD:
 bash scripts/debug/android-check.sh fast
 ```
 
+Run one focused instrumentation class on the same protected emulator:
+
+```bash
+AGENT_FLEET_INSTRUMENTATION_CLASS=com.termux.app.AgentFleetImageImportTest bash scripts/debug/android-check.sh focused
+```
+
 Run JVM tests plus the complete Pixel 7 / API 36 suite. Under WSL, `auto`
 prefers the protected persistent Windows AVD even when `/dev/kvm` is usable:
 
@@ -66,6 +72,9 @@ under `build/reports/agent-fleet/emulator/`; successful output is deliberately
 short and failures point to the full log and instrumentation report. Failed
 instrumentation runs also pull screenshot actual/diff output into that run's
 `device-output` directory before exiting.
+Focused mode requires an explicit `com.termux.app.*` instrumentation class and
+retains the same install, device-validation, artifact, and result-checking path
+as the complete suite.
 
 Instrumentation is installed and invoked as `com.yaakovch.fleet.test`; generated
 media is collected from `Android/media/com.yaakovch.fleet`. The runner also

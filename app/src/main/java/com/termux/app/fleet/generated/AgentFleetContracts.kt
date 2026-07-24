@@ -8,8 +8,8 @@ data class GeneratedStructuralShape(
 )
 
 object GeneratedAgentFleetContracts {
-    const val CONTRACT_PACKAGE_VERSION = "1.4.0"
-    val protocolVersions: Map<String, Int> = mapOf("control" to 1, "conversation" to 2, "workspace-layout" to 1, "release-set" to 1, "supervisor" to 1, "transport" to 1)
+    const val CONTRACT_PACKAGE_VERSION = "1.5.0"
+    val protocolVersions: Map<String, Int> = mapOf("control" to 1, "conversation" to 2, "workspace-layout" to 1, "release-set" to 1, "supervisor" to 1, "transport" to 1, "host-runtime" to 1)
     val objectShapes: Map<String, GeneratedStructuralShape> = mapOf(
         "activation-journal-v1:#" to GeneratedStructuralShape(listOf("candidate", "current", "failureCode", "phase", "previous", "schemaVersion", "transactionId", "updatedAt"), listOf(), true),
         "activation-journal-v1:#/\$defs/componentSequences" to GeneratedStructuralShape(listOf("androidApp", "clientRuntime", "contracts", "hostRuntime", "providerAdapters", "windowsApp"), listOf(), true),
@@ -18,7 +18,7 @@ object GeneratedAgentFleetContracts {
         "compatibility-v1:#" to GeneratedStructuralShape(listOf("components", "contractPackageVersion", "schemaVersion"), listOf(), true),
         "compatibility-v1:#/\$defs/component" to GeneratedStructuralShape(listOf("controlVersions", "conversationVersions", "sourceVersion", "workspaceLayoutVersions"), listOf(), true),
         "compatibility-v1:#/properties/components" to GeneratedStructuralShape(listOf("androidApp", "windowsApp", "wtmux"), listOf(), true),
-        "control-results-v1:#/\$defs/capabilityBase" to GeneratedStructuralShape(listOf("contractPackageVersion", "controlVersions", "conversationVersions", "events", "methods", "protocolVersion", "workspaceLayoutVersions"), listOf("agentVersion", "bridgeVersion"), true),
+        "control-results-v1:#/\$defs/capabilityBase" to GeneratedStructuralShape(listOf("contractPackageVersion", "controlVersions", "conversationVersions", "events", "methods", "protocolVersion", "workspaceLayoutVersions"), listOf("agentVersion", "bridgeVersion", "hostRuntime"), true),
         "control-results-v1:#/\$defs/catalog" to GeneratedStructuralShape(listOf("customAllowed", "models"), listOf(), true),
         "control-results-v1:#/\$defs/directoryEntry" to GeneratedStructuralShape(listOf("name", "path"), listOf(), true),
         "control-results-v1:#/\$defs/directoryListing" to GeneratedStructuralShape(listOf("backend", "entries", "parentPath", "path", "shortcuts", "truncated"), listOf(), true),
@@ -26,6 +26,8 @@ object GeneratedAgentFleetContracts {
         "control-results-v1:#/\$defs/doctor" to GeneratedStructuralShape(listOf("checkedAt", "checks", "hostId", "status"), listOf(), true),
         "control-results-v1:#/\$defs/doctorCheck" to GeneratedStructuralShape(listOf("detail", "id", "status", "summary"), listOf(), true),
         "control-results-v1:#/\$defs/effort" to GeneratedStructuralShape(listOf("id", "label"), listOf(), true),
+        "control-results-v1:#/\$defs/hostRuntime" to GeneratedStructuralShape(listOf("apiVersions", "entrypoint", "errorCodes", "resourceBudgets"), listOf(), true),
+        "control-results-v1:#/\$defs/hostRuntimeBudgets" to GeneratedStructuralShape(listOf("maxChildProcessesPerControl", "maxControlFrameBytes", "maxHelperErrorBytes", "maxHelperOutputBytes", "maxInFlightControl", "maxOperationTimeoutMs"), listOf(), true),
         "control-results-v1:#/\$defs/invitation" to GeneratedStructuralShape(listOf("bootstrapPeer", "bootstrapUser", "expiresAt", "file", "invitationId", "link", "shortCode", "termuxCommand"), listOf(), true),
         "control-results-v1:#/\$defs/invitationFile" to GeneratedStructuralShape(listOf("bootstrapPeer", "bootstrapUser", "expiresAt", "pairingVersion", "token"), listOf(), true),
         "control-results-v1:#/\$defs/model" to GeneratedStructuralShape(listOf("defaultEffort", "description", "efforts", "id", "isDefault", "label"), listOf(), true),
@@ -105,6 +107,12 @@ object GeneratedAgentFleetContracts {
         "fleet-snapshot-v1:#/\$defs/preset" to GeneratedStructuralShape(listOf("backend", "hostId", "id", "name", "profileAlias", "project", "tool"), listOf(), true),
         "fleet-snapshot-v1:#/\$defs/schedule" to GeneratedStructuralShape(listOf("agent", "backend", "completedAt", "createdAt", "deliverAt", "hostId", "id", "kind", "outcomeCode", "sessionId", "status", "updatedAt"), listOf(), true),
         "fleet-snapshot-v1:#/\$defs/session" to GeneratedStructuralShape(listOf("activity", "attached", "backend", "hostId", "id", "internalName", "name", "pendingScheduleCount", "project", "title", "tool", "updatedAt"), listOf("executionTargetId", "locationKind", "nameMode", "physicalHostId", "projectPath"), true),
+        "host-runtime-v1:#" to GeneratedStructuralShape(listOf("apiVersion", "channels", "contractPackageVersion", "entrypoint", "errors", "operations", "resourceBudgets", "schemaVersion", "sessionIndex"), listOf(), true),
+        "host-runtime-v1:#/\$defs/channel" to GeneratedStructuralShape(listOf("framing", "id", "maxConcurrent", "maxResponseBytes", "privacy", "protocol", "timeoutMs", "versions"), listOf(), true),
+        "host-runtime-v1:#/\$defs/error" to GeneratedStructuralShape(listOf("code", "publicTitle", "recoveryAction", "retryClass"), listOf(), true),
+        "host-runtime-v1:#/\$defs/operation" to GeneratedStructuralShape(listOf("channel", "errorDomain", "id", "mutationBinding"), listOf(), true),
+        "host-runtime-v1:#/\$defs/resourceBudgets" to GeneratedStructuralShape(listOf("maxArgumentBytes", "maxArguments", "maxChildProcessesPerControl", "maxControlFrameBytes", "maxHelperErrorBytes", "maxHelperOutputBytes", "maxImageBytes", "maxInFlightControl", "maxOperationTimeoutMs"), listOf(), true),
+        "host-runtime-v1:#/\$defs/sessionIndex" to GeneratedStructuralShape(listOf("authority", "killSwitch", "reason", "state"), listOf(), true),
         "identity-graph-v1:#" to GeneratedStructuralShape(listOf("aliases", "endpoints", "executionTargets", "fleetId", "physicalHosts", "schemaVersion"), listOf(), true),
         "identity-graph-v1:#/\$defs/alias" to GeneratedStructuralShape(listOf("executionTargetId", "id", "physicalHostId"), listOf(), true),
         "identity-graph-v1:#/\$defs/endpoint" to GeneratedStructuralShape(listOf("address", "authentication", "id", "identityState", "network", "physicalHostId", "port", "sshEngine", "sshHostKeySha256", "tailscaleNodeId"), listOf(), true),

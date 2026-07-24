@@ -3,14 +3,15 @@ set -euo pipefail
 
 mode="${1:-fast}"
 case "$mode" in
-  fast|full|update-goldens|coinstall|migration-lanes) ;;
-  *) echo "usage: $0 [fast|full|update-goldens|coinstall|migration-lanes]" >&2; exit 2 ;;
+  fast|focused|full|update-goldens|coinstall|migration-lanes) ;;
+  *) echo "usage: $0 [fast|focused|full|update-goldens|coinstall|migration-lanes]" >&2; exit 2 ;;
 esac
 
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 cd "$root"
 gradle="$root/scripts/debug/android-gradle.sh"
 backend_selector="$root/scripts/debug/select-emulator-backend.sh"
+instrumentation_checker="$root/scripts/debug/check-instrumentation-result.sh"
 stamp="$(date -u +%Y%m%dT%H%M%SZ)"
 artifacts="$root/build/reports/agent-fleet/emulator/$stamp-$mode"
 mkdir -p "$artifacts"
@@ -28,6 +29,10 @@ fail() { say "FAILED: $*" >&2; say "details: $log" >&2; exit 1; }
 
 if [[ -n "${ANDROID_SERIAL:-}" && "${ANDROID_SERIAL}" != emulator-* ]]; then
   fail "ANDROID_SERIAL points at a physical device; this runner only accepts emulator-*"
+fi
+focused_class="${AGENT_FLEET_INSTRUMENTATION_CLASS:-}"
+if [[ "$mode" == "focused" && ( -z "$focused_class" || "$focused_class" != com.termux.app.* || "$focused_class" == *[[:space:]/]* ) ]]; then
+  fail "focused mode requires a com.termux.app.* AGENT_FLEET_INSTRUMENTATION_CLASS"
 fi
 
 backend="windows"
@@ -193,6 +198,8 @@ adb_run -s "$serial" install -r -t "$test_apk_windows" >>"$log" 2>&1
 instrument_args=(-w -r)
 if [[ "$mode" == "update-goldens" ]]; then
   instrument_args+=(-e class com.termux.app.AgentFleetGoldenTest -e agentFleetUpdateGoldens true)
+elif [[ "$mode" == "focused" ]]; then
+  instrument_args+=(-e class "$focused_class")
 elif [[ "$mode" == "fast" ]]; then
   instrument_args+=(-e class com.termux.app.AgentFleetComposeTest,com.termux.app.AgentFleetDrawerComposeTest)
 fi
@@ -202,7 +209,7 @@ adb_run -s "$serial" shell am instrument "${instrument_args[@]}" "$test_package/
   >"$artifacts/instrumentation.txt" 2>&1
 status=$?
 set -e
-if [[ $status -ne 0 ]] || grep -qE 'FAILURES|INSTRUMENTATION_FAILED' "$artifacts/instrumentation.txt"; then
+if [[ $status -ne 0 ]] || ! "$instrumentation_checker" "$artifacts/instrumentation.txt"; then
   mkdir -p "$artifacts/device-output"
   output_windows="$(wslpath -w "$artifacts/device-output")"
   adb_run -s "$serial" pull "/sdcard/Android/media/$app_package/." "$output_windows" >>"$log" 2>&1 || true

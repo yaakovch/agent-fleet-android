@@ -1,0 +1,12 @@
+{
+  "schemaVersion": 1,
+  "entrypoint": "wtmux-host-runtime",
+  "apiVersion": 1,
+  "contractPackageVersion": "1.5.0",
+  "channels": [],
+  "operations": [],
+  "resourceBudgets": {},
+  "errors": [],
+  "sessionIndex": {},
+  "transcript": "forbidden"
+}

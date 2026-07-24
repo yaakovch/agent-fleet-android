@@ -5,29 +5,29 @@
     {
       "id": "windows-app",
       "version": "0.11.0-beta.21",
-      "contractPackageVersion": "1.4.0",
+      "contractPackageVersion": "1.5.0",
       "controlVersions": [1],
       "conversationVersions": [2],
       "workspaceLayoutVersions": [1],
-      "capabilities": ["control.v1", "conversation.v2", "workspace-layout.v1"]
+      "capabilities": ["control.v1", "conversation.v2", "workspace-layout.v1", "host-runtime.v1"]
     },
     {
       "id": "android-app",
       "version": "0.118.4-agentfleet.76",
-      "contractPackageVersion": "1.4.0",
+      "contractPackageVersion": "1.5.0",
       "controlVersions": [1],
       "conversationVersions": [2],
       "workspaceLayoutVersions": [1],
-      "capabilities": ["control.v1", "conversation.v2", "workspace-layout.v1"]
+      "capabilities": ["control.v1", "conversation.v2", "workspace-layout.v1", "host-runtime.v1"]
     },
     {
       "id": "wtmux",
       "version": "git-8b09167",
-      "contractPackageVersion": "1.4.0",
+      "contractPackageVersion": "1.5.0",
       "controlVersions": [1],
       "conversationVersions": [2],
       "workspaceLayoutVersions": [1],
-      "capabilities": ["control.v1", "conversation.v2", "workspace-layout.v1"]
+      "capabilities": ["control.v1", "conversation.v2", "workspace-layout.v1", "host-runtime.v1"]
     }
   ],
   "checks": [

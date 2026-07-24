@@ -42,4 +42,20 @@ class ControlResultContractTest {
         repeat(18) { nested = JSONObject().put("nested", nested) }
         assertThrows(IllegalArgumentException::class.java) { ControlResultContract.requireValidResult(nested) }
     }
+
+    @Test
+    fun requiresTheStableHostRuntimeBeforeSessionDiscovery() {
+        val results = JSONObject(fixture("control-results-v1.json")).getJSONArray("results")
+        val agent = JSONObject(results.getJSONObject(0).toString())
+        agent.getJSONObject("hostRuntime").put("entrypoint", "private-helper")
+        assertThrows(IllegalArgumentException::class.java) {
+            ControlResultContract.requireValidResult(agent)
+        }
+
+        val bridge = JSONObject(results.getJSONObject(1).toString())
+            .put("hostRuntime", JSONObject(results.getJSONObject(0).getJSONObject("hostRuntime").toString()))
+        assertThrows(IllegalArgumentException::class.java) {
+            ControlResultContract.requireValidResult(bridge)
+        }
+    }
 }

@@ -1,0 +1,229 @@
+{
+  "schemaVersion": 1,
+  "entrypoint": "wtmux-host-runtime",
+  "apiVersion": 1,
+  "contractPackageVersion": "1.5.0",
+  "channels": [
+    {
+      "id": "control",
+      "protocol": "control",
+      "versions": [1],
+      "framing": "jsonl",
+      "privacy": "metadata-only",
+      "maxConcurrent": 1,
+      "maxResponseBytes": 262144,
+      "timeoutMs": 30000
+    },
+    {
+      "id": "conversation",
+      "protocol": "conversation",
+      "versions": [2],
+      "framing": "jsonl",
+      "privacy": "memory-only-content",
+      "maxConcurrent": 1,
+      "maxResponseBytes": 262144,
+      "timeoutMs": 30000
+    },
+    {
+      "id": "terminal",
+      "protocol": "terminal",
+      "versions": [1],
+      "framing": "raw-pty",
+      "privacy": "ephemeral-content",
+      "maxConcurrent": 4,
+      "maxResponseBytes": 0,
+      "timeoutMs": 0
+    },
+    {
+      "id": "transfer",
+      "protocol": "transfer",
+      "versions": [1],
+      "framing": "byte-stream",
+      "privacy": "explicit-destination",
+      "maxConcurrent": 2,
+      "maxResponseBytes": 4096,
+      "timeoutMs": 120000
+    },
+    {
+      "id": "repository",
+      "protocol": "repository",
+      "versions": [1],
+      "framing": "byte-stream",
+      "privacy": "explicit-download",
+      "maxConcurrent": 2,
+      "maxResponseBytes": 2147483648,
+      "timeoutMs": 120000
+    }
+  ],
+  "operations": [
+    {
+      "id": "session",
+      "channel": "control",
+      "mutationBinding": "revision-and-idempotency",
+      "errorDomain": "session"
+    },
+    {
+      "id": "directory",
+      "channel": "control",
+      "mutationBinding": "read-or-revision-and-idempotency",
+      "errorDomain": "directory"
+    },
+    {
+      "id": "repository",
+      "channel": "repository",
+      "mutationBinding": "read-only",
+      "errorDomain": "repository"
+    },
+    {
+      "id": "image",
+      "channel": "transfer",
+      "mutationBinding": "explicit-destination-and-digest",
+      "errorDomain": "transfer"
+    },
+    {
+      "id": "schedule",
+      "channel": "control",
+      "mutationBinding": "revision-and-idempotency",
+      "errorDomain": "schedule"
+    },
+    {
+      "id": "model-control",
+      "channel": "control",
+      "mutationBinding": "config-revision-and-idempotency",
+      "errorDomain": "provider"
+    },
+    {
+      "id": "doctor",
+      "channel": "control",
+      "mutationBinding": "revision-and-idempotency",
+      "errorDomain": "diagnostics"
+    },
+    {
+      "id": "conversation",
+      "channel": "conversation",
+      "mutationBinding": "provider-revision-and-idempotency",
+      "errorDomain": "provider"
+    },
+    {
+      "id": "terminal",
+      "channel": "terminal",
+      "mutationBinding": "none",
+      "errorDomain": "tmux"
+    }
+  ],
+  "resourceBudgets": {
+    "maxArguments": 64,
+    "maxArgumentBytes": 16384,
+    "maxControlFrameBytes": 262144,
+    "maxHelperOutputBytes": 262144,
+    "maxHelperErrorBytes": 8192,
+    "maxImageBytes": 33554432,
+    "maxInFlightControl": 1,
+    "maxChildProcessesPerControl": 1,
+    "maxOperationTimeoutMs": 120000
+  },
+  "errors": [
+    {
+      "code": "invalid_request",
+      "retryClass": "no-retry",
+      "recoveryAction": "review-request",
+      "publicTitle": "Host request rejected"
+    },
+    {
+      "code": "not_found",
+      "retryClass": "after-refresh",
+      "recoveryAction": "refresh-host-state",
+      "publicTitle": "Host resource not found"
+    },
+    {
+      "code": "conflict",
+      "retryClass": "after-refresh",
+      "recoveryAction": "refresh-host-state",
+      "publicTitle": "Host state changed"
+    },
+    {
+      "code": "stale_revision",
+      "retryClass": "after-refresh",
+      "recoveryAction": "refresh-host-state",
+      "publicTitle": "Host state changed"
+    },
+    {
+      "code": "unsupported",
+      "retryClass": "rollback",
+      "recoveryAction": "update-or-rollback",
+      "publicTitle": "Host capability unsupported"
+    },
+    {
+      "code": "unavailable",
+      "retryClass": "after-recovery",
+      "recoveryAction": "retry-host-capability",
+      "publicTitle": "Host capability unavailable"
+    },
+    {
+      "code": "timeout",
+      "retryClass": "automatic",
+      "recoveryAction": "retry-operation",
+      "publicTitle": "Host operation timed out"
+    },
+    {
+      "code": "resource_limit",
+      "retryClass": "after-recovery",
+      "recoveryAction": "retry-after-current-work",
+      "publicTitle": "Host operation limit reached"
+    },
+    {
+      "code": "tmux_unavailable",
+      "retryClass": "after-recovery",
+      "recoveryAction": "repair-tmux",
+      "publicTitle": "Host session service unavailable"
+    },
+    {
+      "code": "helper_unavailable",
+      "retryClass": "rollback",
+      "recoveryAction": "repair-host-runtime",
+      "publicTitle": "Host runtime incomplete"
+    },
+    {
+      "code": "unsafe_state",
+      "retryClass": "after-refresh",
+      "recoveryAction": "refresh-host-state",
+      "publicTitle": "Host state could not be verified"
+    },
+    {
+      "code": "internal_failure",
+      "retryClass": "after-recovery",
+      "recoveryAction": "retry-host-capability",
+      "publicTitle": "Host operation failed safely"
+    },
+    {
+      "code": "SESSION_UNAVAILABLE",
+      "retryClass": "after-refresh",
+      "recoveryAction": "refresh-sessions",
+      "publicTitle": "Session unavailable"
+    },
+    {
+      "code": "PROVIDER_UNAVAILABLE",
+      "retryClass": "terminal-fallback",
+      "recoveryAction": "open-terminal",
+      "publicTitle": "Native provider unavailable"
+    },
+    {
+      "code": "TRANSFER_REJECTED",
+      "retryClass": "user-action",
+      "recoveryAction": "review-transfer",
+      "publicTitle": "Transfer rejected"
+    },
+    {
+      "code": "REPOSITORY_UNAVAILABLE",
+      "retryClass": "after-refresh",
+      "recoveryAction": "refresh-repository",
+      "publicTitle": "Repository unavailable"
+    }
+  ],
+  "sessionIndex": {
+    "state": "rejected",
+    "authority": "tmux",
+    "reason": "NO_MATERIAL_RECOVERY_VALUE",
+    "killSwitch": "WTMUX_SESSION_INDEX"
+  }
+}

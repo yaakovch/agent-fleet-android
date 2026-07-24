@@ -1,13 +1,14 @@
 {
   "schemaVersion": 1,
-  "packageVersion": "1.4.0",
+  "packageVersion": "1.5.0",
   "protocolVersions": {
     "control": 1,
     "conversation": 2,
     "workspace-layout": 1,
     "release-set": 1,
     "supervisor": 1,
-    "transport": 1
+    "transport": 1,
+    "host-runtime": 1
   },
   "objectShapes": [
     {
@@ -105,7 +106,8 @@
       ],
       "optional": [
         "agentVersion",
-        "bridgeVersion"
+        "bridgeVersion",
+        "hostRuntime"
       ],
       "rejectUnknown": true
     },
@@ -177,6 +179,30 @@
       "required": [
         "id",
         "label"
+      ],
+      "optional": [],
+      "rejectUnknown": true
+    },
+    {
+      "id": "control-results-v1:#/$defs/hostRuntime",
+      "required": [
+        "apiVersions",
+        "entrypoint",
+        "errorCodes",
+        "resourceBudgets"
+      ],
+      "optional": [],
+      "rejectUnknown": true
+    },
+    {
+      "id": "control-results-v1:#/$defs/hostRuntimeBudgets",
+      "required": [
+        "maxChildProcessesPerControl",
+        "maxControlFrameBytes",
+        "maxHelperErrorBytes",
+        "maxHelperOutputBytes",
+        "maxInFlightControl",
+        "maxOperationTimeoutMs"
       ],
       "optional": [],
       "rejectUnknown": true
@@ -1230,6 +1256,86 @@
         "physicalHostId",
         "projectPath"
       ],
+      "rejectUnknown": true
+    },
+    {
+      "id": "host-runtime-v1:#",
+      "required": [
+        "apiVersion",
+        "channels",
+        "contractPackageVersion",
+        "entrypoint",
+        "errors",
+        "operations",
+        "resourceBudgets",
+        "schemaVersion",
+        "sessionIndex"
+      ],
+      "optional": [],
+      "rejectUnknown": true
+    },
+    {
+      "id": "host-runtime-v1:#/$defs/channel",
+      "required": [
+        "framing",
+        "id",
+        "maxConcurrent",
+        "maxResponseBytes",
+        "privacy",
+        "protocol",
+        "timeoutMs",
+        "versions"
+      ],
+      "optional": [],
+      "rejectUnknown": true
+    },
+    {
+      "id": "host-runtime-v1:#/$defs/error",
+      "required": [
+        "code",
+        "publicTitle",
+        "recoveryAction",
+        "retryClass"
+      ],
+      "optional": [],
+      "rejectUnknown": true
+    },
+    {
+      "id": "host-runtime-v1:#/$defs/operation",
+      "required": [
+        "channel",
+        "errorDomain",
+        "id",
+        "mutationBinding"
+      ],
+      "optional": [],
+      "rejectUnknown": true
+    },
+    {
+      "id": "host-runtime-v1:#/$defs/resourceBudgets",
+      "required": [
+        "maxArgumentBytes",
+        "maxArguments",
+        "maxChildProcessesPerControl",
+        "maxControlFrameBytes",
+        "maxHelperErrorBytes",
+        "maxHelperOutputBytes",
+        "maxImageBytes",
+        "maxInFlightControl",
+        "maxOperationTimeoutMs"
+      ],
+      "optional": [],
+      "rejectUnknown": true
+    },
+    {
+      "id": "host-runtime-v1:#/$defs/sessionIndex",
+      "required": [
+        "authority",
+        "killSwitch",
+        "reason",
+        "state"
+      ],
+      "optional": [],
       "rejectUnknown": true
     },
     {

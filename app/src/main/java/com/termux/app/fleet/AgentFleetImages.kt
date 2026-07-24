@@ -175,8 +175,8 @@ internal fun agentFleetImageUploadFailure(stderr: String, exitCode: Int): String
     return when {
         "unknown host" in normalized || "config has no machines" in normalized ->
             "Image destination is not configured. Refresh sessions and retry."
-        "project path not found" in normalized || "session not found" in normalized ->
-            "The session project is unavailable on the host."
+        "transfer_rejected" in normalized ->
+            "The host rejected the selected image destination. Refresh the session and retry."
         "permission denied" in normalized || "publickey" in normalized ->
             "The host rejected the image connection. Refresh pairing and retry."
         "could not resolve hostname" in normalized || "network is unreachable" in normalized ||
@@ -184,8 +184,8 @@ internal fun agentFleetImageUploadFailure(stderr: String, exitCode: Int): String
             "broken pipe" in normalized || "connection reset" in normalized || "connection closed" in normalized ->
             "The host could not be reached. Check the connection and retry."
         "unsupported image extension" in normalized -> "The selected image format is not supported."
-        exitCode == 127 && "wtmux-host" in normalized ->
-            "The host image helper is unavailable. Refresh the host setup and retry."
+        exitCode == 127 && "wtmux-host-runtime" in normalized ->
+            "The stable host runtime is unavailable. Refresh the host setup and retry."
         exitCode == 127 && missingCommand != null ->
             "Image upload needs the missing '$missingCommand' command. Repair the runtime and retry."
         exitCode == 127 ->

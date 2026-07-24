@@ -1,9 +1,9 @@
 {
   "schemaVersion": 1,
-  "releaseSetSequence": 1082,
+  "releaseSetSequence": 1083,
   "issuedAt": "2026-07-23T10:00:00Z",
   "expiresAt": "2026-08-22T10:00:00Z",
-  "contractPackageVersion": "1.4.0",
+  "contractPackageVersion": "1.5.0",
   "protocols": {
     "control": { "minimum": 1, "maximum": 1 },
     "conversation": { "minimum": 2, "maximum": 2 },
@@ -15,7 +15,7 @@
       "version": "0.11.0-beta.21",
       "compatibility": {
         "clientRuntime": { "minimum": 44, "maximum": 45 },
-        "contracts": { "minimum": 12, "maximum": 14 }
+        "contracts": { "minimum": 12, "maximum": 15 }
       }
     },
     "androidApp": {
@@ -23,7 +23,7 @@
       "version": "0.118.4-agentfleet.76",
       "compatibility": {
         "clientRuntime": { "minimum": 44, "maximum": 45 },
-        "contracts": { "minimum": 12, "maximum": 14 }
+        "contracts": { "minimum": 12, "maximum": 15 }
       }
     },
     "clientRuntime": {
@@ -32,14 +32,14 @@
       "compatibility": {
         "hostRuntime": { "minimum": 37, "maximum": 38 },
         "providerAdapters": { "minimum": 12, "maximum": 13 },
-        "contracts": { "minimum": 12, "maximum": 14 }
+        "contracts": { "minimum": 12, "maximum": 15 }
       }
     },
     "hostRuntime": {
       "sequence": 38,
       "version": "git-b5bb8ec",
       "compatibility": {
-        "contracts": { "minimum": 12, "maximum": 14 }
+        "contracts": { "minimum": 12, "maximum": 15 }
       }
     },
     "providerAdapters": {
@@ -48,12 +48,12 @@
       "compatibility": {
         "clientRuntime": { "minimum": 44, "maximum": 45 },
         "hostRuntime": { "minimum": 37, "maximum": 38 },
-        "contracts": { "minimum": 12, "maximum": 14 }
+        "contracts": { "minimum": 12, "maximum": 15 }
       }
     },
     "contracts": {
-      "sequence": 14,
-      "version": "1.4.0",
+      "sequence": 15,
+      "version": "1.5.0",
       "compatibility": {}
     }
   },
@@ -70,7 +70,7 @@
       "size": 1000,
       "sourceRepository": "https://github.com/yaakovch/agent-fleet",
       "sourceCommit": "1111111111111111111111111111111111111111",
-      "contractPackageVersion": "1.4.0",
+      "contractPackageVersion": "1.5.0",
       "sbomSha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
       "licenseSha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
     },
@@ -86,7 +86,7 @@
       "size": 1000,
       "sourceRepository": "https://github.com/yaakovch/agent-fleet-android",
       "sourceCommit": "2222222222222222222222222222222222222222",
-      "contractPackageVersion": "1.4.0",
+      "contractPackageVersion": "1.5.0",
       "sbomSha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
       "licenseSha256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
     },
@@ -102,7 +102,7 @@
       "size": 1000,
       "sourceRepository": "https://github.com/yaakovch/wtmux",
       "sourceCommit": "b5bb8ec6ebb08f6360e648af4a2a5abd2693a542",
-      "contractPackageVersion": "1.4.0",
+      "contractPackageVersion": "1.5.0",
       "sbomSha256": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
       "licenseSha256": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
     },
@@ -118,20 +118,20 @@
       "size": 1000,
       "sourceRepository": "https://github.com/yaakovch/wtmux",
       "sourceCommit": "b5bb8ec6ebb08f6360e648af4a2a5abd2693a542",
-      "contractPackageVersion": "1.4.0",
+      "contractPackageVersion": "1.5.0",
       "sbomSha256": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
       "licenseSha256": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
     }
   ],
   "rollbackFloor": {
-    "releaseSetSequence": 1081,
+    "releaseSetSequence": 1082,
     "componentSequences": {
       "windowsApp": 21,
       "androidApp": 1075,
       "clientRuntime": 44,
       "hostRuntime": 37,
       "providerAdapters": 12,
-      "contracts": 13
+      "contracts": 14
     }
   },
   "signature": {

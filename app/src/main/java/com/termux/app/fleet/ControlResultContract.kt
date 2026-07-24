@@ -38,6 +38,27 @@ object ControlResultContract {
     private fun validateCapabilities(value: JSONObject) {
         shape(value, "control-results-v1:#/\$defs/capabilityBase")
         require(value.has("agentVersion") != value.has("bridgeVersion"))
+        if (value.has("agentVersion")) {
+            val runtime = value.getJSONObject("hostRuntime")
+            shape(runtime, "control-results-v1:#/\$defs/hostRuntime")
+            require(runtime.getString("entrypoint") == "wtmux-host-runtime")
+            require((0 until runtime.getJSONArray("apiVersions").length())
+                .map(runtime.getJSONArray("apiVersions")::getInt) == listOf(1))
+            val errorCodes = runtime.getJSONArray("errorCodes")
+            stringArray(errorCodes, 32)
+            require((0 until errorCodes.length()).map(errorCodes::getString).toSet() ==
+                HostRuntimeContract.controlErrorCodes)
+            val budgets = runtime.getJSONObject("resourceBudgets")
+            shape(budgets, "control-results-v1:#/\$defs/hostRuntimeBudgets")
+            require(budgets.getInt("maxControlFrameBytes") == MAX_RESULT_BYTES)
+            require(budgets.getInt("maxHelperOutputBytes") == 256 * 1024)
+            require(budgets.getInt("maxHelperErrorBytes") == 8 * 1024)
+            require(budgets.getInt("maxInFlightControl") == 1)
+            require(budgets.getInt("maxChildProcessesPerControl") == 1)
+            require(budgets.getInt("maxOperationTimeoutMs") == 120_000)
+        } else {
+            require(!value.has("hostRuntime")) { "Bridge capabilities cannot impersonate a host runtime" }
+        }
         require(value.getInt("protocolVersion") == 1)
         listOf("controlVersions", "conversationVersions", "workspaceLayoutVersions").forEach { versions(value.getJSONArray(it)) }
         stringArray(value.getJSONArray("methods"), 64)

@@ -21,7 +21,7 @@ object CompatibilityContract {
     val CONTROL_VERSIONS = listOf(requireNotNull(GeneratedAgentFleetContracts.protocolVersions["control"]))
     val CONVERSATION_VERSIONS = listOf(requireNotNull(GeneratedAgentFleetContracts.protocolVersions["conversation"]))
     val WORKSPACE_LAYOUT_VERSIONS = listOf(requireNotNull(GeneratedAgentFleetContracts.protocolVersions["workspace-layout"]))
-    val CAPABILITIES = listOf("control.v1", "conversation.v2", "workspace-layout.v1")
+    val CAPABILITIES = listOf("control.v1", "conversation.v2", "workspace-layout.v1", "host-runtime.v1")
     private const val MAX_DOCUMENT_BYTES = 64 * 1024
     private val componentIds = setOf("wtmux", "windowsApp", "androidApp")
     private val privateFields = setOf("message", "prompt", "output", "transcript", "panetitle", "command")

@@ -23,7 +23,7 @@ class ReleaseSetContractTest {
     fun matchesCanonicalFixtureLockByteForByte() {
         val lock = JSONObject(fixture("contract-lock-v1.json"))
         assertEquals(1, lock.getInt("schemaVersion"))
-        assertEquals("1.4.0", lock.getString("packageVersion"))
+        assertEquals("1.5.0", lock.getString("packageVersion"))
         assertEquals("sha256", lock.getString("algorithm"))
         val files = lock.getJSONObject("files")
         val fixtures = mapOf(
@@ -38,6 +38,7 @@ class ReleaseSetContractTest {
             "fixtures/valid/conversation-structured-work-v2.json" to "conversation-structured-work-v2.json",
             "fixtures/valid/diagnostics-v1.json" to "diagnostics-v1.json",
             "fixtures/valid/fleet-snapshot-base-v1.json" to "fleet-snapshot-base-v1.json",
+            "fixtures/valid/host-runtime-conformance-v1.json" to "host-runtime-conformance-v1.json",
             "fixtures/valid/release-set-v1.json" to "release-set-v1.json",
             "fixtures/valid/workspace-layout-v1.json" to "workspace-layout-v1.json",
             "fixtures/invalid/control-content-field-v1.json" to "control-content-field-v1.json",
@@ -50,6 +51,8 @@ class ReleaseSetContractTest {
             "fixtures/invalid/diagnostics-unknown-field-v1.json" to "diagnostics-unknown-field-v1.json",
             "fixtures/invalid/fleet-snapshot-content-field-v1.json" to "fleet-snapshot-content-field-v1.json",
             "fixtures/invalid/fleet-snapshot-unknown-field-v1.json" to "fleet-snapshot-unknown-field-v1.json",
+            "fixtures/invalid/host-runtime-content-field-v1.json" to "host-runtime-content-field-v1.json",
+            "fixtures/invalid/host-runtime-unknown-field-v1.json" to "host-runtime-unknown-field-v1.json",
             "fixtures/invalid/release-set-content-field-v1.json" to "release-set-content-field-v1.json",
             "fixtures/invalid/release-set-unknown-field-v1.json" to "release-set-unknown-field-v1.json",
             "fixtures/valid/transport-conformance-v1.json" to "transport-conformance-v1.json",
@@ -69,7 +72,7 @@ class ReleaseSetContractTest {
     @Test
     fun acceptsSharedReleaseSetAndBaseFleetSnapshot() {
         val release = ReleaseSetContract.parse(fixture("release-set-v1.json"))
-        assertEquals(1082L, release.releaseSetSequence)
+        assertEquals(1083L, release.releaseSetSequence)
         assertEquals(
             listOf("windowsApp", "androidApp", "clientRuntime", "clientRuntime"),
             release.artifacts.map { it.component }
@@ -97,7 +100,7 @@ class ReleaseSetContractTest {
         assertThrows(IllegalArgumentException::class.java) { ReleaseSetContract.parse(nestedUnknown) }
 
         val rollback = JSONObject(fixture("release-set-v1.json")).also {
-            it.getJSONObject("rollbackFloor").put("releaseSetSequence", 1083)
+            it.getJSONObject("rollbackFloor").put("releaseSetSequence", 1084)
         }
         assertThrows(IllegalArgumentException::class.java) { ReleaseSetContract.parse(rollback) }
 
@@ -136,7 +139,7 @@ class ReleaseSetContractTest {
             signed.toString(), trusted, Instant.parse("2026-07-24T00:00:00Z"),
             origins, "0.118.4-agentfleet.76", 1081
         )
-        assertEquals(1082L, verified.releaseSetSequence)
+        assertEquals(1083L, verified.releaseSetSequence)
 
         assertThrows(IllegalArgumentException::class.java) {
             ReleaseSetContract.verify(
@@ -147,7 +150,7 @@ class ReleaseSetContractTest {
         assertThrows(IllegalArgumentException::class.java) {
             ReleaseSetContract.verify(
                 signed.toString(), trusted, Instant.parse("2026-07-24T00:00:00Z"),
-                origins, "0.118.4-agentfleet.76", 1083
+                origins, "0.118.4-agentfleet.76", 1084
             )
         }
         assertThrows(IllegalArgumentException::class.java) {
