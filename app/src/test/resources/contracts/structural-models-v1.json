@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "packageVersion": "1.5.0",
+  "packageVersion": "1.6.0",
   "protocolVersions": {
     "control": 1,
     "conversation": 2,
@@ -1494,6 +1494,55 @@
       "required": [
         "ip",
         "sshHost"
+      ],
+      "optional": [],
+      "rejectUnknown": true
+    },
+    {
+      "id": "pairing-bundle-v1:#",
+      "required": [
+        "bundleId",
+        "clientPolicy",
+        "compatibility",
+        "configurationRevision",
+        "createdAt",
+        "fleetId",
+        "hostTrust",
+        "integrity",
+        "registry",
+        "schemaVersion"
+      ],
+      "optional": [],
+      "rejectUnknown": true
+    },
+    {
+      "id": "pairing-bundle-v1:#/$defs/hostTrust",
+      "required": [
+        "endpointId",
+        "identityState",
+        "physicalHostId",
+        "sshHostKeySha256",
+        "tailscaleNodeId"
+      ],
+      "optional": [],
+      "rejectUnknown": true
+    },
+    {
+      "id": "pairing-bundle-v1:#/properties/compatibility",
+      "required": [
+        "contractPackageVersion",
+        "controlVersions",
+        "conversationVersions",
+        "minimumReleaseSetSequence"
+      ],
+      "optional": [],
+      "rejectUnknown": true
+    },
+    {
+      "id": "pairing-bundle-v1:#/properties/integrity",
+      "required": [
+        "algorithm",
+        "digest"
       ],
       "optional": [],
       "rejectUnknown": true

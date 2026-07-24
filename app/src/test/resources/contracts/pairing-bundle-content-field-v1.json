@@ -1,0 +1,13 @@
+{
+  "schemaVersion": 1,
+  "bundleId": "unsafe-bundle",
+  "fleetId": "fixture-fleet",
+  "configurationRevision": 7,
+  "createdAt": "2026-07-24T12:00:00Z",
+  "registry": [],
+  "clientPolicy": {},
+  "hostTrust": [],
+  "compatibility": {},
+  "integrity": {"algorithm": "sha256", "digest": "0000000000000000000000000000000000000000000000000000000000000000"},
+  "transcript": "private content"
+}

@@ -219,9 +219,8 @@ class FleetRuntime(private val context: Context) {
     }
 
     fun openPairing(invitation: String) {
-        require(invitation.startsWith("wtmux://pair?") && invitation.length <= 4_096 && invitation.none { it.isISOControl() }) {
-            "Paste a valid wtmux pairing invitation."
-        }
+        val review = FleetConfigurationParser.reviewInvitation(invitation)
+        require(!review.expired) { "This pairing invitation expired. Create a new invitation." }
         val client = executable("wtmux-pair-client")
             ?: throw FleetUnavailableException("The wtmux pairing client is not installed. Restore it in the terminal first.")
         val python = executable("python3")

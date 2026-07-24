@@ -31,7 +31,7 @@ class CompatibilityContractTest {
     @Test
     fun acceptsSharedCompatibilityMatrix() {
         val matrix = CompatibilityContract.parse(fixture("compatibility-v1.json"))
-        assertEquals("1.5.0", matrix.contractPackageVersion)
+        assertEquals("1.6.0", matrix.contractPackageVersion)
         assertTrue(matrix.components.values.all(CompatibilityContract::supportsCurrentContracts))
     }
 

@@ -8,7 +8,7 @@ data class GeneratedStructuralShape(
 )
 
 object GeneratedAgentFleetContracts {
-    const val CONTRACT_PACKAGE_VERSION = "1.5.0"
+    const val CONTRACT_PACKAGE_VERSION = "1.6.0"
     val protocolVersions: Map<String, Int> = mapOf("control" to 1, "conversation" to 2, "workspace-layout" to 1, "release-set" to 1, "supervisor" to 1, "transport" to 1, "host-runtime" to 1)
     val objectShapes: Map<String, GeneratedStructuralShape> = mapOf(
         "activation-journal-v1:#" to GeneratedStructuralShape(listOf("candidate", "current", "failureCode", "phase", "previous", "schemaVersion", "transactionId", "updatedAt"), listOf(), true),
@@ -125,6 +125,10 @@ object GeneratedAgentFleetContracts {
         "machine-v2:#/properties/endpoints/items" to GeneratedStructuralShape(listOf("address", "authentication", "id", "identityState", "network", "port", "sshEngine", "sshHostKeySha256", "tailscaleNodeId"), listOf(), true),
         "machine-v2:#/properties/executionTargets/items" to GeneratedStructuralShape(listOf("fingerprint", "id", "kind", "label"), listOf(), true),
         "machine-v2:#/properties/fallback" to GeneratedStructuralShape(listOf("ip", "sshHost"), listOf(), true),
+        "pairing-bundle-v1:#" to GeneratedStructuralShape(listOf("bundleId", "clientPolicy", "compatibility", "configurationRevision", "createdAt", "fleetId", "hostTrust", "integrity", "registry", "schemaVersion"), listOf(), true),
+        "pairing-bundle-v1:#/\$defs/hostTrust" to GeneratedStructuralShape(listOf("endpointId", "identityState", "physicalHostId", "sshHostKeySha256", "tailscaleNodeId"), listOf(), true),
+        "pairing-bundle-v1:#/properties/compatibility" to GeneratedStructuralShape(listOf("contractPackageVersion", "controlVersions", "conversationVersions", "minimumReleaseSetSequence"), listOf(), true),
+        "pairing-bundle-v1:#/properties/integrity" to GeneratedStructuralShape(listOf("algorithm", "digest"), listOf(), true),
         "presets-v1:#" to GeneratedStructuralShape(listOf("presets", "schemaVersion"), listOf(), true),
         "presets-v1:#/properties/presets/items" to GeneratedStructuralShape(listOf("backend", "hostId", "id", "name", "profileAlias", "project", "tool"), listOf(), true),
         "release-set-v1:#" to GeneratedStructuralShape(listOf("artifacts", "components", "contractPackageVersion", "expiresAt", "issuedAt", "protocols", "releaseSetSequence", "rollbackFloor", "schemaVersion", "signature"), listOf(), true),

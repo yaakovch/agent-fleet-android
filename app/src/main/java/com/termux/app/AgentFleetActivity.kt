@@ -1816,7 +1816,10 @@ private fun shortLocation(path: String): String {
 @Composable
 private fun PairingDialog(initialInvitation: String, onDismiss: () -> Unit, onConfirm: (String) -> Unit) {
     var invitation by rememberSaveable(initialInvitation) { mutableStateOf(initialInvitation) }
-    val valid = invitation.trim().startsWith("wtmux://pair?") && invitation.length <= 4_096
+    val review = remember(invitation) {
+        runCatching { com.termux.app.fleet.FleetConfigurationParser.reviewInvitation(invitation.trim()) }.getOrNull()
+    }
+    val valid = review != null && !review.expired
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text("Pair or restore") },
@@ -1831,10 +1834,24 @@ private fun PairingDialog(initialInvitation: String, onDismiss: () -> Unit, onCo
                     minLines = 3,
                     maxLines = 5
                 )
-                Text("The controller still has to approve this phone.", fontSize = 14.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                if (review != null) {
+                    Text(
+                        "Controller ${review.bootstrapPeer} · expires ${review.expiresAt}",
+                        fontSize = 14.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Text(
+                        if (review.expired) "This invitation expired. Create a new invitation."
+                        else "Review this controller, then request access. The controller must still approve this phone.",
+                        fontSize = 14.sp,
+                        color = if (review.expired) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                } else if (invitation.isNotBlank()) {
+                    Text("This invitation is invalid.", fontSize = 14.sp, color = MaterialTheme.colorScheme.error)
+                }
             }
         },
-        confirmButton = { TextButton(onClick = { onConfirm(invitation.trim()) }, enabled = valid) { Text("Continue in terminal") } },
+        confirmButton = { TextButton(onClick = { onConfirm(invitation.trim()) }, enabled = valid) { Text("Request pairing") } },
         dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } }
     )
 }

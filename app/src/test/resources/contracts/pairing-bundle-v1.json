@@ -1,0 +1,78 @@
+{
+  "schemaVersion": 1,
+  "bundleId": "pairing-fixture-1",
+  "fleetId": "fixture-fleet",
+  "configurationRevision": 7,
+  "createdAt": "2026-07-24T12:00:00Z",
+  "registry": [
+    {
+      "schemaVersion": 2,
+      "id": "gaming",
+      "name": "Gaming desktop",
+      "roles": ["host"],
+      "platform": "wsl",
+      "linuxUsername": "tester",
+      "tailscaleNode": "gaming.tailnet.ts.net",
+      "projectsRoot": "/home/tester/projects",
+      "transport": "ssh",
+      "wslDistro": "Ubuntu",
+      "fallback": {"sshHost": "gaming.tailnet.ts.net", "ip": ""},
+      "hostCommand": "/home/tester/.local/bin/wtmux-host-runtime",
+      "fleetId": "fixture-fleet",
+      "physicalHostId": "gaming",
+      "aliases": [],
+      "endpoints": [
+        {
+          "id": "tailnet",
+          "network": "tailnet",
+          "address": "gaming.tailnet.ts.net",
+          "port": 22,
+          "sshEngine": "openssh",
+          "authentication": "key",
+          "identityState": "verified",
+          "sshHostKeySha256": "SHA256:abcdefghijklmnopqrstuvwx",
+          "tailscaleNodeId": ""
+        }
+      ],
+      "executionTargets": [
+        {"id": "linux", "kind": "linux", "label": "Linux", "fingerprint": "fixture-linux"}
+      ]
+    }
+  ],
+  "clientPolicy": {
+    "schemaVersion": 1,
+    "policyRevision": 7,
+    "apkManifestUrls": [
+      "https://updates.tailnet.ts.net/android/manifest.json",
+      "https://fallback.tailnet.ts.net/android/manifest.json"
+    ],
+    "runtimeManifestUrls": [
+      "https://updates.tailnet.ts.net/runtime/manifest.json",
+      "https://fallback.tailnet.ts.net/runtime/manifest.json"
+    ],
+    "artifactOrigins": [
+      "https://updates.tailnet.ts.net",
+      "https://fallback.tailnet.ts.net"
+    ],
+    "checkIntervalSeconds": 21600
+  },
+  "hostTrust": [
+    {
+      "physicalHostId": "gaming",
+      "endpointId": "tailnet",
+      "identityState": "verified",
+      "sshHostKeySha256": "SHA256:abcdefghijklmnopqrstuvwx",
+      "tailscaleNodeId": ""
+    }
+  ],
+  "compatibility": {
+    "contractPackageVersion": "1.6.0",
+    "controlVersions": [1],
+    "conversationVersions": [2],
+    "minimumReleaseSetSequence": 0
+  },
+  "integrity": {
+    "algorithm": "sha256",
+    "digest": "81b0da4151f811709b94d9cabeae0ec07e6fed905b1fa41d41eb41a4c3730e3e"
+  }
+}
