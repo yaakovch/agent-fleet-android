@@ -104,6 +104,7 @@ import com.termux.app.fleet.LocalModelUiState
 import com.termux.app.fleet.LocalSuggestionModel
 import com.termux.app.fleet.LocalSuggestionModelManager
 import com.termux.app.fleet.LocalSuggestionMode
+import com.termux.app.fleet.LayeredDiagnostics
 import com.termux.app.fleet.LocalSuggestionRuntime
 import com.termux.app.fleet.formatModelBytes
 import com.termux.app.fleet.RecentSessionStore
@@ -385,9 +386,9 @@ class AgentFleetActivity : ComponentActivity() {
 
     private fun copyDiagnostics(report: AgentFleetDiagnosticReport) {
         val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-        clipboard.setPrimaryClip(ClipData.newPlainText("Agent Fleet diagnostics", report.preview()))
-        diagnosticJournal.record("diagnostics.copy", "healthy", message = "Metadata-only summary copied")
-        Toast.makeText(this, "Diagnostic summary copied", Toast.LENGTH_SHORT).show()
+        clipboard.setPrimaryClip(ClipData.newPlainText("Agent Fleet diagnostics", report.diagnosticsJson()))
+        diagnosticJournal.record("diagnostics.copy", "healthy", message = "Redacted report copied")
+        Toast.makeText(this, "Redacted diagnostic report copied", Toast.LENGTH_SHORT).show()
     }
 
     private fun copyDiagnosticError(event: AgentFleetDiagnosticEvent) {
@@ -2474,28 +2475,33 @@ private fun DiagnosticsDialog(
                     Text(state.error, color = MaterialTheme.colorScheme.error, modifier = Modifier.testTag("diagnostics-error"))
                 }
                 state.report?.let { report ->
+                    val layeredChecks = LayeredDiagnostics.checks(report)
                     Column(
                         Modifier.weight(1f, fill = false).verticalScroll(rememberScrollState()).testTag("diagnostics-report"),
                         verticalArrangement = Arrangement.spacedBy(10.dp)
                     ) {
                         Text(
-                            "${report.overall.name} · ${report.checks.count { it.status == com.termux.app.fleet.DiagnosticStatus.Healthy }}/${report.checks.size} healthy",
+                            "${layeredChecks.count { it.status == "healthy" }}/${layeredChecks.size} layers healthy",
                             fontSize = 18.sp,
                             fontWeight = FontWeight.Bold
                         )
-                        report.checks.forEach { check ->
+                        layeredChecks.forEach { check ->
                             Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)) {
                                 Column(Modifier.fillMaxWidth().padding(13.dp), verticalArrangement = Arrangement.spacedBy(3.dp)) {
-                                    Text("${when (check.status) { com.termux.app.fleet.DiagnosticStatus.Healthy -> "✓"; com.termux.app.fleet.DiagnosticStatus.Attention -> "!"; com.termux.app.fleet.DiagnosticStatus.Failure -> "×" }}  ${check.title}", fontWeight = FontWeight.Bold)
+                                    Text("${when (check.status) { "healthy" -> "✓"; "failure" -> "×"; else -> "!" }}  ${check.label}", fontWeight = FontWeight.Bold)
                                     Text(check.summary, fontSize = 14.sp)
-                                    if (check.detail.isNotBlank()) Text(check.detail, fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                    Text(
+                                        "${check.errorCode} · ${diagnosticRecoveryLabel(check.recoveryAction)}",
+                                        fontSize = 13.sp,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
                                 }
                             }
                         }
                     }
                     Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         Button(onClick = onRun, enabled = !state.running, modifier = Modifier.testTag("diagnostics-run")) { Text("Run again") }
-                        OutlinedButton(onClick = { onCopy(report) }, modifier = Modifier.testTag("diagnostics-copy")) { Text("Copy summary") }
+                        OutlinedButton(onClick = { onCopy(report) }, modifier = Modifier.testTag("diagnostics-copy")) { Text("Copy redacted report") }
                         OutlinedButton(onClick = { previewExport = true }, modifier = Modifier.testTag("diagnostics-export")) { Text("Export") }
                     }
                 } ?: Button(
@@ -2513,7 +2519,7 @@ private fun DiagnosticsDialog(
             title = { Text("Preview diagnostic report") },
             text = {
                 Text(
-                    report?.preview().orEmpty(),
+                    report?.diagnosticsJson().orEmpty(),
                     modifier = Modifier.verticalScroll(rememberScrollState()).testTag("diagnostics-preview")
                 )
             },
@@ -2527,6 +2533,17 @@ private fun DiagnosticsDialog(
             dismissButton = { TextButton(onClick = { previewExport = false }) { Text("Cancel") } }
         )
     }
+}
+
+private fun diagnosticRecoveryLabel(action: String): String = when (action) {
+    "retry" -> "Retry"
+    "repair_client_runtime" -> "Repair client runtime"
+    "rollback_runtime" -> "Roll back runtime"
+    "open_tailscale" -> "Open Tailscale"
+    "review_host_key" -> "Review host key"
+    "copy_redacted_report" -> "Copy redacted report"
+    "open_terminal" -> "Open Terminal"
+    else -> "No action needed"
 }
 
 @Composable

@@ -57,7 +57,7 @@ class AgentFleetDiagnosticsTest {
     }
 
     @Test
-    fun exportedArchiveContainsOnlyTheTwoVersionedMetadataFiles() {
+    fun exportedArchiveContainsOnlyTheLayeredRedactedReport() {
         val context: Context = RuntimeEnvironment.getApplication()
         val journal = AgentFleetDiagnosticJournal(context)
         val secret = "secret-fixture-abcdefghijklmnopqrstuvwxyz0123456789"
@@ -75,12 +75,9 @@ class AgentFleetDiagnosticsTest {
         )
         val archive = runner.export(report)
         ZipFile(archive).use { zip ->
-            assertEquals(
-                setOf("diagnostics.json", "events.ndjson", "contract-diagnostics.json"),
-                zip.entries().asSequence().map { it.name }.toSet()
-            )
+            assertEquals(setOf("diagnostics-v2.json"), zip.entries().asSequence().map { it.name }.toSet())
             val content = zip.entries().asSequence().joinToString("\n") { entry -> zip.getInputStream(entry).bufferedReader().readText() }
-            assertTrue(content.contains(DIAGNOSTICS_SCHEMA))
+            assertTrue(content.contains("\"schemaVersion\": 2"))
             assertFalse(content.contains(secret))
             assertFalse(content.contains("/home/person"))
             assertFalse(content.contains("report.pdf"))

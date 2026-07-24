@@ -4,6 +4,7 @@ import android.content.Context
 import android.os.Build
 import java.io.File
 import java.io.FileOutputStream
+import java.security.MessageDigest
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -50,7 +51,8 @@ data class AgentFleetDiagnosticReport(
     val runtimeVersion: String,
     val fleetRevision: String,
     val checks: List<AgentFleetDiagnosticCheck>,
-    val events: List<AgentFleetDiagnosticEvent>
+    val events: List<AgentFleetDiagnosticEvent>,
+    val correlationId: String = LayeredDiagnostics.newCorrelationId()
 ) {
     val overall: DiagnosticStatus
         get() = when {
@@ -71,16 +73,7 @@ data class AgentFleetDiagnosticReport(
         append("\n\nPrivacy: metadata only. No prompts, responses, transcripts, terminal output, credentials, tokens, invitations, attachments, or repository paths.")
     }
 
-    fun diagnosticsJson(): String = JSONObject()
-        .put("schema", DIAGNOSTICS_SCHEMA)
-        .put("generatedAt", generatedAt)
-        .put("overall", overall.wire())
-        .put("app", JSONObject().put("version", appVersion))
-        .put("device", JSONObject().put("android", androidVersion).put("model", device).put("abi", abi))
-        .put("runtime", JSONObject().put("version", runtimeVersion))
-        .put("fleet", JSONObject().put("revision", fleetRevision))
-        .put("checks", JSONArray(checks.map(AgentFleetDiagnosticCheck::toJson)))
-        .toString(2)
+    fun diagnosticsJson(): String = LayeredDiagnostics.reportJson(this)
 
     fun eventsNdjson(): String = events.joinToString(separator = "\n", postfix = if (events.isEmpty()) "" else "\n") {
         it.toJson().toString()
@@ -294,14 +287,8 @@ class AgentFleetDiagnosticsRunner(
         directory.listFiles()?.filter { it.isFile && System.currentTimeMillis() - it.lastModified() > EXPORT_MAX_AGE_MS }?.forEach(File::delete)
         val file = File(directory, "agent-fleet-diagnostics-${System.currentTimeMillis()}.zip")
         ZipOutputStream(FileOutputStream(file)).use { zip ->
-            zip.putNextEntry(ZipEntry("diagnostics.json"))
+            zip.putNextEntry(ZipEntry("diagnostics-v2.json"))
             zip.write(report.diagnosticsJson().toByteArray(Charsets.UTF_8))
-            zip.closeEntry()
-            zip.putNextEntry(ZipEntry("events.ndjson"))
-            zip.write(report.eventsNdjson().toByteArray(Charsets.UTF_8))
-            zip.closeEntry()
-            zip.putNextEntry(ZipEntry("contract-diagnostics.json"))
-            zip.write(report.contractDiagnosticsJson().toByteArray(Charsets.UTF_8))
             zip.closeEntry()
         }
         journal.record("diagnostics.export", "healthy", message = "Metadata-only report exported")
@@ -393,7 +380,11 @@ internal fun safeDiagnosticText(input: String): String {
 private fun safeDiagnosticToken(input: String, fallback: String): String = input.lowercase(Locale.US)
     .replace(Regex("[^a-z0-9._-]"), "-").trim('-').take(64).ifBlank { fallback }
 
-private fun safeDiagnosticIdentifier(input: String): String = input.filter { it.isLetterOrDigit() || it in "._:-" }.take(160)
+private fun safeDiagnosticIdentifier(input: String): String {
+    if (input.isBlank()) return ""
+    val digest = MessageDigest.getInstance("SHA-256").digest(input.toByteArray(Charsets.UTF_8))
+    return "id-" + digest.take(8).joinToString("") { "%02x".format(it) }
+}
 
 private fun DiagnosticStatus.wire(): String = name.lowercase(Locale.US)
 private fun DiagnosticStatus.label(): String = name.replaceFirstChar { it.uppercase() }
