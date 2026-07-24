@@ -84,7 +84,7 @@ serial="$(emulator_serial)"
 if [[ -z "$serial" ]]; then
   [[ -x "$emulator" ]] || fail "Android emulator executable was not found"
   say "starting $avd (the phone will not be used)"
-  /init "$cmd_exe" /d /c "set ADB_SERVER_PORT=$adb_port&& set ANDROID_ADB_SERVER_PORT=$adb_port&& $emulator_windows -avd $avd -no-window -no-snapshot-save -no-boot-anim -no-audio" \
+  /init "$cmd_exe" /d /c "set ADB_SERVER_PORT=$adb_port&& set ANDROID_ADB_SERVER_PORT=$adb_port&& $emulator_windows -avd $avd -no-window -no-snapshot-load -no-snapshot-save -no-boot-anim -no-audio" \
     >"$artifacts/emulator.log" 2>&1 &
   for _ in $(seq 1 90); do
     sleep 2

@@ -60,6 +60,10 @@ class AndroidGradleLauncherTest(unittest.TestCase):
 
 
 class EmulatorBackendTest(unittest.TestCase):
+    def test_windows_emulator_cold_starts_without_loading_or_saving_snapshots(self):
+        text = (ROOT / "scripts/debug/android-check.sh").read_text(encoding="utf-8")
+        self.assertIn("-no-snapshot-load -no-snapshot-save", text)
+
     def test_windows_backend_and_legacy_conflict(self):
         with tempfile.TemporaryDirectory() as temporary:
             sdk = pathlib.Path(temporary)
