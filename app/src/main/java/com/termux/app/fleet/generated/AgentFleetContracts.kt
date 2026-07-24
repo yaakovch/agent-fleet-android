@@ -8,7 +8,7 @@ data class GeneratedStructuralShape(
 )
 
 object GeneratedAgentFleetContracts {
-    const val CONTRACT_PACKAGE_VERSION = "1.8.0"
+    const val CONTRACT_PACKAGE_VERSION = "1.9.0"
     val protocolVersions: Map<String, Int> = mapOf("control" to 1, "conversation" to 2, "workspace-layout" to 1, "release-set" to 1, "supervisor" to 1, "transport" to 1, "host-runtime" to 1, "diagnostics" to 2, "provider-confidence" to 1)
     val objectShapes: Map<String, GeneratedStructuralShape> = mapOf(
         "activation-journal-v1:#" to GeneratedStructuralShape(listOf("candidate", "current", "failureCode", "phase", "previous", "schemaVersion", "transactionId", "updatedAt"), listOf(), true),
@@ -97,9 +97,12 @@ object GeneratedAgentFleetContracts {
         "diagnostics-v1:#" to GeneratedStructuralShape(listOf("checks", "components", "generatedAt", "schemaVersion"), listOf(), true),
         "diagnostics-v1:#/\$defs/check" to GeneratedStructuralShape(listOf("durationMs", "errorCode", "id", "layer", "recoveryAction", "severity", "status"), listOf(), true),
         "diagnostics-v1:#/\$defs/component" to GeneratedStructuralShape(listOf("capabilities", "contractPackageVersion", "controlVersions", "conversationVersions", "id", "version", "workspaceLayoutVersions"), listOf(), true),
-        "diagnostics-v2:#" to GeneratedStructuralShape(listOf("checks", "components", "correlationId", "generatedAt", "schemaVersion", "totalDurationMs"), listOf(), true),
+        "diagnostics-v2:#" to GeneratedStructuralShape(listOf("checks", "components", "correlationId", "generatedAt", "legacyUsage", "schemaVersion", "totalDurationMs"), listOf(), true),
         "diagnostics-v2:#/\$defs/check" to GeneratedStructuralShape(listOf("durationMs", "errorCode", "id", "label", "layer", "readOnly", "recoveryAction", "severity", "status", "summary", "version"), listOf(), true),
         "diagnostics-v2:#/\$defs/component" to GeneratedStructuralShape(listOf("id", "version"), listOf(), true),
+        "diagnostics-v2:#/\$defs/legacyUsage" to GeneratedStructuralShape(listOf("blockers", "migrationVerification", "removalEligible", "signals", "successfulReleaseCycles"), listOf(), true),
+        "diagnostics-v2:#/\$defs/legacyUsage/properties/migrationVerification" to GeneratedStructuralShape(listOf("registeredClients", "registeredHosts", "verifiedClients", "verifiedHosts"), listOf(), true),
+        "diagnostics-v2:#/\$defs/legacyUsage/properties/signals" to GeneratedStructuralShape(listOf("ambientRuntimeResolutions", "androidOneShotControlStarts", "legacyConfigFields", "syntheticWindowsIdentities"), listOf(), true),
         "fleet-snapshot-v1:#" to GeneratedStructuralShape(listOf("attention", "generatedAt", "hosts", "revision", "schedules", "sessions"), listOf("endpoints", "executionTargets", "fleetId", "limits", "pairingRequests", "physicalHosts", "presentationRevision", "presets"), true),
         "fleet-snapshot-v1:#/\$defs/attention" to GeneratedStructuralShape(listOf("agent", "detectedAt", "hostId", "id", "kind", "resetAt", "sessionId", "state", "updatedAt"), listOf(), true),
         "fleet-snapshot-v1:#/\$defs/endpoint" to GeneratedStructuralShape(listOf("address", "authentication", "errorCode", "id", "identityState", "network", "physicalHostId", "port", "sshEngine", "sshHostKeySha256", "status", "tailscaleNodeId"), listOf(), true),

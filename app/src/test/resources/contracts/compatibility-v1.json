@@ -1,21 +1,21 @@
 {
   "schemaVersion": 1,
-  "contractPackageVersion": "1.8.0",
+  "contractPackageVersion": "1.9.0",
   "components": {
     "wtmux": {
-      "sourceVersion": "git-7b9113e",
+      "sourceVersion": "git-2547ca9",
       "controlVersions": [1],
       "conversationVersions": [2],
       "workspaceLayoutVersions": [1]
     },
     "windowsApp": {
-      "sourceVersion": "0.11.0-beta.21+git.6182a34",
+      "sourceVersion": "0.11.0-beta.21+git.804c986",
       "controlVersions": [1],
       "conversationVersions": [2],
       "workspaceLayoutVersions": [1]
     },
     "androidApp": {
-      "sourceVersion": "0.118.4-agentfleet.76+git.33a87bd0",
+      "sourceVersion": "0.118.4-agentfleet.76+git.e605b47c",
       "controlVersions": [1],
       "conversationVersions": [2],
       "workspaceLayoutVersions": [1]

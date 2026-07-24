@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "packageVersion": "1.8.0",
+  "packageVersion": "1.9.0",
   "protocolVersions": {
     "control": 1,
     "conversation": 2,
@@ -1093,6 +1093,7 @@
         "components",
         "correlationId",
         "generatedAt",
+        "legacyUsage",
         "schemaVersion",
         "totalDurationMs"
       ],
@@ -1122,6 +1123,40 @@
       "required": [
         "id",
         "version"
+      ],
+      "optional": [],
+      "rejectUnknown": true
+    },
+    {
+      "id": "diagnostics-v2:#/$defs/legacyUsage",
+      "required": [
+        "blockers",
+        "migrationVerification",
+        "removalEligible",
+        "signals",
+        "successfulReleaseCycles"
+      ],
+      "optional": [],
+      "rejectUnknown": true
+    },
+    {
+      "id": "diagnostics-v2:#/$defs/legacyUsage/properties/migrationVerification",
+      "required": [
+        "registeredClients",
+        "registeredHosts",
+        "verifiedClients",
+        "verifiedHosts"
+      ],
+      "optional": [],
+      "rejectUnknown": true
+    },
+    {
+      "id": "diagnostics-v2:#/$defs/legacyUsage/properties/signals",
+      "required": [
+        "ambientRuntimeResolutions",
+        "androidOneShotControlStarts",
+        "legacyConfigFields",
+        "syntheticWindowsIdentities"
       ],
       "optional": [],
       "rejectUnknown": true

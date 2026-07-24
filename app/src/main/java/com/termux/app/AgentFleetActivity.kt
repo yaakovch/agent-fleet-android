@@ -1239,7 +1239,7 @@ private fun SessionsScreen(
                 Column(modifier = Modifier.weight(1f)) {
                     Text("Your sessions", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
                     Text(
-                        if (snapshot == null) "Connect to your fleet" else "${snapshot.sessions.size} sessions across ${snapshot.physicalHosts.size} machines",
+                        if (snapshot == null) "Connect to your fleet" else "${snapshot.sessions.size} sessions across ${snapshot.physicalHosts.size} hosts",
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         fontSize = 16.sp
                     )
@@ -1720,7 +1720,7 @@ private fun CreateSessionDialog(
         title = { Text("New session") },
         text = {
             Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                Text("Machine", fontWeight = FontWeight.SemiBold)
+                Text("Host", fontWeight = FontWeight.SemiBold)
                 Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                     hosts.forEach { host ->
                         AssistChip(onClick = {

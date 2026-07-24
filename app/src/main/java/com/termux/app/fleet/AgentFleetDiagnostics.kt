@@ -52,6 +52,7 @@ data class AgentFleetDiagnosticReport(
     val fleetRevision: String,
     val checks: List<AgentFleetDiagnosticCheck>,
     val events: List<AgentFleetDiagnosticEvent>,
+    val legacyUsage: LegacyUsage = LegacyUsage.blockedDefault(),
     val correlationId: String = LayeredDiagnostics.newCorrelationId()
 ) {
     val overall: DiagnosticStatus
@@ -276,7 +277,20 @@ class AgentFleetDiagnosticsRunner(
             runtimeVersion = runtimeStatus?.current.orEmpty().ifBlank { runtimeStatus?.baseline.orEmpty().ifBlank { "unavailable" } },
             fleetRevision = safeDiagnosticIdentifier(snapshot?.revision.orEmpty()),
             checks = checks,
-            events = journal.events()
+            events = journal.events(),
+            legacyUsage = createLegacyUsage(LegacyUsageInput(
+                successfulReleaseCycles = 0,
+                registeredHosts = snapshot?.physicalHosts?.size ?: 0,
+                verifiedHosts = 0,
+                registeredClients = 1,
+                verifiedClients = 1,
+                syntheticWindowsIdentities = snapshot?.physicalHosts.orEmpty()
+                    .flatMap(FleetPhysicalHost::legacyHostIds)
+                    .count { it.endsWith("_windows") },
+                ambientRuntimeResolutions = 0,
+                androidOneShotControlStarts = ClientSupervisorSettings.oneShotControlStarts(),
+                legacyConfigFields = if (ClientSupervisorSettings.usesSharedControl(context)) 0 else 1
+            ))
         )
         journal.record("diagnostics.run", report.overall.wire(), elapsed, message = "${checks.size} checks completed")
         return report.copy(events = journal.events())

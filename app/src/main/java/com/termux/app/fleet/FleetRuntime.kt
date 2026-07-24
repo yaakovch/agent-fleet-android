@@ -151,6 +151,7 @@ class FleetRuntime(private val context: Context) {
             .redirectErrorStream(true)
             .apply { configureEnvironment(environment()) }
             .start()
+        ClientSupervisorSettings.recordOneShotControlStart()
 
         val outputBuffer = ByteArrayOutputStream()
         val outputReader = thread(name = "fleet-snapshot-reader", isDaemon = true) {
@@ -694,6 +695,7 @@ class FleetRuntime(private val context: Context) {
             .redirectErrorStream(true)
             .apply { configureEnvironment(environment()) }
             .start()
+        ClientSupervisorSettings.recordOneShotControlStart()
         val requestId = UUID.randomUUID().toString()
         val request = JSONObject()
             .put("protocolVersion", 1)

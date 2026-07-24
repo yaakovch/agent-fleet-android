@@ -1,6 +1,7 @@
 package com.termux.app.fleet
 
 import android.content.Context
+import java.util.concurrent.atomic.AtomicInteger
 
 /**
  * Rollback switch for the milestone-3 Android control supervisor. The shared,
@@ -10,6 +11,7 @@ import android.content.Context
 object ClientSupervisorSettings {
     private const val PREFERENCES = "agent_fleet_runtime"
     private const val SHARED_CONTROL_KEY = "shared_control_supervisor_v1"
+    private val oneShotStarts = AtomicInteger()
 
     fun usesSharedControl(context: Context): Boolean =
         context.getSharedPreferences(PREFERENCES, Context.MODE_PRIVATE)
@@ -22,4 +24,10 @@ object ClientSupervisorSettings {
             .apply()
         if (!enabled) FleetControlSupervisor.setForeground(context.applicationContext, false)
     }
+
+    fun recordOneShotControlStart() {
+        oneShotStarts.updateAndGet { if (it == Int.MAX_VALUE) it else it + 1 }
+    }
+
+    fun oneShotControlStarts(): Int = oneShotStarts.get()
 }

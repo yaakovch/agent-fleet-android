@@ -7,6 +7,23 @@
     {"id": "client", "version": "fixture"},
     {"id": "runtime", "version": "1.7.0"}
   ],
+  "legacyUsage": {
+    "successfulReleaseCycles": 0,
+    "migrationVerification": {
+      "registeredHosts": 2,
+      "verifiedHosts": 0,
+      "registeredClients": 2,
+      "verifiedClients": 2
+    },
+    "signals": {
+      "syntheticWindowsIdentities": 1,
+      "ambientRuntimeResolutions": 0,
+      "androidOneShotControlStarts": 0,
+      "legacyConfigFields": 0
+    },
+    "removalEligible": false,
+    "blockers": ["release_cycles", "host_migration", "legacy_usage"]
+  },
   "checks": [
     {"id": "client-app", "layer": "client_app", "label": "Client app", "status": "healthy", "severity": "info", "errorCode": "OK", "durationMs": 1, "version": "fixture", "recoveryAction": "none", "summary": "Client metadata is readable", "readOnly": true},
     {"id": "platform-adapter", "layer": "platform_adapter", "label": "Platform adapter", "status": "healthy", "severity": "info", "errorCode": "OK", "durationMs": 1, "version": "fixture", "recoveryAction": "copy_redacted_report", "summary": "Platform integration is ready", "readOnly": true},

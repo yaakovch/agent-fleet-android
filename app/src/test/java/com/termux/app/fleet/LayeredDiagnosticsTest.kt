@@ -18,6 +18,7 @@ class LayeredDiagnosticsTest {
         val checks = root.getJSONArray("checks")
         assertEquals(LayeredDiagnostics.layers, List(checks.length()) { checks.getJSONObject(it).getString("layer") })
         assertTrue((0 until checks.length()).all { checks.getJSONObject(it).getBoolean("readOnly") })
+        assertFalse(root.getJSONObject("legacyUsage").getBoolean("removalEligible"))
     }
 
     @Test
@@ -54,6 +55,29 @@ class LayeredDiagnosticsTest {
         assertFalse(output.contains("private-session"))
         assertFalse(output.contains("/private"))
         LayeredDiagnostics.requireValid(JSONObject(output))
+    }
+
+    @Test
+    fun removalRequiresTwoCleanVerifiedReleaseCycles() {
+        val usage = createLegacyUsage(LegacyUsageInput(
+            successfulReleaseCycles = 2,
+            registeredHosts = 3,
+            verifiedHosts = 3,
+            registeredClients = 2,
+            verifiedClients = 2,
+            syntheticWindowsIdentities = 0,
+            ambientRuntimeResolutions = 0,
+            androidOneShotControlStarts = 0,
+            legacyConfigFields = 0
+        ))
+        assertTrue(usage.removalEligible)
+        assertTrue(usage.blockers.isEmpty())
+
+        val root = JSONObject(fixture("diagnostics-v2.json"))
+        root.getJSONObject("legacyUsage").put("removalEligible", true)
+        assertThrows(IllegalArgumentException::class.java) {
+            LayeredDiagnostics.requireValid(root)
+        }
     }
 
     private fun fixture(name: String): String = requireNotNull(javaClass.classLoader)
