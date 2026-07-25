@@ -3,12 +3,15 @@ import argparse
 import base64
 import json
 import pathlib
-import urllib.request
+import sys
+
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
+from private_https import fetch
 
 
-def read_json(location: str) -> dict:
+def read_json(location: str, loopback_fallback: bool = False) -> dict:
     if location.startswith("https://"):
-        with urllib.request.urlopen(location, timeout=20) as response:
+        with fetch(location, timeout=20, loopback_fallback=loopback_fallback) as response:
             return json.load(response)
     return json.loads(pathlib.Path(location).read_text(encoding="utf-8"))
 
@@ -37,8 +40,12 @@ def main() -> int:
     parser.add_argument("version_code", type=int)
     parser.add_argument("app_manifest")
     parser.add_argument("runtime_manifest")
+    parser.add_argument("--loopback-fallback", action="store_true")
     args = parser.parse_args()
-    floor = required_floor(read_json(args.app_manifest), read_json(args.runtime_manifest))
+    floor = required_floor(
+        read_json(args.app_manifest, args.loopback_fallback),
+        read_json(args.runtime_manifest, args.loopback_fallback),
+    )
     if args.version_code <= floor:
         parser.error(f"version code {args.version_code} must be greater than published sequence {floor}")
     print(f"release sequence {args.version_code} is newer than published sequence {floor}")

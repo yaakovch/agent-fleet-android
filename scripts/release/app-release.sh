@@ -23,6 +23,7 @@ report_dir="$repo/build/reports/agent-fleet/release/$stamp-$version_name"
 mkdir -p "$report_dir"
 stages="$report_dir/stages.tsv"
 : >"$stages"
+loopback_args=()
 
 say() { printf '[release] %s\n' "$*"; }
 
@@ -89,8 +90,12 @@ release_preflight() {
   agent_fleet_release_check_keystore "$repo"
   agent_fleet_release_check_git "$repo"
   agent_fleet_release_find_sdk
+  if [[ "$AGENT_FLEET_PUBLISH_PRIMARY" == local:* ]]; then
+    loopback_args=(--loopback-fallback)
+  fi
   "$repo/scripts/release/check-release-sequence.py" "$version_code" \
-    "$AGENT_FLEET_RELEASE_BASE_URL/manifest.json" "$AGENT_FLEET_RUNTIME_MANIFEST_URL"
+    "$AGENT_FLEET_RELEASE_BASE_URL/manifest.json" "$AGENT_FLEET_RUNTIME_MANIFEST_URL" \
+    "${loopback_args[@]}"
 }
 
 run_stage preflight release_preflight
@@ -120,6 +125,6 @@ run_stage publication env \
   AGENT_FLEET_PUBLISH_FALLBACK="${AGENT_FLEET_PUBLISH_FALLBACK:-}" \
   "$repo/scripts/release/publish-release.sh" "$release_dir"
 run_stage served-verification "$repo/scripts/release/verify-served-release.py" \
-  "$release_dir" "$AGENT_FLEET_RELEASE_BASE_URL"
+  "$release_dir" "$AGENT_FLEET_RELEASE_BASE_URL" "${loopback_args[@]}"
 write_report passed
 say "published and verified $version_name ($version_code)"

@@ -76,7 +76,11 @@ would target a different application ID or release lane.
    `public/agent-fleet` directory. The publisher writes the permanent-ID lane
    under `fleet/latest`; the existing top-level `latest` remains the
    `com.termux` legacy lane. Verify both `manifest.json` and the APK URL
-   through the externally served URL before announcing the release.
+   through the externally served URL before announcing the release. When the
+   primary publisher is local and the controller cannot hairpin through its
+   own Tailscale address, the release task retries through `127.0.0.1` with the
+   configured HTTPS hostname supplied by curl `--resolve`. Certificate and SNI
+   validation remain enabled; insecure TLS flags are forbidden.
 8. Put the primary/fallback app and runtime manifest URLs plus their approved
    artifact origins in a strict `client-policy-v1` file. Pass it to
    `wtmux-pairing prepare-artifacts --client-policy FILE`; pairing installs it

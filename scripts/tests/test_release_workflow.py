@@ -234,6 +234,15 @@ class ReleaseSequenceAndOrderingTest(unittest.TestCase):
         self.assertNotIn("AGENT_FLEET_STORE_PASSWORD", (ROOT / "scripts/release/app-release.sh").read_text())
         self.assertIn("if signed_build_passed and manifest_path.is_file():", text)
 
+    def test_local_publisher_uses_certificate_checked_loopback_https_fallback(self):
+        pipeline = (ROOT / "scripts/release/app-release.sh").read_text(encoding="utf-8")
+        helper = (ROOT / "scripts/release/private_https.py").read_text(encoding="utf-8")
+        self.assertIn('loopback_args=(--loopback-fallback)', pipeline)
+        self.assertIn('[[ "$AGENT_FLEET_PUBLISH_PRIMARY" == local:* ]]', pipeline)
+        self.assertIn('"--resolve", f"{host}:443:127.0.0.1"', helper)
+        self.assertNotIn("--insecure", helper)
+        self.assertNotIn("-k", helper)
+
     def test_build_preflight_precedes_runtime_verification_and_gradle(self):
         text = (ROOT / "scripts/release/build-signed-release.sh").read_text(encoding="utf-8")
         credential = text.index("agent_fleet_release_check_keystore")
