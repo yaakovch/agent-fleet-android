@@ -45,7 +45,12 @@ would target a different application ID or release lane.
    arm64 lock/SBOM, then run `scripts/runtime/verify-embedded-runtime.py
    app/src/main/agent-fleet`. App builds verify both complete public bundles;
    never substitute an official-Termux bootstrap or direct package URL. The
-   custom bootstrap must keep remote APT sources disabled.
+   custom bootstrap must keep remote APT sources disabled. A release that
+   carries a fleet registry must build it deterministically with
+   `wtmux-runtime build-registry`, record its exact file, size, and SHA-256 in
+   `embedded-runtime-v1.json`, and pass both source and packaged-APK registry
+   verification. The app installs that data archive separately from runtime
+   code and repairs stale migration bindings without clearing phone data.
 4. Change `app/version.properties` to a version code greater than both the
    published APK code and runtime sequence. Complete the focused regression,
    commit every tracked release change, push it, and ensure the branch is clean

@@ -1558,3 +1558,31 @@ orchestrator preflight rejected reused sequence 1082 in seven seconds before
 Gradle while recording no stale artifacts. The already-published `.76`
 manifest and both APKs passed served-byte verification. This tooling-only work
 built and published no APK and did not access the physical S23FE.
+
+## 57. Packaged Fleet Registry Recovery Hotfix
+
+1. Reproduce the `.78` physical-phone state where the bridge returns the two
+   registered physical hosts but no sessions, while the healthy gaming host
+   still reports two live shell sessions and the phone makes no SSH connection.
+2. Add the deterministic three-record registry archive to the strict embedded
+   runtime descriptor as a separately bounded and SHA-256-verified data asset.
+   Validate its manifest and every record in source, APK, and runtime installer
+   paths.
+3. Treat a missing registry release or a `wtmux.conf` still bound to the
+   legacy migration root as an automatic repair condition even when the
+   embedded runtime baseline is already current. Install the registry
+   atomically through `wtmux-runtime install-registry` before doctor, keep the
+   runtime registry block before the managed loader, and preserve the previous
+   registry for rollback.
+4. Cover descriptor strictness, same-baseline repair selection, stale binding
+   detection, and packaged runtime/registry installation on the protected API
+   36 emulator. Run the focused regressions followed by exactly one complete
+   API 36 release pipeline.
+5. Publish `.79` with a code above active release-set sequence 1086, retain
+   `.78`, and require only a replace-in-place manual phone update. Do not reset
+   data, repeat Move Fleet state, or automate the physical S23FE.
+
+Gate: launching the corrective build automatically replaces a stale imported
+registry binding with verified release `03dd58e64da5f4ad`, the phone reaches the
+healthy gaming host and lists its existing sessions, and the compatibility
+migration remains available without owning the steady-state registry.

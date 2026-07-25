@@ -46,6 +46,7 @@ data class EmbeddedRuntimeDescriptor(
     val protocolVersion: Int,
     val supportedAbis: List<String>,
     val runtime: EmbeddedWtmuxRuntimeFile,
+    val registry: EmbeddedRuntimeFile,
     val packageLock: EmbeddedRuntimeFile,
     val sbom: EmbeddedRuntimeFile,
     val trustedRuntimeKeys: List<EmbeddedRuntimeKey>
@@ -69,7 +70,20 @@ fun supportsEmbeddedRuntime(primaryAbi: String?, supportedAbis: List<String>): B
     primaryAbi != null && primaryAbi in supportedAbis
 
 internal fun shouldInstallEmbeddedBaseline(status: EmbeddedRuntimeStatus, explicitRepair: Boolean): Boolean =
-    explicitRepair || (status.supported && status.embeddedBaseline != status.baseline)
+    explicitRepair || (status.supported && status.repairNeeded)
+
+internal fun embeddedRegistryBindingIsCurrent(config: String, registryMachines: String): Boolean {
+    val lines = config.lineSequence().toList()
+    val runtimeStart = lines.indexOf("# BEGIN wtmux-runtime registry")
+    val runtimeEnd = lines.indexOf("# END wtmux-runtime registry")
+    val managedStart = lines.indexOf("# BEGIN wtmux-managed shared-registry")
+    val escaped = registryMachines.replace("'", "'\"'\"'")
+    return runtimeStart >= 0 && runtimeEnd == runtimeStart + 2 &&
+        lines.count { it == "# BEGIN wtmux-runtime registry" } == 1 &&
+        lines.count { it == "# END wtmux-runtime registry" } == 1 &&
+        lines[runtimeStart + 1] == "WTMUX_SHARED_REGISTRY_DIR='$escaped'" &&
+        (managedStart < 0 || runtimeEnd < managedStart)
+}
 
 internal fun shouldRestorePreservedRuntime(
     preserveCurrent: Boolean,
@@ -145,7 +159,7 @@ object EmbeddedRuntimeMetadataParser {
         root.requireFields(
             "schemaVersion", "baselineVersion", "sourceRepository", "wtmuxCommit",
             "contractPackageVersion", "components", "protocolVersion", "supportedAbis",
-            "runtime", "packageLock", "sbom", "trustedRuntimeKeys"
+            "runtime", "registry", "packageLock", "sbom", "trustedRuntimeKeys"
         )
         require(root.getInt("schemaVersion") == 1) { "Unsupported embedded runtime descriptor" }
         val baseline = root.getString("baselineVersion").also { require(VERSION.matches(it)) }
@@ -174,6 +188,7 @@ object EmbeddedRuntimeMetadataParser {
             require(values.all { it in setOf("arm64-v8a", "armeabi-v7a", "x86", "x86_64") })
         }
         val runtime = runtimeFile(root.getJSONObject("runtime"))
+        val registry = file(root.getJSONObject("registry"), 16L * 1024L * 1024L)
         val packageLock = packageLockFile(root.getJSONObject("packageLock"))
         val sbom = file(root.getJSONObject("sbom"), 2L * 1024L * 1024L)
         val keys = root.getJSONArray("trustedRuntimeKeys").objects(4).map { value ->
@@ -186,7 +201,7 @@ object EmbeddedRuntimeMetadataParser {
         }.also { require(it.isNotEmpty() && it.map(EmbeddedRuntimeKey::keyId).distinct().size == it.size) }
         return EmbeddedRuntimeDescriptor(
             baseline, sourceRepository, commit, contractPackageVersion, components,
-            protocol, abis, runtime, packageLock, sbom, keys
+            protocol, abis, runtime, registry, packageLock, sbom, keys
         )
     }
 
@@ -330,13 +345,15 @@ class EmbeddedRuntimeManager(private val context: Context) {
         val usable = File(binDir, "bash").canExecute() && File(binDir, "python3").canExecute() &&
             (File(binDir, "wtmux").canExecute() || File(runtimeRoot, "current/scripts/wtmux").canExecute())
         val baselineReady = links["baseline"] == descriptor.baselineVersion
-        val repairNeeded = !supported || outdated.isNotEmpty() || !usable || !baselineReady
+        val registryReady = embeddedRegistryReady(descriptor)
+        val repairNeeded = !supported || outdated.isNotEmpty() || !usable || !baselineReady || !registryReady
         val detail = when {
             !supported -> "Offline fleet runtime is available for arm64 devices only"
             !usable -> "Built-in terminal tools or wtmux need repair"
             outdated.isNotEmpty() -> "${outdated.size} built-in package${if (outdated.size == 1) "" else "s"} need repair"
             !baselineReady -> "APK recovery baseline is not installed"
-            else -> "Built-in terminal and recovery baseline are ready"
+            !registryReady -> "Fleet registry needs repair"
+            else -> "Built-in terminal, fleet registry, and recovery baseline are ready"
         }
         return EmbeddedRuntimeStatus(
             supported, usable, repairNeeded, descriptor.baselineVersion,
@@ -379,6 +396,12 @@ class EmbeddedRuntimeManager(private val context: Context) {
             descriptor.runtime.sha256, descriptor.runtime.size
         )
         installBaseline(bundle, descriptor)
+        progress("Installing Fleet registry…")
+        val registry = copyVerifiedAsset(
+            "agent-fleet/${descriptor.registry.file}", File(staging, descriptor.registry.file),
+            descriptor.registry.sha256, descriptor.registry.size
+        )
+        installRegistry(registry, descriptor)
         progress("Checking terminal health…")
         try {
             runSetupAndDoctor()
@@ -543,6 +566,38 @@ class EmbeddedRuntimeManager(private val context: Context) {
         )
         require(installed.exitCode == 0) { installed.safeError("Embedded wtmux runtime installation failed") }
     }
+
+    private fun installRegistry(bundle: File, descriptor: EmbeddedRuntimeDescriptor) {
+        val runtime = File(runtimeRoot, "current/scripts/wtmux-runtime")
+        require(runtime.isFile) { "Embedded Fleet registry installer is unavailable" }
+        val installed = runProcess(
+            listOf(
+                File(binDir, "python3").absolutePath, runtime.absolutePath, "install-registry",
+                "--bundle", bundle.absolutePath, "--sha256", descriptor.registry.sha256,
+                "--root", runtimeRoot.absolutePath, "--config", config.absolutePath
+            ),
+            timeoutSeconds = 30
+        )
+        require(installed.exitCode == 0) { installed.safeError("Embedded Fleet registry installation failed") }
+    }
+
+    private fun embeddedRegistryReady(descriptor: EmbeddedRuntimeDescriptor): Boolean = runCatching {
+        val releaseId = descriptor.registry.sha256.take(16)
+        val registryRoot = File(runtimeRoot, "registry")
+        val current = File(registryRoot, "current")
+        require(Os.readlink(current.absolutePath) == "releases/$releaseId")
+        val release = File(registryRoot, "releases/$releaseId")
+        require(
+            release.isDirectory &&
+                File(release, "registry-manifest.json").isFile &&
+                File(release, "machines").isDirectory
+        )
+        require(config.isFile && config.length() in 1..1024L * 1024L)
+        embeddedRegistryBindingIsCurrent(
+            config.readText(Charsets.UTF_8),
+            File(registryRoot, "current/machines").absolutePath
+        )
+    }.getOrDefault(false)
 
     private fun runSetupAndDoctor() {
         val bash = File(binDir, "bash")

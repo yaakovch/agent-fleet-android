@@ -24,6 +24,13 @@ Run one focused instrumentation class on the same protected emulator:
 AGENT_FLEET_INSTRUMENTATION_CLASS=com.termux.app.AgentFleetImageImportTest bash scripts/debug/android-check.sh focused
 ```
 
+For embedded fleet-registry changes, use
+`com.termux.app.AgentFleetEmbeddedRegistryTest`. It installs the packaged
+architecture-neutral runtime and registry on the x86_64 emulator, rewrites the
+config to the legacy migration root, and proves an idempotent repair back to
+the verified app-owned registry. The JVM metadata test separately covers the
+production arm64 automatic-repair decision.
+
 Run JVM tests plus the complete Pixel 7 / API 36 suite. Under WSL, `auto`
 prefers the protected persistent Windows AVD even when `/dev/kvm` is usable:
 

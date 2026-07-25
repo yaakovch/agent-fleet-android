@@ -80,6 +80,7 @@ class EmbeddedRuntimeMetadataParserTest {
             "file":"runtime.tar","sha256":"${"ab".repeat(32)}","size":123,
             "formatVersion":2,"sbomSha256":"${"bc".repeat(32)}","licenseSha256":"${"de".repeat(32)}"
           },
+          "registry":{"file":"registry.tar","sha256":"${"ac".repeat(32)}","size":321},
           "packageLock":{"file":"packages.json","sha256":"${"cd".repeat(32)}","size":456,"packages":1,"payloadSize":789},
           "sbom":{"file":"packages.spdx.json","sha256":"${"ef".repeat(32)}","size":321},
           "trustedRuntimeKeys":[{"keyId":"${"12".repeat(16)}","file":"key.pem","sha256":"${"34".repeat(32)}"}]
@@ -114,6 +115,7 @@ class EmbeddedRuntimeMetadataParserTest {
         assertEquals(45L, value.components.getValue("clientRuntime").sequence)
         assertEquals("1.3.0", value.contractPackageVersion)
         assertEquals(2, value.protocolVersion)
+        assertEquals("registry.tar", value.registry.file)
         assertEquals("12".repeat(16), value.trustedRuntimeKeys.single().keyId)
         assertEquals("python", EmbeddedRuntimeMetadataParser.packages(packages).single().name)
     }
@@ -157,10 +159,34 @@ class EmbeddedRuntimeMetadataParserTest {
             packageCount = 70, trustedKeyIds = emptyList(), detail = "APK recovery baseline is not installed"
         )
         assertTrue(shouldInstallEmbeddedBaseline(status, explicitRepair = false))
-        assertFalse(shouldInstallEmbeddedBaseline(status.copy(baseline = "git-new0000"), explicitRepair = false))
+        assertTrue(shouldInstallEmbeddedBaseline(status.copy(baseline = "git-new0000"), explicitRepair = false))
+        assertFalse(shouldInstallEmbeddedBaseline(
+            status.copy(baseline = "git-new0000", repairNeeded = false),
+            explicitRepair = false
+        ))
         assertTrue(shouldRestorePreservedRuntime(true, "git-hotfix0", status.copy(
             baseline = "git-new0000", current = "git-new0000", previous = "git-hotfix0"
         )))
         assertFalse(shouldRestorePreservedRuntime(false, "git-hotfix0", status))
+    }
+
+    @Test
+    fun requiresThePackagedRegistryBindingBeforeTheManagedLoader() {
+        val registry = "/data/data/com.yaakovch.fleet/files/home/.local/share/agent-fleet/wtmux/registry/current/machines"
+        val valid = """
+            # BEGIN wtmux-runtime registry
+            WTMUX_SHARED_REGISTRY_DIR='$registry'
+            # END wtmux-runtime registry
+            # BEGIN wtmux-managed shared-registry
+            loader
+            # END wtmux-managed shared-registry
+        """.trimIndent()
+        assertTrue(embeddedRegistryBindingIsCurrent(valid, registry))
+        assertFalse(embeddedRegistryBindingIsCurrent(valid.replace(registry, "/stale/registry"), registry))
+        val lines = valid.lines()
+        assertFalse(embeddedRegistryBindingIsCurrent(
+            (lines.drop(3) + lines.take(3)).joinToString("\n"),
+            registry
+        ))
     }
 }

@@ -94,7 +94,7 @@ def verify(root: Path) -> dict:
     if set(descriptor) != {
         "schemaVersion", "baselineVersion", "sourceRepository", "wtmuxCommit",
         "contractPackageVersion", "components", "protocolVersion", "supportedAbis",
-        "runtime", "packageLock", "sbom", "trustedRuntimeKeys",
+        "runtime", "registry", "packageLock", "sbom", "trustedRuntimeKeys",
     } or descriptor["schemaVersion"] != 1:
         raise ValueError("embedded-runtime-v1 fields are invalid")
     if not re.fullmatch(r"git-[a-f0-9]{7}", descriptor["baselineVersion"]):
@@ -183,6 +183,52 @@ def verify(root: Path) -> dict:
             or "fleet/contracts/schemas/release-set-v1.schema.json" not in entries
         ):
             raise ValueError("runtime archive SBOM, license, or contracts are missing")
+
+    registry_value = descriptor["registry"]
+    if set(registry_value) != {"file", "sha256", "size"}:
+        raise ValueError("embedded registry descriptor fields are invalid")
+    registry = checked_file(root, registry_value, 16 * 1024 * 1024)
+    with tarfile.open(registry, "r:") as archive:
+        members = archive.getmembers()
+        names = [member.name for member in members]
+        if (
+            not members or len(names) != len(set(names))
+            or any(not member.isfile() for member in members)
+            or "registry-manifest.json" not in names
+        ):
+            raise ValueError("embedded registry archive members are invalid")
+        manifest_handle = archive.extractfile("registry-manifest.json")
+        if manifest_handle is None:
+            raise ValueError("embedded registry manifest is unreadable")
+        registry_manifest = json.load(manifest_handle)
+        if (
+            set(registry_manifest) != {"formatVersion", "schemaVersion", "records"}
+            or registry_manifest["formatVersion"] != 1
+            or registry_manifest["schemaVersion"] != 1
+            or not isinstance(registry_manifest["records"], list)
+            or not 1 <= len(registry_manifest["records"]) <= 256
+        ):
+            raise ValueError("embedded registry manifest is invalid")
+        expected_registry_members = {"registry-manifest.json"}
+        registry_ids = set()
+        for item in registry_manifest["records"]:
+            if (
+                set(item) != {"id", "path", "sha256", "size"}
+                or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]{0,63}", item["id"])
+                or item["id"] in registry_ids
+                or item["path"] != f"machines/{item['id']}.json"
+                or not re.fullmatch(r"[a-f0-9]{64}", item["sha256"])
+                or type(item["size"]) is not int
+                or not 1 <= item["size"] <= 64 * 1024
+            ):
+                raise ValueError("embedded registry record is invalid")
+            registry_ids.add(item["id"])
+            expected_registry_members.add(item["path"])
+            payload = archive.extractfile(item["path"]).read()
+            if len(payload) != item["size"] or hashlib.sha256(payload).hexdigest() != item["sha256"]:
+                raise ValueError(f"embedded registry member verification failed: {item['id']}")
+        if set(names) != expected_registry_members:
+            raise ValueError("embedded registry contents do not match its manifest")
 
     package_value = descriptor["packageLock"]
     if set(package_value) != {"file", "sha256", "size", "packages", "payloadSize"}:
@@ -300,7 +346,8 @@ def verify(root: Path) -> dict:
         if hashlib.sha256(public_der(path)).hexdigest()[:32] != item["keyId"]:
             raise ValueError("trusted runtime key ID does not match its public key")
     expected_source_files = {
-        "embedded-runtime-v1.json", descriptor["runtime"]["file"], descriptor["packageLock"]["file"],
+        "embedded-runtime-v1.json", descriptor["runtime"]["file"], descriptor["registry"]["file"],
+        descriptor["packageLock"]["file"],
         descriptor["sbom"]["file"], *(item["file"] for item in keys),
     }
     actual_source_files = {path.name for path in root.iterdir() if path.is_file() and not path.is_symlink()}
@@ -311,6 +358,8 @@ def verify(root: Path) -> dict:
         "wtmuxCommit": descriptor["wtmuxCommit"],
         "contractPackageVersion": descriptor["contractPackageVersion"],
         "components": descriptor["components"],
+        "registryRelease": descriptor["registry"]["sha256"][:16],
+        "registryRecords": len(registry_manifest["records"]),
         "packages": len(packages),
         "payloadSize": package_value["payloadSize"],
         "trustedKeyIds": sorted(key_ids),

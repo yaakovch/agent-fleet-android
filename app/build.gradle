@@ -342,6 +342,12 @@ task prepareAgentFleetRuntimeAssets {
         if (descriptor.schemaVersion != 1) {
             throw new GradleException("Agent Fleet embedded runtime metadata is unsupported")
         }
+        def registryFile = new File(agentFleetRuntimeSource, descriptor.registry.file)
+        if (!registryFile.isFile() || registryFile.length() != descriptor.registry.size ||
+            fileSha256(registryFile) != descriptor.registry.sha256 ||
+            descriptor.registry.size < 1 || descriptor.registry.size > 16L * 1024L * 1024L) {
+            throw new GradleException("Agent Fleet registry does not match embedded-runtime-v1")
+        }
         if (fileSha256(lockFile) != descriptor.packageLock.sha256 || lockFile.length() != descriptor.packageLock.size ||
             fileSha256(sbomFile) != descriptor.sbom.sha256 || sbomFile.length() != descriptor.sbom.size) {
             throw new GradleException("Agent Fleet package lock does not match embedded-runtime-v1")

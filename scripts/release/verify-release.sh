@@ -57,7 +57,7 @@ def archive_runtime(apk):
             }
         ):
             raise SystemExit("APK embedded runtime provenance is invalid")
-        for key in ("runtime", "packageLock", "sbom"):
+        for key in ("runtime", "registry", "packageLock", "sbom"):
             value = descriptor[key]
             payload = archive.read(prefix + value["file"])
             if len(payload) != value["size"] or hashlib.sha256(payload).hexdigest() != value["sha256"]:
@@ -88,7 +88,8 @@ def archive_runtime(apk):
                 raise SystemExit("APK trusted runtime key verification failed")
         expected_assets = {
             prefix + "embedded-runtime-v1.json", prefix + descriptor["runtime"]["file"],
-            prefix + descriptor["packageLock"]["file"], prefix + descriptor["sbom"]["file"],
+            prefix + descriptor["registry"]["file"], prefix + descriptor["packageLock"]["file"],
+            prefix + descriptor["sbom"]["file"],
             *(prefix + key["file"] for key in descriptor["trustedRuntimeKeys"]),
             *(prefix + "packages/" + item["file"] for item in lock["packages"]),
         }

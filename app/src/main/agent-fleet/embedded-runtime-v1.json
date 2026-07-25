@@ -34,6 +34,11 @@
     "sbomSha256": "cd2f9d8f3a645d96b63c6ad3877b659ffbae6a76753547e3064a462db132eee4",
     "licenseSha256": "530cb6c936ac63eaf14b9097a6b69eb96966c11c580907ceddc2a05cc0753349"
   },
+  "registry": {
+    "file": "wtmux-registry-03dd58e64da5f4ad.tar",
+    "sha256": "03dd58e64da5f4ad6966d5c5fec5fe0601a2f8482ede4120f8d686261172ce2d",
+    "size": 10240
+  },
   "packageLock": {
     "file": "termux-packages-aarch64.json",
     "sha256": "dfc85f8f7885a54b54845659a02f4e7d1afc36994196d2663da09362cb84aee7",
