@@ -1586,3 +1586,25 @@ Gate: launching the corrective build automatically replaces a stale imported
 registry binding with verified release `03dd58e64da5f4ad`, the phone reaches the
 healthy gaming host and lists its existing sessions, and the compatibility
 migration remains available without owning the steady-state registry.
+
+Implementation record (2026-07-25): commit `b4308ab5` packages registry
+release `03dd58e64da5f4ad` as a strict embedded asset, extends source and APK
+verification, repairs a missing release, stale symlink, or legacy config
+binding at the same runtime baseline, and installs the registry atomically
+before doctor. Commit `c2eb87b2` adds a certificate-validating local loopback
+fallback for release preflight and served-byte verification when the
+controller's same-node Tailscale TLS hairpin fails.
+
+The focused JVM regressions failed before the implementation and then passed.
+The focused protected API 36 packaged registry test passed at
+`build/reports/agent-fleet/emulator/20260725T201824Z-focused`. All 15
+release-workflow tests passed. The exactly-once full protected API 36 suite
+passed in 278 seconds at
+`build/reports/agent-fleet/emulator/20260725T202753Z-full`; release lint passed
+with zero errors; signed build, source/APK registry verification, publication,
+and HTTPS-served byte verification passed. `.79`/1087 is published with arm64
+SHA-256 `8565181274f2164dfb00ffdad188c7f3ecb14fc8634047087b02ac2491244898`.
+Signed release set 1088 is active with 1086 retained as its immediate rollback.
+Automated tooling did not access the physical S23FE. The remaining gate is the
+manual replace-in-place update and confirmation that the existing sessions
+reappear; Move Fleet state must not be repeated.
