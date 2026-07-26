@@ -1640,3 +1640,16 @@ left the session intact. The physical phone was not available to either ADB
 server for this returning-host check, so no new phone interaction occurred;
 the shared registry and transport paths used by `.79` are ready for its normal
 refresh.
+
+Post-merge runtime correction (2026-07-26): the first work-m documentation
+fast-forward showed that wtmux's refresh hook replaced release-managed
+launchers with checkout paths even though the managed `current` pointer stayed
+healthy. wtmux commit `b4660df` makes setup prefer commands from a safely
+resolved active managed release and fall back to source only for commands the
+release does not contain.
+
+The isolated regression failed before the fix and passed afterward; root smoke
+and all 241 Python unit tests passed. A real work-m post-merge fast-forward
+then preserved the exact `git-b42c6a0` host-runtime launcher, clean checkout,
+and single tmux session. This prevents a routine host update from recreating
+the missing-runtime failure seen by Android.
