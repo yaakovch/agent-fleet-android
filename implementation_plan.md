@@ -1605,6 +1605,22 @@ with zero errors; signed build, source/APK registry verification, publication,
 and HTTPS-served byte verification passed. `.79`/1087 is published with arm64
 SHA-256 `8565181274f2164dfb00ffdad188c7f3ecb14fc8634047087b02ac2491244898`.
 Signed release set 1088 is active with 1086 retained as its immediate rollback.
-Automated tooling did not access the physical S23FE. The remaining gate is the
-manual replace-in-place update and confirmation that the existing sessions
-reappear; Move Fleet state must not be repeated.
+Automated release tooling did not access the physical S23FE.
+
+Physical-phone gate record (2026-07-26): the user explicitly approved bounded
+ADB inspection of serial `R5CX52J9NTB`. The phone already ran `.79` / 1087,
+and More confirmed runtime `git-b42c6a0`, all 84 packages, and the packaged
+fleet registry were ready. Opening an existing gaming session revealed a
+separate host drift:
+`/home/sapir_cz/.local/bin/wtmux-host-runtime: No such file or directory`.
+The registry declares the adjacent `wtmux-host` launcher, but the runtime
+launcher had been added after the controller's last setup refresh.
+
+`bash setup.sh --repair` recreated the missing symlink without changing phone
+data. The phone then showed `3 sessions across 2 hosts` and opened the existing
+session in Terminal. wtmux commit `7bb65cd` now validates the exact
+registry-declared runtime path and preserves `HOST_RUNTIME_MISSING` when the
+remote bridge exits before JSON. Android's focused `TransportContractTest`
+passed through `scripts/debug/android-gradle.sh` with Java 17. The packaged
+registry/session-discovery gate is complete; Move Fleet state must not be
+repeated.
