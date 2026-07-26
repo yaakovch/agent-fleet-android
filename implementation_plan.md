@@ -1624,3 +1624,19 @@ remote bridge exits before JSON. Android's focused `TransportContractTest`
 passed through `scripts/debug/android-gradle.sh` with Java 17. The packaged
 registry/session-discovery gate is complete; Move Fleet state must not be
 repeated.
+
+Returning-host record (2026-07-26): `work-m-ubuntu` returned on Tailscale and
+was migrated without changing its existing tmux session. Its clean checkout
+was fast-forwarded to wtmux `09fe492` through a verified Git bundle because
+the host had no GitHub HTTPS credential. The exact signed-cohort Linux runtime
+and registry artifacts established current/baseline `git-b42c6a0`, previous
+`git-a6a87ae`, component sequences 52/45/20/19, and the verified three-record
+registry.
+
+Both exact phone-style SSH control paths report healthy hosts and expose five
+gaming sessions plus the preserved `SCI_062026` work-m session. A bounded
+attach through work-m's packaged terminal channel produced no stable error and
+left the session intact. The physical phone was not available to either ADB
+server for this returning-host check, so no new phone interaction occurred;
+the shared registry and transport paths used by `.79` are ready for its normal
+refresh.
