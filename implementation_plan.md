@@ -1671,3 +1671,28 @@ the missing-runtime failure seen by Android.
    the active shared sequence, run the clean pushed release orchestrator,
    publish through `fleet/latest`, retain `.79`, and leave the S23FE update and
    24-hour smoke to the user.
+
+Acceptance record (2026-07-27): commit `d4a6c03d` binds every retained
+workspace Native controller to its owning activity's start, stop, and destroy
+events while keeping Compose attach/detach idempotent. Focused Java-17
+lifecycle and diagnostics regressions cover a retained stopped workspace,
+foreground restart, repeated stop/detach, and shared resource attention.
+Commit `0652f329` advances the release to `.80`/1091 and embeds exact runtime
+`git-4837665` with components 53/46/20/19.
+
+An initial complete instrumentation run crashed in the existing stale-question
+Compose case with Android's multithreaded `SnapshotStateObserver` guard. The
+exact method then passed alone, and the required fresh complete protected
+Windows API 36 suite passed in 112 seconds with the terminal `OK` result and
+successful instrumentation code. Release lint, signed build, identity,
+certificate, runtime, checksum, publication, and HTTPS served-byte
+verification all passed.
+
+`.80`/1091 is published through `fleet/latest`. Its arm64 SHA-256 is
+`57c9b4bd524447de864fd6eaf0feabf077c17722bbd68228369c2230064d9562`;
+the universal SHA-256 is
+`13103436350b7551c0566425d688b01dfe8a9fdb082ad9925d17328d297018a3`.
+The release report is
+`build/reports/agent-fleet/release/20260727T175433Z-0.118.4-agentfleet.80/release-report.json`.
+Automated validation did not access the physical S23FE. Its replace-in-place
+update and 24-hour foreground/background smoke remain manual.
