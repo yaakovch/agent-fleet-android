@@ -56,6 +56,7 @@ class NativeSessionController @JvmOverloads constructor(
     private var localSession = false
     private var workspaceSessionId = ""
     private var composerTarget = ""
+    private val streamLaunchGate = ConversationStreamLaunchGate()
     @Volatile private var streamProcess: Process? = null
     @Volatile private var retryBlocked = false
     private var retryIndex = 0
@@ -605,26 +606,35 @@ class NativeSessionController @JvmOverloads constructor(
     }
 
     private fun startStream() {
-        if (!shouldRunStream() || streamProcess != null) return
+        val launchTicket = streamLaunchGate.begin(shouldRunStream()) ?: return
         val token = generation
         uiState.value = uiState.value.copy(connection = if (retryIndex == 0) "Connecting…" else "Reconnecting…", error = null)
         thread(name = "native-session-stream", isDaemon = true) {
+            var process: Process? = null
             try {
-                val process = environment(ProcessBuilder(conversationCommand("stream", listOf("--limit", HISTORY_PAGE_SIZE.toString())))).start()
-                if (token != generation || !shouldRunStream()) {
-                    process.destroyForciblyCompat()
+                val launchedProcess = environment(
+                    ProcessBuilder(conversationCommand("stream", listOf("--limit", HISTORY_PAGE_SIZE.toString())))
+                ).start()
+                process = launchedProcess
+                val accepted = streamLaunchGate.promote(
+                    launchTicket,
+                    token == generation && shouldRunStream()
+                ) {
+                    streamProcess = launchedProcess
+                }
+                if (!accepted) {
+                    launchedProcess.destroyForciblyCompat()
                     return@thread
                 }
-                streamProcess = process
                 thread(name = "native-session-stderr", isDaemon = true) {
-                    drainErrorStream(process)
+                    drainErrorStream(launchedProcess)
                 }
-                process.inputStream.bufferedReader().use { reader ->
+                launchedProcess.inputStream.bufferedReader().use { reader ->
                     while (token == generation) {
                         val line = reader.readLine() ?: break
                         if (line.length > 256 * 1024) {
                             postError(token, "The host sent an oversized conversation frame.")
-                            process.destroyForciblyCompat()
+                            launchedProcess.destroyForciblyCompat()
                             break
                         }
                         val frame = runCatching { ConversationStreamParser.parseFrame(line) }.getOrNull()
@@ -636,18 +646,20 @@ class NativeSessionController @JvmOverloads constructor(
                                 "The host sent an invalid conversation frame."
                             }
                             postError(token, message)
-                            process.destroyForciblyCompat()
+                            launchedProcess.destroyForciblyCompat()
                             break
                         }
                         main.post { if (token == generation) applyFrame(frame) }
                     }
                 }
-                process.waitFor()
+                launchedProcess.waitFor()
                 if (token == generation) main.post { streamEnded(token) }
             } catch (_: Exception) {
                 if (token == generation) postError(token, "The native conversation stream is unavailable.")
             } finally {
-                if (token == generation) streamProcess = null
+                streamLaunchGate.finish(launchTicket) {
+                    if (streamProcess === process) streamProcess = null
+                }
             }
         }
     }
@@ -695,10 +707,14 @@ class NativeSessionController @JvmOverloads constructor(
     }
 
     private fun stopProcess() {
-        val process = streamProcess
-        process?.destroy()
-        if (process?.isAliveCompat() == true) process.destroyForciblyCompat()
-        streamProcess = null
+        var process: Process? = null
+        streamLaunchGate.cancel {
+            process = streamProcess
+            streamProcess = null
+        }
+        val stoppedProcess = process
+        stoppedProcess?.destroy()
+        if (stoppedProcess?.isAliveCompat() == true) stoppedProcess.destroyForciblyCompat()
     }
 
     private fun applyFrame(frame: ConversationFrame) {
