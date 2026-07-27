@@ -189,8 +189,16 @@ object LayeredDiagnostics {
             else -> "healthy"
         }
         return diagnostic(
-            layer, status, if (status == "healthy") "OK" else "${layer.uppercase()}_UNAVAILABLE",
-            version, if (status == "healthy") "$subject is ready" else "$subject is unavailable",
+            layer, status, when (status) {
+                "healthy" -> "OK"
+                "attention" -> if (layer == "tmux") "RESOURCE_BUDGET_EXCEEDED" else "${layer.uppercase()}_ATTENTION"
+                else -> "${layer.uppercase()}_UNAVAILABLE"
+            },
+            version, when (status) {
+                "healthy" -> "$subject is ready"
+                "attention" -> "$subject needs attention"
+                else -> "$subject is unavailable"
+            },
             sources.sumOf { it.durationMs }.coerceAtMost(300_000)
         )
     }

@@ -59,6 +59,7 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.boundsInRoot
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -73,6 +74,7 @@ import com.termux.app.fleet.FleetSession
 import com.termux.app.fleet.FleetSnapshot
 import com.termux.app.fleet.NativeSessionController
 import com.termux.app.fleet.NativeSessionHost
+import com.termux.app.fleet.NativeSessionLifecycleBinding
 import com.termux.app.fleet.TerminalScrollbackController
 import com.termux.app.fleet.WorkspaceDirection
 import com.termux.app.fleet.WorkspaceNode
@@ -675,6 +677,7 @@ private fun EmbeddedNative(
     onClose: () -> Unit
 ) {
     val context = LocalContext.current
+    val lifecycleOwner = LocalLifecycleOwner.current
     LaunchedEffect(session.id) { broker.attach(session) }
     var attachments by remember(session.id) { mutableStateOf<List<String>>(emptyList()) }
     var attachmentUploading by remember(session.id) { mutableStateOf(false) }
@@ -694,9 +697,13 @@ private fun EmbeddedNative(
             }
         }
     }
-    var controller by remember(session.id) { mutableStateOf<NativeSessionController?>(null) }
-    DisposableEffect(session.id) {
-        onDispose { controller?.close(); controller = null }
+    val lifecycleBinding = remember(session.id) { NativeSessionLifecycleBinding() }
+    DisposableEffect(session.id, lifecycleOwner, lifecycleBinding) {
+        lifecycleOwner.lifecycle.addObserver(lifecycleBinding)
+        onDispose {
+            lifecycleOwner.lifecycle.removeObserver(lifecycleBinding)
+            lifecycleBinding.detach()
+        }
     }
     AndroidView(
         modifier = modifier,
@@ -725,7 +732,7 @@ private fun EmbeddedNative(
                     }
                     override fun closeAgentFleetSessionTab() { broker.detach(session.id); onClose() }
                 }
-                controller = NativeSessionController(host, composeView, showChrome = false).also { native ->
+                NativeSessionController(host, composeView, showChrome = false).also { native ->
                     native.bind(Intent().apply {
                         putExtra(AgentFleetContract.EXTRA_COMPOSE_INPUT, AgentFleetContract.supportsComposerInput(session.tool))
                         putExtra(AgentFleetContract.EXTRA_NATIVE_SESSION, true)
@@ -734,7 +741,12 @@ private fun EmbeddedNative(
                         putExtra(AgentFleetContract.EXTRA_INTERNAL_SESSION, session.internalName)
                         putExtra(AgentFleetContract.EXTRA_SESSION_NAME, sessionIdentityPresentation(session).primary)
                     })
-                    native.onStart()
+                    lifecycleBinding.attach(
+                        lifecycleOwner.lifecycle.currentState,
+                        start = native::onStart,
+                        stop = native::onStop,
+                        close = native::close
+                    )
                 }
             }
         }

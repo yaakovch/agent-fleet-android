@@ -23,6 +23,23 @@ class AgentFleetDiagnosticsTest {
     }
 
     @Test
+    fun hostResourceAttentionProducesConnectionHealthSummary() {
+        val doctor = FleetDoctorResult(
+            "host", "2026-07-27T00:00:00Z", "attention",
+            listOf(
+                FleetDoctorCheck("tmux", "healthy", "tmux is available", "tmux 3.4"),
+                FleetDoctorCheck(
+                    "resource-budget", "attention", "Connection resources need review",
+                    "status probes 0 · conversation streams 4 · duplicate candidates 3"
+                )
+            )
+        )
+        val presentation = hostDiagnosticPresentation(doctor)
+        assertEquals("Connection resources need review", presentation.first)
+        assertTrue(presentation.second.contains("duplicate candidates 3"))
+    }
+
+    @Test
     fun sanitizerRemovesCredentialsInvitationsAndPaths() {
         val secret = "super-secret-value-12345678901234567890"
         val value = safeDiagnosticText(

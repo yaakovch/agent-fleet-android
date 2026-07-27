@@ -1653,3 +1653,21 @@ and all 241 Python unit tests passed. A real work-m post-merge fast-forward
 then preserved the exact `git-b42c6a0` host-runtime launcher, clean checkout,
 and single tmux session. This prevents a routine host update from recreating
 the missing-runtime failure seen by Android.
+
+## 58. Retained Workspace Stream Lifecycle Performance
+
+1. Reproduce duplicate host conversation streams while `AgentFleetActivity`
+   remains retained behind another activity, and preserve Terminal's visible
+   composer/header behavior.
+2. Add an activity lifecycle binding for every embedded
+   `NativeSessionController`; stop on activity stop, restart on start, and close
+   idempotently on composition disposal or destroy.
+3. Surface shared host resource-budget attention in Android Diagnostics without
+   adding content, paths, endpoint identities, or raw process metadata.
+4. Cover stopped retained workspaces, re-entry, repeated stop/detach,
+   connection-health presentation, and layered diagnostics with focused
+   Java-17 tests followed by one protected API 36 full suite.
+5. Embed the accepted wtmux runtime, advance the permanent app version above
+   the active shared sequence, run the clean pushed release orchestrator,
+   publish through `fleet/latest`, retain `.79`, and leave the S23FE update and
+   24-hour smoke to the user.

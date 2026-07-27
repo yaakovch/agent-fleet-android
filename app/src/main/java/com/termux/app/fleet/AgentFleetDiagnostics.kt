@@ -91,6 +91,15 @@ data class AgentFleetDiagnosticReport(
 internal fun localShellDiagnosticCommand(bash: File): List<String> =
     listOf(bash.absolutePath, "--noprofile", "--norc", "-c", "printf agent-fleet-diagnostic-ok")
 
+internal fun hostDiagnosticPresentation(doctor: FleetDoctorResult): Pair<String, String> {
+    val resource = doctor.checks.firstOrNull { it.id == "resource-budget" }
+    if (resource != null && resource.status != "healthy") {
+        return "Connection resources need review" to resource.detail
+    }
+    return "${doctor.checks.count { it.status == "healthy" }}/${doctor.checks.size} host checks healthy" to
+        doctor.checks.joinToString(" · ") { "${it.summary} (${it.status})" }
+}
+
 data class DiagnosticsUiState(
     val running: Boolean = false,
     val report: AgentFleetDiagnosticReport? = null,
@@ -316,13 +325,16 @@ class AgentFleetDiagnosticsRunner(
         return try {
             val futures = executor.invokeAll(hosts.map { host -> Callable {
                 runCatching { fleetRuntime.doctorHost(snapshot, host.id) }.fold(
-                    onSuccess = { doctor -> AgentFleetDiagnosticCheck(
-                        id = "host-${safeDiagnosticIdentifier(host.id)}",
-                        title = "Host · ${safeDiagnosticText(host.name)}",
-                        status = doctor.status.toDiagnosticStatus(),
-                        summary = "${doctor.checks.count { it.status == "healthy" }}/${doctor.checks.size} host checks healthy",
-                        detail = doctor.checks.joinToString(" · ") { "${safeDiagnosticText(it.summary)} (${it.status})" }
-                    ) },
+                    onSuccess = { doctor ->
+                        val presentation = hostDiagnosticPresentation(doctor)
+                        AgentFleetDiagnosticCheck(
+                            id = "host-${safeDiagnosticIdentifier(host.id)}",
+                            title = "Host · ${safeDiagnosticText(host.name)}",
+                            status = doctor.status.toDiagnosticStatus(),
+                            summary = safeDiagnosticText(presentation.first),
+                            detail = safeDiagnosticText(presentation.second)
+                        )
+                    },
                     onFailure = { failedCheck("host-${safeDiagnosticIdentifier(host.id)}", "Host · ${safeDiagnosticText(host.name)}", safeDiagnosticText(it.message.orEmpty())) }
                 )
             } }, timeoutSeconds, TimeUnit.SECONDS)

@@ -726,3 +726,15 @@ trusted fleet.
   before compilation. Gradle daemon, cache, or parallel settings are retained
   only after a repeatable benchmark shows at least a ten-percent median gain
   with equivalent outputs and passing tests.
+
+## Retained Workspace Stream Ownership
+
+- A visible managed Native or Terminal surface may keep one bounded
+  conversation metadata stream so its shared header and composer remain live.
+- Every embedded Native controller follows the owning activity lifecycle even
+  when Desktop Compose state is retained. Activity stop closes the stream;
+  activity start restores only the currently composed visible panes.
+- Repeated stop, detach, and destroy callbacks are idempotent. Closing or
+  replacing a pane closes its controller without killing the tmux session.
+- Host resource-budget attention appears in Diagnostics as connection resources
+  needing review. Diagnostic output remains metadata-only.
