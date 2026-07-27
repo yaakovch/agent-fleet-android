@@ -1730,3 +1730,13 @@ the universal SHA-256 is
 The remaining gate is the user's replace-in-place update and one manual
 foreground/background/re-entry cycle, followed by a host audit proving one
 same-session stream and zero duplicate candidates.
+
+Manual acceptance record (2026-07-27): the user installed `.81` replace in
+place. The host first observed the two `.80` streams exit and one fresh `.81`
+stream start. Two subsequent foreground/background/re-entry checks both
+reached zero streams while Agent Fleet was backgrounded and returned with
+exactly one new owner. In the final repeat, PID `3184258` exited, the audit
+reported zero streams, and PID `3201117` became the sole
+`wtmux-wtmux-1` stream. Every sample reported zero duplicate candidates, zero
+status probes, zero external-worker orphans, and all five managed tmux
+sessions preserved. Milestone 59 is accepted.
