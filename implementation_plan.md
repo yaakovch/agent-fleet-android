@@ -1696,3 +1696,37 @@ The release report is
 `build/reports/agent-fleet/release/20260727T175433Z-0.118.4-agentfleet.80/release-report.json`.
 Automated validation did not access the physical S23FE. Its replace-in-place
 update and 24-hour foreground/background smoke remain manual.
+
+## 59. Atomic Conversation Stream Launch
+
+1. Treat the `.80` phone acceptance as failed when the host observes multiple
+   same-session conversation streams created by the phone after the update.
+2. Serialize `NativeSessionController` stream construction, process
+   registration, cancellation, and completion so repeated foreground or
+   presentation callbacks cannot both launch while `ProcessBuilder.start()` is
+   still running.
+3. Give every asynchronous launch a ticket. A cancelled slow launch must not
+   register over, or clear, a newer launch.
+4. Cover repeated pending starts, stale completion after cancellation,
+   registration/cancellation ordering, and an ineligible promotion with a
+   focused Java-17 regression, followed by exactly one complete protected API
+   36 suite and release lint.
+5. Publish a replace-in-place `.81` update, then repeat the manual phone
+   foreground/background/re-entry check while auditing stream ownership from
+   the host.
+
+Automated acceptance record (2026-07-27): `.80` was confirmed on the phone,
+but the host observed three streams for `wtmux-wtmux-1`, including two created
+in the same second. Commit `02f146b4` adds an atomic ticketed launch gate and
+advances Android to `.81`/1094. The focused four-case launch-gate regression,
+one complete protected Windows API 36 suite, release lint, signed build,
+identity/certificate/runtime/checksum verification, publication, and HTTPS
+served-byte verification passed. The physical phone was not accessed by ADB.
+
+`.81`/1094 is published through `fleet/latest`. Its arm64 SHA-256 is
+`3154f67e6e826a59d0edf7fc89b07b99ce46cc595694dec09494d8a91df9175b`;
+the universal SHA-256 is
+`85e49dc896d3b05cb8214683e17fc08fe916d6294bdd9dca97accfdc4fe9fe9d`.
+The remaining gate is the user's replace-in-place update and one manual
+foreground/background/re-entry cycle, followed by a host audit proving one
+same-session stream and zero duplicate candidates.
