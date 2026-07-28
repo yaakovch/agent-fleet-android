@@ -1756,3 +1756,11 @@ sessions preserved. Milestone 59 is accepted.
    active shared sequence, and publish only after the clean pushed release
    orchestrator passes exactly one protected API 36 full suite plus all
    signing, checksum, and served-byte gates.
+
+Release-gate correction: the first full attempt exhausted WSL commit headroom
+during debug APK splitting; stopping only the retained Gradle/Kotlin daemons
+cleared it. The subsequent instrumentation runs exposed an Android System UI
+ANR dialog over two otherwise unchanged golden screens. The isolated golden
+class passes after enabling the emulator-only `hide_error_dialogs` setting.
+The protected runner now applies and verifies that setting while continuing
+to require terminal instrumentation success and reject crashes.

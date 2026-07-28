@@ -79,6 +79,10 @@ under `build/reports/agent-fleet/emulator/`; successful output is deliberately
 short and failures point to the full log and instrumentation report. Failed
 instrumentation runs also pull screenshot actual/diff output into that run's
 `device-output` directory before exiting.
+The Windows emulator path also sets `hide_error_dialogs=1` before
+instrumentation. This prevents a System UI ANR dialog from covering golden
+screens while preserving crash detection through the required terminal
+instrumentation result and status codes.
 Focused mode requires an explicit `com.termux.app.*` instrumentation class and
 retains the same install, device-validation, artifact, and result-checking path
 as the complete suite.

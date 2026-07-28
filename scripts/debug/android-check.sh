@@ -111,6 +111,9 @@ adb_run -s "$serial" shell settings put system user_rotation 0 >/dev/null
 adb_run -s "$serial" shell settings put global window_animation_scale 0 >/dev/null
 adb_run -s "$serial" shell settings put global transition_animation_scale 0 >/dev/null
 adb_run -s "$serial" shell settings put global animator_duration_scale 0 >/dev/null
+adb_run -s "$serial" shell settings put global hide_error_dialogs 1 >/dev/null
+[[ "$(adb_run -s "$serial" shell settings get global hide_error_dialogs | tr -d '\r')" == "1" ]] || \
+  fail "emulator error-dialog suppression did not activate"
 
 if [[ "$mode" == "migration-lanes" ]]; then
   permanent_apk="${AGENT_FLEET_PERMANENT_APK:-}"
