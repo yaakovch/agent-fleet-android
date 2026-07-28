@@ -1764,3 +1764,24 @@ ANR dialog over two otherwise unchanged golden screens. The isolated golden
 class passes after enabling the emulator-only `hide_error_dialogs` setting.
 The protected runner now applies and verifies that setting while continuing
 to require terminal instrumentation success and reject crashes.
+
+Acceptance record (2026-07-28): commit `ca1e7a80` renders quota as `% left`,
+advances the permanent app to `.82`/1096, and embeds exact wtmux runtime
+`git-9406a46` with component sequences 53/47/20/19. Commit `65f5a783` adds
+deterministic System UI error-dialog suppression to the isolated emulator
+runner after direct screenshot inspection and a passing focused golden class.
+
+The final clean release pipeline passed all 48 protected Windows API 36
+instrumentation tests in 119 seconds, release lint with zero errors, signed
+build, app identity and certificate continuity, embedded runtime and registry
+verification, APK checksums, publication, and HTTPS served-byte verification.
+The release report is
+`build/reports/agent-fleet/release/20260728T043502Z-0.118.4-agentfleet.82/release-report.json`.
+
+`.82`/1096 is published through `fleet/latest`. Its arm64 SHA-256 is
+`1bc4520e4385f37782d79dc23aae1ea57190f052a8b5baea332f9c6359cde399`;
+the universal SHA-256 is
+`ea8cb97b80ef1d5251b13f9062614e8e77e99d714b078085a6df4b0152183c2b`.
+Signed release set 1097 selects it with host runtime 47 and retains 1095 as
+the immediate rollback. Automated validation did not access the physical
+phone; its replace-in-place update remains manual.
