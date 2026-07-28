@@ -1740,3 +1740,19 @@ reported zero streams, and PID `3201117` became the sole
 `wtmux-wtmux-1` stream. Every sample reported zero duplicate candidates, zero
 status probes, zero external-worker orphans, and all five managed tmux
 sessions preserved. Milestone 59 is accepted.
+
+## 60. Authoritative Codex Limit Presentation
+
+1. Reproduce the same percentage across `Codex 1–10` and trace the value from
+   the host snapshot through Android's limits screen.
+2. Keep the shared protocol's `remainingPercent` meaning and render it
+   explicitly as `% left` so it cannot be confused with used quota.
+3. Pair the UI correction with the wtmux host collector that queries current
+   Codex app-server rate limits, ignores unauthenticated and expired profiles,
+   and deduplicates shared accounts without publishing account identity.
+4. Cover presentation with a Java-17 focused unit regression and validate the
+   unchanged protocol against the Windows collector tests.
+5. Embed the exact accepted runtime, advance to permanent-ID `.82` above the
+   active shared sequence, and publish only after the clean pushed release
+   orchestrator passes exactly one protected API 36 full suite plus all
+   signing, checksum, and served-byte gates.

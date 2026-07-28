@@ -2052,9 +2052,12 @@ private fun QuotaWindowRow(window: FleetLimitWindow) {
             color = if (window.remainingPercent <= 0) WarningAmber else ReadyGreen,
             trackColor = MaterialTheme.colorScheme.surfaceVariant
         )
-        Text("${window.remainingPercent.toInt()}%", modifier = Modifier.padding(start = 10.dp), fontWeight = FontWeight.Bold)
+        Text(quotaRemainingLabel(window.remainingPercent), modifier = Modifier.padding(start = 10.dp), fontWeight = FontWeight.Bold)
     }
 }
+
+internal fun quotaRemainingLabel(remainingPercent: Double): String =
+    "${remainingPercent.toInt()}% left"
 
 private fun resetDelayMs(resetAt: String): Long {
     val parser = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss'Z'", Locale.US).apply { timeZone = TimeZone.getTimeZone("UTC") }
