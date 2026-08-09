@@ -20,10 +20,11 @@ version_code="$AGENT_FLEET_RELEASE_VERSION_CODE"
 git_commit="$(git -C "$repo" rev-parse HEAD)"
 stamp="$(date -u +%Y%m%dT%H%M%SZ)"
 report_dir="$repo/build/reports/agent-fleet/release/$stamp-$version_name"
-mkdir -p "$report_dir"
+(umask 077; mkdir -p "$report_dir")
 stages="$report_dir/stages.tsv"
 : >"$stages"
-sequence_reservation="$report_dir/sequence-reservation-v1.json"
+state_root="${XDG_STATE_HOME:-$HOME/.local/state}"
+sequence_reservation="${AGENT_FLEET_SEQUENCE_RESERVATION:-$state_root/agent-fleet/android-releases/sequence-reservations/$stamp-$version_name.json}"
 publication_transaction="${AGENT_FLEET_PUBLICATION_RECEIPT:-$(
   python3 "$repo/scripts/release/publication_receipt.py" default-path "$version_name"
 )}"
@@ -119,11 +120,11 @@ check_release_sequence() {
 }
 
 release_preflight() {
-  agent_fleet_release_load_config
-  agent_fleet_release_load_credentials
-  agent_fleet_release_check_keystore "$repo"
-  agent_fleet_release_check_git "$repo"
-  agent_fleet_release_find_sdk
+  agent_fleet_release_load_config || return
+  agent_fleet_release_load_credentials || return
+  agent_fleet_release_check_keystore "$repo" || return
+  agent_fleet_release_check_git "$repo" || return
+  agent_fleet_release_find_sdk || return
   if [[ "$AGENT_FLEET_PUBLISH_PRIMARY" == local:* ]]; then
     loopback_args=(--loopback-fallback)
   fi

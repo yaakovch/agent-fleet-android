@@ -895,7 +895,9 @@ agent_fleet_release_load_config() {{
 }}
 agent_fleet_release_load_credentials() {{ :; }}
 agent_fleet_release_check_keystore() {{ :; }}
-agent_fleet_release_check_git() {{ :; }}
+agent_fleet_release_check_git() {{
+  if [[ ${{TEST_GIT_FAILURE:-0}} == 1 ]]; then return 31; fi
+}}
 agent_fleet_release_find_sdk() {{ :; }}
 """
         write_executable(repo / "scripts/release/release-common.sh", common)
@@ -912,7 +914,13 @@ agent_fleet_release_find_sdk() {{ :; }}
             "while [[ $# -gt 0 ]]; do\n"
             "  if [[ $1 == --reservation-out ]]; then reservation=$2; shift 2; else shift; fi\n"
             "done\n"
-            "if [[ -n $reservation ]]; then printf 'reservation\\n' >\"$reservation\"; chmod 600 \"$reservation\"; fi\n"
+            "if [[ -n $reservation ]]; then\n"
+            "  reservation_dir=$(dirname \"$reservation\")\n"
+            "  mkdir -p \"$reservation_dir\"\n"
+            "  chmod 700 \"$reservation_dir\"\n"
+            "  printf 'reservation\\n' >\"$reservation\"\n"
+            "  chmod 600 \"$reservation\"\n"
+            "fi\n"
             "if [[ ${TEST_LATE_SEQUENCE_ADVANCE:-0} == 1 && $count -ge 2 ]]; then\n"
             "  echo 'published sequence advanced during build' >&2\n"
             "  exit 42\n"
@@ -1011,6 +1019,7 @@ agent_fleet_release_find_sdk() {{ :; }}
                 "TEST_RECEIPT": str(receipt),
                 "TEST_PUBLISHER": str(publisher),
                 "AGENT_FLEET_PUBLICATION_RECEIPT": str(receipt),
+                "XDG_STATE_HOME": str(pathlib.Path(temporary.name) / "state"),
                 "AGENT_FLEET_STORE_PASSWORD": "must-not-leak",
                 "AGENT_FLEET_KEY_PASSWORD": "must-not-leak",
                 **environment,
@@ -1018,7 +1027,28 @@ agent_fleet_release_find_sdk() {{ :; }}
         )
         reports = list((repo / "build/reports/agent-fleet/release").glob("*/stages.tsv"))
         self.assertEqual(1, len(reports))
+        reservations = list(
+            (pathlib.Path(temporary.name) / "state/agent-fleet/android-releases/sequence-reservations").glob("*.json")
+        )
+        if environment.get("TEST_GIT_FAILURE") == "1":
+            self.assertEqual([], reservations)
+        else:
+            self.assertEqual(1, len(reservations))
+            self.assertEqual(0o700, stat.S_IMODE(reservations[0].parent.stat().st_mode))
+            self.assertEqual(0o600, stat.S_IMODE(reservations[0].stat().st_mode))
         return temporary, repo, publisher, latest, log, reports[0], receipt, result
+
+    def test_preflight_failure_stops_before_sequence_admission(self):
+        temporary, repo, publisher, latest, log, stages, receipt, result = self.run_fixture(
+            TEST_GIT_FAILURE="1"
+        )
+        try:
+            self.assertEqual(31, result.returncode, result.stderr)
+            self.assertFalse((repo / "sequence-count").exists())
+            self.assertEqual(f"releases/{self.OLD_VERSION}", os.readlink(latest))
+            self.assertRegex(stages.read_text(encoding="utf-8"), r"preflight\t\d+\tfailed")
+        finally:
+            temporary.cleanup()
 
     def test_late_sequence_advance_stops_before_publication(self):
         temporary, repo, publisher, latest, log, stages, receipt, result = self.run_fixture(
