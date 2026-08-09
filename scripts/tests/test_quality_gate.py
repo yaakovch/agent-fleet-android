@@ -106,6 +106,24 @@ class RepositoryPolicyTest(unittest.TestCase):
             with self.assertRaisesRegex(policy.PolicyError, "invalid Gradle dependency lock row"):
                 policy.parse_dependency_lock(lock)
 
+    def test_release_platform_tools_require_exact_reviewed_checksums(self):
+        reviewed = {
+            identity: {checksum}
+            for identity, checksum in policy.REQUIRED_PLATFORM_ARTIFACTS.items()
+        }
+        policy.validate_required_platform_artifacts(reviewed)
+
+        windows = next(identity for identity in reviewed if identity[-1].endswith("-windows.jar"))
+        missing = dict(reviewed)
+        del missing[windows]
+        with self.assertRaisesRegex(policy.PolicyError, "not checksum-pinned"):
+            policy.validate_required_platform_artifacts(missing)
+
+        changed = dict(reviewed)
+        changed[windows] = {"0" * 64}
+        with self.assertRaisesRegex(policy.PolicyError, "not checksum-pinned"):
+            policy.validate_required_platform_artifacts(changed)
+
 
 class RuntimeClosureCompatibilityTest(unittest.TestCase):
     def test_metadata_extension_is_all_or_none(self):

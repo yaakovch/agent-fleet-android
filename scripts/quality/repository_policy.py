@@ -16,6 +16,20 @@ SHA256 = re.compile(r"[0-9a-f]{64}")
 GIT_OBJECT = re.compile(r"[0-9a-f]{40}")
 GRADLE_DISTRIBUTION_SHA256 = "89d4e70e4e84e2d2dfbb63e4daa53e21b25017cc70c37e4eea31ee51fb15098a"
 GRADLE_WRAPPER_JAR_SHA256 = "e996d452d2645e70c01c11143ca2d3742734a28da2bf61f25c82bdc288c9e637"
+REQUIRED_PLATFORM_ARTIFACTS = {
+    (
+        "com.android.tools.build",
+        "aapt2",
+        "8.10.1-12782657",
+        "aapt2-8.10.1-12782657-linux.jar",
+    ): "52f864b7fd20a9ff09fc3db96162537a63c5b38ecc1c2549db4b491c6a517ff0",
+    (
+        "com.android.tools.build",
+        "aapt2",
+        "8.10.1-12782657",
+        "aapt2-8.10.1-12782657-windows.jar",
+    ): "c7c27ffee1d79c14bcb211c3b55f2c0449102fd4603c1aae07768b3e4ff460d2",
+}
 PRODUCTION_RUNTIME_KEY_ID = "ef1aa26c21be89f9ac220e41ae28a865"
 PRODUCTION_RUNTIME_KEY_SHA256 = "a3500746ab5f70c708741dd8f3c41b0dc66fabb7a47b43b726bceb6cf9108364"
 DEPENDENCY_LOCKS = (
@@ -188,6 +202,7 @@ def validate_dependency_metadata(root: Path) -> None:
     components = tree.findall("v:components/v:component", namespace)
     require(len(components) >= 100, "dependency verification metadata is unexpectedly incomplete")
     identities: set[tuple[str, str, str, str]] = set()
+    artifact_checksums: dict[tuple[str, str, str, str], set[str]] = {}
     for component in components:
         coordinate = tuple(component.attrib.get(key, "") for key in ("group", "name", "version"))
         require(all(coordinate), "dependency component has an incomplete coordinate")
@@ -204,6 +219,10 @@ def validate_dependency_metadata(root: Path) -> None:
                 all(SHA256.fullmatch(item.attrib.get("value", "")) is not None for item in checksums),
                 f"dependency artifact has an invalid sha256: {identity}",
             )
+            artifact_checksums[identity] = {
+                item.attrib["value"] for item in checksums
+            }
+    validate_required_platform_artifacts(artifact_checksums)
     component_coordinates = {
         tuple(component.attrib[key] for key in ("group", "name", "version"))
         for component in components
@@ -272,6 +291,17 @@ def validate_dependency_metadata(root: Path) -> None:
                 verification_override.search(candidate.read_text(encoding="utf-8")) is None,
                 f"dependency verification is weakened in {candidate.relative_to(root)}",
             )
+
+
+def validate_required_platform_artifacts(
+    artifact_checksums: dict[tuple[str, str, str, str], set[str]],
+) -> None:
+    """Require exact reviewed hashes for host-specific release build tools."""
+    for identity, expected in REQUIRED_PLATFORM_ARTIFACTS.items():
+        require(
+            artifact_checksums.get(identity) == {expected},
+            f"required platform dependency is not checksum-pinned: {identity}",
+        )
 
 
 def parse_dependency_lock(path: Path) -> set[tuple[str, str, str]]:
