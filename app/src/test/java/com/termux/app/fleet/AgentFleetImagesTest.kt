@@ -21,10 +21,23 @@ class AgentFleetImagesTest {
     fun importsSupportedImageWhenContentProviderOmitsMime() {
         val directory = Files.createTempDirectory("agent-fleet-images").toFile()
 
-        val output = importAgentFleetImage(ByteArrayInputStream(PNG), null, directory)
+        val output = importAgentFleetImage(ByteArrayInputStream(PNG), null, directory, decoderValidation = {})
 
         assertTrue(output.name.endsWith(".png"))
         assertArrayEquals(PNG, output.readBytes())
+    }
+
+    @Test
+    fun rejectsDecoderBombDimensionsBeforeAllocatingPixels() {
+        validateAgentFleetImageDimensions(4_096, 4_096)
+        listOf(100_000 to 1, 1 to 100_000, 8_000 to 8_000, 0 to 10).forEach { (width, height) ->
+            try {
+                validateAgentFleetImageDimensions(width, height)
+                fail("unsafe dimensions were accepted: ${width}x$height")
+            } catch (error: AgentFleetImageException) {
+                assertTrue(error.message.orEmpty().contains("unsafe dimensions"))
+            }
+        }
     }
 
     @Test
@@ -43,8 +56,47 @@ class AgentFleetImagesTest {
     fun parsesPlainWtmuxOutputWithoutJson() {
         assertEquals(
             ".wtmux/images/2026-07-17-a1b2c3d4.png",
-            parseAgentFleetImagePath("status line\n.wtmux/images/2026-07-17-a1b2c3d4.png\n")
+            parseAgentFleetImagePath(".wtmux/images/2026-07-17-a1b2c3d4.png\n")
         )
+    }
+
+    @Test
+    fun rejectsPrefixedAbsoluteMultipleOrMalformedWtmuxOutput() {
+        listOf(
+            "status line\n.wtmux/images/image.png\n",
+            "/project/.wtmux/images/image.png\n",
+            ".wtmux/images/one.png\n.wtmux/images/two.png\n",
+            " .wtmux/images/image.png\n",
+            ".wtmux/images/image.png extra\n",
+            ".wtmux/images/nested/image.png\n",
+            ".wtmux/images/image.exe\n"
+        ).forEach { output ->
+            try {
+                parseAgentFleetImagePath(output)
+                fail("invalid host output was accepted: $output")
+            } catch (_: AgentFleetImageException) {
+                // Expected.
+            }
+        }
+    }
+
+    @Test
+    fun rejectsTruncatedSuccessfulProcessOutput() {
+        listOf(
+            AgentFleetProcessOutput(
+                0, ".wtmux/images/image.png\n", "", stdoutTruncated = true
+            ),
+            AgentFleetProcessOutput(
+                0, ".wtmux/images/image.png\n", "", stderrTruncated = true
+            )
+        ).forEach { output ->
+            try {
+                parseSuccessfulAgentFleetImageOutput(output)
+                fail("truncated output was accepted")
+            } catch (_: AgentFleetImageException) {
+                // Expected.
+            }
+        }
     }
 
     @Test
@@ -122,6 +174,22 @@ class AgentFleetImagesTest {
         assertEquals(7, output.exitCode)
         assertTrue(output.stderr.startsWith("diagnostic-line"))
         assertTrue(output.stderr.length <= 64 * 1024)
+        assertTrue(output.stderrTruncated)
+    }
+
+    @Test(timeout = 10_000)
+    fun processCollectorMarksLargeStdoutAsTruncated() {
+        val process = ProcessBuilder(
+            "/bin/sh", "-c",
+            "i=0; while [ \$i -lt 12000 ]; do printf 'stdout-line-xxxxxxxxxxxx\\n'; i=\$((i+1)); done"
+        ).start()
+
+        val output = collectAgentFleetProcess(process, 5)
+
+        assertEquals(0, output.exitCode)
+        assertTrue(output.stdout.startsWith("stdout-line"))
+        assertTrue(output.stdout.length <= 64 * 1024)
+        assertTrue(output.stdoutTruncated)
     }
 
     private companion object {

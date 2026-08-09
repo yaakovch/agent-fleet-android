@@ -21,14 +21,21 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.WindowInsetsSides
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.isSystemInDarkTheme
@@ -53,9 +60,11 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
+import androidx.compose.material3.Typography
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -68,6 +77,12 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.semantics.LiveRegionMode
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.liveRegion
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.PlatformTextStyle
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
@@ -93,7 +108,16 @@ import com.termux.app.fleet.showLimitDateTimePicker
 import com.termux.app.fleet.FleetSession
 import com.termux.app.fleet.FleetSchedule
 import com.termux.app.fleet.FleetSnapshot
+import com.termux.app.fleet.FleetAlert
+import com.termux.app.fleet.FleetAlertCategory
+import com.termux.app.fleet.FleetAlertSettings
+import com.termux.app.fleet.FleetAlertSettingsStore
+import com.termux.app.fleet.FleetAlertTarget
+import com.termux.app.fleet.FleetAlertTracker
+import com.termux.app.fleet.FleetPairingRequest
+import com.termux.app.fleet.FleetPairingReview
 import com.termux.app.fleet.NativeSessionSettings
+import com.termux.app.fleet.NativeSessionRegistry
 import com.termux.app.fleet.AutomaticSessionTitleSettings
 import com.termux.app.fleet.sessionIdentityPresentation
 import com.termux.app.fleet.transportHostId
@@ -167,6 +191,11 @@ class AgentFleetActivity : ComponentActivity() {
     private val diagnosticsUi = mutableStateOf(DiagnosticsUiState())
     private val diagnosticError = mutableStateOf<AgentFleetDiagnosticEvent?>(null)
     private val localModelUi = mutableStateOf(LocalModelUiState())
+    private val fleetAlerts = mutableStateOf<List<FleetAlert>>(emptyList())
+    private val fleetAlertSettings = mutableStateOf(FleetAlertSettings())
+    private val pairingReviewUi = mutableStateOf<PairingReviewUiState?>(null)
+    private var pairingReviewGeneration = 0L
+    private var fleetAlertTracker = FleetAlertTracker()
     private val fleetExecutor = Executors.newSingleThreadExecutor()
     private val updateExecutor = Executors.newSingleThreadExecutor()
     private val runtimeExecutor = Executors.newSingleThreadExecutor()
@@ -183,7 +212,9 @@ class AgentFleetActivity : ComponentActivity() {
     private lateinit var diagnosticJournal: AgentFleetDiagnosticJournal
     private lateinit var diagnosticsRunner: AgentFleetDiagnosticsRunner
     private lateinit var workspaceTerminalBroker: WorkspaceTerminalBroker
+    private lateinit var workspaceNativeSessionRegistry: NativeSessionRegistry<WorkspaceRetainedNativeSession>
     private lateinit var localSuggestionModelManager: LocalSuggestionModelManager
+    private lateinit var fleetAlertSettingsStore: FleetAlertSettingsStore
     private val localModelImportLauncher = registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         if (uri != null && ::localSuggestionModelManager.isInitialized) localSuggestionModelManager.import(uri)
     }
@@ -216,6 +247,8 @@ class AgentFleetActivity : ComponentActivity() {
         updateManager = AgentFleetUpdateManager(applicationContext)
         embeddedRuntime = EmbeddedRuntimeManager(applicationContext)
         runtimeUpdateManager = RuntimeUpdateManager(applicationContext, embeddedRuntime)
+        fleetAlertSettingsStore = FleetAlertSettingsStore(applicationContext)
+        fleetAlertSettings.value = fleetAlertSettingsStore.load()
         clientPolicyStore = ClientPolicyStore(applicationContext)
         diagnosticJournal = AgentFleetDiagnosticJournal(applicationContext)
         localSuggestionModelManager = LocalSuggestionModelManager(applicationContext) { localModelUi.value = it }
@@ -235,6 +268,7 @@ class AgentFleetActivity : ComponentActivity() {
             applicationContext, embeddedRuntime, clientPolicyStore, fleetRuntime, diagnosticJournal
         )
         workspaceTerminalBroker = WorkspaceTerminalBroker(applicationContext).also { it.start() }
+        workspaceNativeSessionRegistry = NativeSessionRegistry(applicationContext)
         refreshUpdatePolicy()
         recentSessions.value = recentSessionStore.load()
         val cleanTerminal = !File(filesDir, "usr/bin/bash").canExecute()
@@ -250,7 +284,10 @@ class AgentFleetActivity : ComponentActivity() {
         acceptFocusedSession(intent)
         setContent {
             AgentFleetTheme {
-                AgentFleetApp(
+                CompositionLocalProvider(
+                    LocalWorkspaceNativeSessionRegistry provides workspaceNativeSessionRegistry
+                ) {
+                    AgentFleetApp(
                     fleetState = fleetState.value,
                     recentSessions = recentSessions.value,
                     pendingPairInvitation = pendingPairInvitation.value,
@@ -305,8 +342,25 @@ class AgentFleetActivity : ComponentActivity() {
                     onDiagnosticErrorHandled = { diagnosticError.value = null },
                     workspaceTerminalBroker = workspaceTerminalBroker,
                     initialActionSession = focusedSession.value,
-                    initialActionSerial = focusedSessionSerial.value
-                )
+                    initialActionSerial = focusedSessionSerial.value,
+                    fleetAlerts = fleetAlerts.value,
+                    fleetAlertSettings = fleetAlertSettings.value,
+                    onDismissFleetAlert = {
+                        if (fleetAlerts.value.isNotEmpty()) fleetAlerts.value = fleetAlerts.value.drop(1)
+                    },
+                    onFleetAlertSettings = ::saveFleetAlertSettings,
+                    onPauseFleetAlerts = {
+                        fleetAlertSettings.value = fleetAlertSettingsStore.pauseForOneHour(System.currentTimeMillis())
+                    },
+                    onResumeFleetAlerts = {
+                        fleetAlertSettings.value = fleetAlertSettingsStore.resume()
+                    },
+                    pairingReviewUi = pairingReviewUi.value,
+                    onReviewPairingRequest = ::reviewPairingRequest,
+                    onDismissPairingReview = ::dismissPairingReview,
+                    onDecidePairingRequest = ::decidePairingRequest
+                    )
+                }
             }
         }
         TermuxInstaller.setupBootstrapIfNeeded(this) {
@@ -318,9 +372,24 @@ class AgentFleetActivity : ComponentActivity() {
 
     override fun onStart() {
         super.onStart()
+        LocalSuggestionRuntime.onSurfaceStarted(this)
+        if (::workspaceNativeSessionRegistry.isInitialized) workspaceNativeSessionRegistry.onActivityStart()
+        fleetAlertTracker = FleetAlertTracker()
         if (::workspaceTerminalBroker.isInitialized) workspaceTerminalBroker.refreshAttachments()
         refreshUpdatePolicy()
-        FleetSnapshotStore.observe(applicationContext, this) { fleetState.value = it }
+        FleetSnapshotStore.observe(applicationContext, this) { state ->
+            fleetState.value = state
+            val snapshot = (state as? FleetLoadState.Ready)?.snapshot ?: return@observe
+            val alerts = fleetAlertTracker.process(
+                snapshot = snapshot,
+                settings = fleetAlertSettings.value,
+                nowEpochMillis = System.currentTimeMillis(),
+                expectedHostRuntimeVersion = runtimeUpdateManager.verifiedExpectedHostRuntimeVersion()
+            )
+            if (alerts.isNotEmpty()) {
+                fleetAlerts.value = enqueueFleetAlerts(fleetAlerts.value, alerts)
+            }
+        }
         if (
             ::runtimeUpdateManager.isInitialized && !runtimeUi.value.busy && runtimeUi.value.status?.usable == true &&
             runtimeUpdateManager.shouldCheck()
@@ -342,15 +411,95 @@ class AgentFleetActivity : ComponentActivity() {
     }
 
     override fun onStop() {
-        LocalSuggestionRuntime.shutdown(applicationContext)
+        fleetAlerts.value = emptyList()
         if (::fleetRuntime.isInitialized) fleetRuntime.closeRepositoryBrowser()
         FleetSnapshotStore.removeObserver(this)
+        if (::workspaceNativeSessionRegistry.isInitialized) workspaceNativeSessionRegistry.onActivityStop()
+        LocalSuggestionRuntime.onSurfaceStopped(applicationContext, this)
         super.onStop()
     }
 
+    private fun saveFleetAlertSettings(value: FleetAlertSettings) {
+        fleetAlertSettingsStore.save(value)
+        fleetAlertSettings.value = value
+    }
+
+    private fun reviewPairingRequest(requestId: String) {
+        val snapshot = (fleetState.value as? FleetLoadState.Ready)?.snapshot ?: return refreshFleet()
+        if (snapshot.pairingRequests.none { it.id == requestId && it.status == "awaiting-review" }) {
+            Toast.makeText(this, "Pairing request is no longer awaiting review.", Toast.LENGTH_SHORT).show()
+            return
+        }
+        val generation = Math.addExact(pairingReviewGeneration, 1L)
+        pairingReviewGeneration = generation
+        pairingReviewUi.value = PairingReviewUiState(requestId, loading = true)
+        fleetExecutor.execute {
+            val result = runCatching { fleetRuntime.reviewPairing(snapshot, requestId) }
+            runOnUiThread {
+                if (generation != pairingReviewGeneration) return@runOnUiThread
+                result.onSuccess { reviewed ->
+                    FleetSnapshotStore.publish(reviewed.snapshot)
+                    pairingReviewUi.value = PairingReviewUiState(
+                        requestId,
+                        review = reviewed.review,
+                        snapshotRevision = reviewed.snapshot.revision
+                    )
+                }.onFailure { error ->
+                    pairingReviewUi.value = PairingReviewUiState(
+                        requestId,
+                        error = error.message ?: "Pairing proposal could not be reviewed."
+                    )
+                    refreshFleet()
+                }
+            }
+        }
+    }
+
+    private fun decidePairingRequest(requestId: String, approve: Boolean) {
+        val snapshot = (fleetState.value as? FleetLoadState.Ready)?.snapshot ?: return refreshFleet()
+        val reviewed = pairingReviewUi.value
+        when (pairingDecisionReadiness(reviewed, requestId, snapshot.revision)) {
+            PairingDecisionReadiness.Busy -> return
+            PairingDecisionReadiness.NeedsReview -> return reviewPairingRequest(requestId)
+            PairingDecisionReadiness.Ready -> Unit
+        }
+        val generation = Math.addExact(pairingReviewGeneration, 1L)
+        pairingReviewGeneration = generation
+        pairingReviewUi.value = requireNotNull(reviewed).copy(loading = true, error = "")
+        fleetExecutor.execute {
+            val result = runCatching { fleetRuntime.decidePairing(snapshot, requestId, approve) }
+            runOnUiThread {
+                if (generation != pairingReviewGeneration) return@runOnUiThread
+                result.onSuccess { updated ->
+                    FleetSnapshotStore.publish(updated)
+                    pairingReviewUi.value = null
+                    Toast.makeText(
+                        this,
+                        if (approve) "Pairing approved" else "Pairing rejected",
+                        Toast.LENGTH_SHORT
+                    ).show()
+                }.onFailure { error ->
+                    pairingReviewUi.value = PairingReviewUiState(
+                        requestId = requestId,
+                        error = error.message ?: "Pairing decision failed. Refresh and review again."
+                    )
+                    reportDiagnosticError("pairing.decision", error)
+                    refreshFleet()
+                }
+            }
+        }
+    }
+
+    private fun dismissPairingReview() {
+        pairingReviewGeneration = Math.addExact(pairingReviewGeneration, 1L)
+        pairingReviewUi.value = null
+    }
+
     override fun onDestroy() {
+        LocalSuggestionRuntime.onSurfaceStopped(applicationContext, this)
         fileDownloads.forEach { it.cancel() }
         fileDownloads.clear()
+        if (::workspaceNativeSessionRegistry.isInitialized) workspaceNativeSessionRegistry.destroy()
         fleetExecutor.shutdownNow()
         updateExecutor.shutdownNow()
         runtimeExecutor.shutdownNow()
@@ -834,6 +983,28 @@ data class RuntimeUiState(
     val error: String = ""
 )
 
+data class PairingReviewUiState(
+    val requestId: String,
+    val loading: Boolean = false,
+    val review: FleetPairingReview? = null,
+    val snapshotRevision: String = "",
+    val error: String = ""
+)
+
+internal enum class PairingDecisionReadiness { Ready, Busy, NeedsReview }
+
+internal fun pairingDecisionReadiness(
+    state: PairingReviewUiState?,
+    requestId: String,
+    snapshotRevision: String
+): PairingDecisionReadiness = when {
+    state?.requestId != requestId -> PairingDecisionReadiness.NeedsReview
+    state.loading -> PairingDecisionReadiness.Busy
+    state.review == null || state.error.isNotBlank() || state.snapshotRevision != snapshotRevision ->
+        PairingDecisionReadiness.NeedsReview
+    else -> PairingDecisionReadiness.Ready
+}
+
 enum class FleetSection(val label: String, val glyph: String) {
     Sessions("Sessions", "▣"),
     Terminal("Terminal", ">_"),
@@ -864,6 +1035,42 @@ fun filterSessions(sessions: List<FleetSession>, hosts: Map<String, FleetHost>, 
             it.title.contains(normalized, ignoreCase = true) ||
             it.tool.contains(normalized, ignoreCase = true)
     }
+}
+
+internal fun physicalHostIdForFleetAlert(snapshot: FleetSnapshot?, targetId: String): String? =
+    snapshot?.physicalHosts?.firstOrNull { host ->
+        host.id == targetId || targetId in host.legacyHostIds
+    }?.id
+
+private const val MORE_PAIRING_REVIEWS_INDEX = 4
+internal const val MAX_QUEUED_FLEET_ALERT_ROUTES = 16
+
+private val fleetAlertOverflowSummary = FleetAlert(
+    category = null,
+    title = "More fleet changes are waiting",
+    body = "Existing unseen alerts were preserved. Review them, then inspect Sessions and More for current state.",
+    target = FleetAlertTarget.Dashboard
+)
+
+internal fun enqueueFleetAlerts(existing: List<FleetAlert>, incoming: List<FleetAlert>): List<FleetAlert> {
+    if (incoming.isEmpty()) return existing
+    val existingRoutes = existing.filter { it.category != null }.take(MAX_QUEUED_FLEET_ALERT_ROUTES)
+    val incomingRoutes = incoming.filter { it.category != null }
+    val available = (MAX_QUEUED_FLEET_ALERT_ROUTES - existingRoutes.size).coerceAtLeast(0)
+    val admitted = incomingRoutes.take(available)
+    val overflowed = existing.any { it.category == null } ||
+        incoming.any { it.category == null } ||
+        admitted.size < incomingRoutes.size
+    return existingRoutes + admitted + if (overflowed) listOf(fleetAlertOverflowSummary) else emptyList()
+}
+
+internal fun moreHostLazyListIndex(
+    awaitingPairingRequests: Int,
+    pendingSchedules: Int,
+    physicalHostIndex: Int
+): Int {
+    require(awaitingPairingRequests >= 0 && pendingSchedules >= 0 && physicalHostIndex >= 0)
+    return 11 + awaitingPairingRequests + pendingSchedules + physicalHostIndex
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -921,7 +1128,17 @@ fun AgentFleetApp(
     onDiagnosticErrorHandled: () -> Unit,
     workspaceTerminalBroker: WorkspaceTerminalBroker? = null,
     initialActionSession: String? = null,
-    initialActionSerial: Long = 0
+    initialActionSerial: Long = 0,
+    fleetAlerts: List<FleetAlert> = emptyList(),
+    fleetAlertSettings: FleetAlertSettings = FleetAlertSettings(),
+    onDismissFleetAlert: () -> Unit = {},
+    onFleetAlertSettings: (FleetAlertSettings) -> Unit = {},
+    onPauseFleetAlerts: () -> Unit = {},
+    onResumeFleetAlerts: () -> Unit = {},
+    onReviewPairingRequest: (String) -> Unit = {},
+    pairingReviewUi: PairingReviewUiState? = null,
+    onDismissPairingReview: () -> Unit = {},
+    onDecidePairingRequest: (String, Boolean) -> Unit = { _, _ -> }
 ) {
     if (runtimeUi.blocking) {
         PreparingTerminalScreen(runtimeUi, onRepairRuntime)
@@ -937,6 +1154,12 @@ fun AgentFleetApp(
     var showCreateSession by rememberSaveable { mutableStateOf(false) }
     var showPairing by rememberSaveable { mutableStateOf(false) }
     var showDiagnostics by rememberSaveable { mutableStateOf(false) }
+    var highlightedHostId by rememberSaveable { mutableStateOf<String?>(null) }
+    var pendingHostScrollId by rememberSaveable { mutableStateOf<String?>(null) }
+    var pendingHostScrollSerial by rememberSaveable { mutableStateOf<Long?>(null) }
+    var highlightedPairingReviews by rememberSaveable { mutableStateOf(false) }
+    var pendingPairingReviewsScrollSerial by rememberSaveable { mutableStateOf<Long?>(null) }
+    var moreAlertRouteSerial by rememberSaveable { mutableStateOf(0L) }
     val currentSnapshot = (fleetState as? FleetLoadState.Ready)?.snapshot
     var handledInitialAction by rememberSaveable { mutableStateOf(-1L) }
     LaunchedEffect(initialActionSerial, currentSnapshot != null) {
@@ -1015,7 +1238,21 @@ fun AgentFleetApp(
                             onRepairRuntime, onCheckRuntime, onRollbackRuntime, onRestoreBaseline,
                             onOpenAppearance, onMigrateFleetState, onSetLocalSuggestions, onDownloadLocalModel,
                             onImportLocalModel, onCancelLocalModel, onRemoveLocalModel,
-                            { showDiagnostics = true }, presentationMode
+                            { showDiagnostics = true }, presentationMode,
+                            fleetAlertSettings, onFleetAlertSettings, onPauseFleetAlerts, onResumeFleetAlerts,
+                            onReviewPairingRequest, highlightedHostId, pendingHostScrollId, pendingHostScrollSerial,
+                            { consumed ->
+                                if (pendingHostScrollSerial == consumed) {
+                                    pendingHostScrollId = null
+                                    pendingHostScrollSerial = null
+                                }
+                            },
+                            highlightedPairingReviews, pendingPairingReviewsScrollSerial,
+                            { consumed ->
+                                if (pendingPairingReviewsScrollSerial == consumed) {
+                                    pendingPairingReviewsScrollSerial = null
+                                }
+                            }
                         ) { mode -> presentationMode = mode; presentationStore.save(mode) }
                     }
                 }
@@ -1075,10 +1312,94 @@ fun AgentFleetApp(
                 onCancelLocalModel,
                 onRemoveLocalModel,
                 { showDiagnostics = true },
-                presentationMode
+                presentationMode,
+                fleetAlertSettings,
+                onFleetAlertSettings,
+                onPauseFleetAlerts,
+                onResumeFleetAlerts,
+                onReviewPairingRequest,
+                highlightedHostId,
+                pendingHostScrollId,
+                pendingHostScrollSerial,
+                { consumed ->
+                    if (pendingHostScrollSerial == consumed) {
+                        pendingHostScrollId = null
+                        pendingHostScrollSerial = null
+                    }
+                },
+                highlightedPairingReviews,
+                pendingPairingReviewsScrollSerial,
+                { consumed ->
+                    if (pendingPairingReviewsScrollSerial == consumed) {
+                        pendingPairingReviewsScrollSerial = null
+                    }
+                }
             ) { mode -> presentationMode = mode; presentationStore.save(mode) }
         }
     }
+        fleetAlerts.firstOrNull()?.let { alert ->
+            FleetAlertBanner(
+                alert = alert,
+                queued = fleetAlerts.size,
+                modifier = Modifier
+                    .align(Alignment.TopCenter)
+                    .windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Top))
+                    .padding(16.dp),
+                onOpen = {
+                    when (val target = alert.target) {
+                        is FleetAlertTarget.Session -> {
+                            val session = currentSnapshot?.sessions?.firstOrNull { it.id == target.id }
+                            if (session == null || currentSnapshot?.let { isFleetSessionAvailable(it, session) } != true) {
+                                section = FleetSection.Sessions
+                                Toast.makeText(context, "That session is no longer available.", Toast.LENGTH_SHORT).show()
+                            } else if (desktop) {
+                                val updated = workspaceState.copy(
+                                    layout = WorkspaceReducer.assign(
+                                        workspaceState.layout,
+                                        workspaceState.layout.focusedPaneId,
+                                        session.id
+                                    )
+                                )
+                                workspaceState = updated
+                                workspaceStore.save(updated)
+                                section = FleetSection.Sessions
+                            } else {
+                                onOpenSession(session)
+                            }
+                        }
+                        is FleetAlertTarget.Host -> {
+                            val physicalHostId = physicalHostIdForFleetAlert(currentSnapshot, target.id)
+                            highlightedPairingReviews = false
+                            pendingPairingReviewsScrollSerial = null
+                            highlightedHostId = physicalHostId
+                            pendingHostScrollId = physicalHostId
+                            moreAlertRouteSerial += 1
+                            pendingHostScrollSerial = physicalHostId?.let { moreAlertRouteSerial }
+                            section = FleetSection.More
+                            if (physicalHostId == null) {
+                                Toast.makeText(context, "That host is no longer in the fleet.", Toast.LENGTH_SHORT).show()
+                            }
+                        }
+                        is FleetAlertTarget.PairingReview -> onReviewPairingRequest(target.requestId)
+                        FleetAlertTarget.Dashboard -> {
+                            if (alert.category == FleetAlertCategory.Pairing) {
+                                highlightedHostId = null
+                                pendingHostScrollId = null
+                                pendingHostScrollSerial = null
+                                highlightedPairingReviews = true
+                                moreAlertRouteSerial += 1
+                                pendingPairingReviewsScrollSerial = moreAlertRouteSerial
+                                section = FleetSection.More
+                            } else {
+                                section = FleetSection.Sessions
+                            }
+                        }
+                    }
+                    onDismissFleetAlert()
+                },
+                onDismiss = onDismissFleetAlert
+            )
+        }
     }
 
     sessionsById[actionSession]?.let { session ->
@@ -1158,6 +1479,14 @@ fun AgentFleetApp(
             onPairInvitationHandled()
             onPairInvitation(invitation)
         }
+    }
+    pairingReviewUi?.let { state ->
+        PairingReviewDialog(
+            state = state,
+            onDismiss = onDismissPairingReview,
+            onRetry = { onReviewPairingRequest(state.requestId) },
+            onDecision = { approve -> onDecidePairingRequest(state.requestId, approve) }
+        )
     }
     if (showDiagnostics) {
         DiagnosticsDialog(
@@ -1584,7 +1913,10 @@ private fun RepositoryBrowserDialog(
                             Text(state.message, color = if (state.status == "failed") MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant)
                             if (state.status == "running") {
                                 LinearProgressIndicator(
-                                    progress = if (state.total == 0L) 0f else state.received.toFloat() / state.total.toFloat(),
+                                    progress = {
+                                        if (state.total == 0L) 0f
+                                        else state.received.toFloat() / state.total.toFloat()
+                                    },
                                     modifier = Modifier.fillMaxWidth()
                                 )
                                 TextButton(onClick = { cancellation?.cancel() }) { Text("Cancel download") }
@@ -1858,6 +2190,82 @@ private fun PairingDialog(initialInvitation: String, onDismiss: () -> Unit, onCo
 }
 
 @Composable
+private fun PairingReviewDialog(
+    state: PairingReviewUiState,
+    onDismiss: () -> Unit,
+    onRetry: () -> Unit,
+    onDecision: (Boolean) -> Unit
+) {
+    AlertDialog(
+        onDismissRequest = { if (!state.loading) onDismiss() },
+        title = { Text("Review exact pairing proposal") },
+        text = {
+            Column(
+                Modifier
+                    .fillMaxWidth()
+                    .heightIn(max = 560.dp)
+                    .verticalScroll(rememberScrollState())
+                    .semantics { liveRegion = LiveRegionMode.Polite },
+                verticalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                when {
+                    state.loading -> Text("Verifying the live peer and proposal…")
+                    state.error.isNotBlank() -> {
+                        Text(state.error, color = MaterialTheme.colorScheme.error)
+                        OutlinedButton(
+                            onClick = onRetry,
+                            modifier = Modifier.testTag("pairing-review-retry")
+                        ) { Text("Review again") }
+                    }
+                    state.review != null -> {
+                        Text(
+                            "${state.review.deviceName} · ${state.review.platform}",
+                            fontSize = 18.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                        Text(
+                            "Verified live peer: ${state.review.peer} (${state.review.peerIp})",
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        Text(
+                            state.review.proposalJson,
+                            modifier = Modifier.testTag("pairing-review-proposal"),
+                            fontSize = 13.sp
+                        )
+                        Text(
+                            "Approve only if every identity, role, path, transport, and command is expected.",
+                            color = WarningAmber,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            Button(
+                onClick = { onDecision(true) },
+                enabled = !state.loading && state.error.isBlank() && state.review != null,
+                modifier = Modifier.testTag("pairing-review-approve")
+            ) { Text("Approve") }
+        },
+        dismissButton = {
+            Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                TextButton(
+                    onClick = { onDecision(false) },
+                    enabled = !state.loading && state.error.isBlank() && state.review != null,
+                    modifier = Modifier.testTag("pairing-review-reject")
+                ) { Text("Reject") }
+                TextButton(
+                    onClick = onDismiss,
+                    enabled = !state.loading,
+                    modifier = Modifier.testTag("pairing-review-cancel")
+                ) { Text("Cancel") }
+            }
+        }
+    )
+}
+
+@Composable
 private fun SharedImagesSessionDialog(
     sessions: List<FleetSession>,
     imageCount: Int,
@@ -2047,7 +2455,7 @@ private fun QuotaWindowRow(window: FleetLimitWindow) {
     Row(verticalAlignment = Alignment.CenterVertically) {
         Text(label, modifier = Modifier.size(width = 64.dp, height = 24.dp), fontWeight = FontWeight.SemiBold)
         LinearProgressIndicator(
-            progress = (window.remainingPercent / 100.0).toFloat(),
+            progress = { (window.remainingPercent / 100.0).toFloat() },
             modifier = Modifier.weight(1f).height(9.dp),
             color = if (window.remainingPercent <= 0) WarningAmber else ReadyGreen,
             trackColor = MaterialTheme.colorScheme.surfaceVariant
@@ -2076,6 +2484,146 @@ private fun formatAge(timestamp: String): String {
 }
 
 @Composable
+private fun FleetAlertBanner(
+    alert: FleetAlert,
+    queued: Int,
+    modifier: Modifier = Modifier,
+    onOpen: () -> Unit,
+    onDismiss: () -> Unit
+) {
+    Card(
+        modifier = modifier
+            .fillMaxWidth()
+            .widthIn(max = 560.dp)
+            .semantics { liveRegion = LiveRegionMode.Polite }
+            .testTag("fleet-alert-banner"),
+        shape = RoundedCornerShape(18.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.secondaryContainer)
+    ) {
+        Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f)) {
+                    Text(alert.title, fontSize = 17.sp, fontWeight = FontWeight.Bold)
+                    Text(alert.body, color = MaterialTheme.colorScheme.onSecondaryContainer)
+                    if (queued > 1) {
+                        Text(
+                            "${queued - 1} more alert${if (queued == 2) "" else "s"} queued",
+                            fontSize = 13.sp,
+                            color = MaterialTheme.colorScheme.onSecondaryContainer
+                        )
+                    }
+                }
+                TextButton(onClick = onDismiss, modifier = Modifier.testTag("fleet-alert-dismiss")) { Text("Dismiss") }
+                Button(onClick = onOpen, modifier = Modifier.testTag("fleet-alert-open")) { Text("Open") }
+            }
+        }
+    }
+}
+
+@Composable
+private fun FleetAlertSettingsCard(
+    settings: FleetAlertSettings,
+    onSettings: (FleetAlertSettings) -> Unit,
+    onPause: () -> Unit,
+    onResume: () -> Unit
+) {
+    val paused = settings.isPaused(System.currentTimeMillis())
+    Card(
+        modifier = Modifier.testTag("fleet-alert-settings"),
+        shape = RoundedCornerShape(18.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
+    ) {
+        Column(Modifier.fillMaxWidth().padding(18.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f)) {
+                    Text("Fleet alerts", fontSize = 18.sp, fontWeight = FontWeight.Bold)
+                    Text(
+                        "Shown in this app only while Agent Fleet is in the foreground.",
+                        fontSize = 14.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+                OutlinedButton(
+                    onClick = if (paused) onResume else onPause,
+                    modifier = Modifier.testTag(if (paused) "fleet-alert-resume" else "fleet-alert-pause")
+                ) { Text(if (paused) "Resume" else "Pause 1 hour") }
+            }
+            FleetAlertSettingRow("Usage limits", FleetAlertCategory.HardLimits, settings, onSettings)
+            FleetAlertSettingRow("Delivery failures", FleetAlertCategory.DeliveryFailures, settings, onSettings)
+            FleetAlertSettingRow("Delivery success", FleetAlertCategory.DeliverySuccess, settings, onSettings)
+            FleetAlertSettingRow("Host offline and recovery", FleetAlertCategory.HostState, settings, onSettings)
+            FleetAlertSettingRow("Runtime version drift", FleetAlertCategory.VersionDrift, settings, onSettings)
+            FleetAlertSettingRow("Pairing requests", FleetAlertCategory.Pairing, settings, onSettings)
+        }
+    }
+}
+
+@Composable
+private fun FleetAlertSettingRow(
+    label: String,
+    category: FleetAlertCategory,
+    settings: FleetAlertSettings,
+    onSettings: (FleetAlertSettings) -> Unit
+) {
+    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+        Text(label, modifier = Modifier.weight(1f), fontSize = 15.sp)
+        Switch(
+            checked = settings.isEnabled(category),
+            onCheckedChange = { enabled ->
+                onSettings(when (category) {
+                    FleetAlertCategory.HardLimits -> settings.copy(hardLimits = enabled)
+                    FleetAlertCategory.DeliveryFailures -> settings.copy(deliveryFailures = enabled)
+                    FleetAlertCategory.DeliverySuccess -> settings.copy(deliverySuccess = enabled)
+                    FleetAlertCategory.HostState -> settings.copy(hostState = enabled)
+                    FleetAlertCategory.VersionDrift -> settings.copy(versionDrift = enabled)
+                    FleetAlertCategory.Pairing -> settings.copy(pairing = enabled)
+                })
+            },
+            modifier = Modifier
+                .semantics { contentDescription = label }
+                .testTag("fleet-alert-${category.canonicalId}")
+        )
+    }
+}
+
+@Composable
+private fun AwaitingPairingReviewCard(
+    request: FleetPairingRequest,
+    onReviewPairingRequest: (String) -> Unit
+) {
+    Card(
+        modifier = Modifier.testTag("pairing-request-${request.id}"),
+        shape = RoundedCornerShape(18.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
+    ) {
+        Column(
+            Modifier.fillMaxWidth().padding(18.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            Text(request.deviceName, fontSize = 18.sp, fontWeight = FontWeight.Bold)
+            Text(
+                "${request.platform} · ${request.peer}",
+                fontSize = 15.sp,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            Text(
+                "Requested ${request.requestedAt} · expires ${request.expiresAt}",
+                fontSize = 13.sp,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            Button(
+                onClick = { onReviewPairingRequest(request.id) },
+                modifier = Modifier
+                    .align(Alignment.End)
+                    .semantics { contentDescription = "Review exact proposal from ${request.deviceName}" }
+                    .testTag("pairing-request-review-${request.id}"),
+                shape = RoundedCornerShape(14.dp)
+            ) { Text("Review exact proposal") }
+        }
+    }
+}
+
+@Composable
 private fun MoreScreen(
     padding: PaddingValues,
     fleetState: FleetLoadState,
@@ -2100,6 +2648,18 @@ private fun MoreScreen(
     onRemoveLocalModel: () -> Unit,
     onOpenDiagnostics: () -> Unit,
     presentationMode: WorkspacePresentationMode,
+    fleetAlertSettings: FleetAlertSettings,
+    onFleetAlertSettings: (FleetAlertSettings) -> Unit,
+    onPauseFleetAlerts: () -> Unit,
+    onResumeFleetAlerts: () -> Unit,
+    onReviewPairingRequest: (String) -> Unit,
+    highlightedHostId: String?,
+    pendingHostScrollId: String?,
+    pendingHostScrollSerial: Long?,
+    onHostScrollConsumed: (Long) -> Unit,
+    highlightedPairingReviews: Boolean,
+    pendingPairingReviewsScrollSerial: Long?,
+    onPairingReviewsScrollConsumed: (Long) -> Unit,
     onPresentationMode: (WorkspacePresentationMode) -> Unit
 ) {
     val context = androidx.compose.ui.platform.LocalContext.current
@@ -2112,10 +2672,35 @@ private fun MoreScreen(
     var confirmMeteredModelDownload by rememberSaveable { mutableStateOf(false) }
     val snapshot = (fleetState as? FleetLoadState.Ready)?.snapshot
     val pendingSchedules = snapshot?.schedules?.count { it.status == "pending" } ?: 0
+    val awaitingPairingRequests = snapshot?.pairingRequests.orEmpty().filter { it.status == "awaiting-review" }
     val healthyHosts = snapshot?.physicalHosts?.count { it.status == "healthy" } ?: 0
     val hostCount = snapshot?.physicalHosts?.size ?: 0
+    val listState = rememberLazyListState()
+    LaunchedEffect(pendingHostScrollSerial) {
+        val requestSerial = pendingHostScrollSerial ?: return@LaunchedEffect
+        val requestedHostId = pendingHostScrollId
+        try {
+            val hostIndex = snapshot?.physicalHosts?.indexOfFirst { it.id == requestedHostId } ?: -1
+            if (hostIndex >= 0) {
+                listState.animateScrollToItem(
+                    moreHostLazyListIndex(awaitingPairingRequests.size, pendingSchedules, hostIndex)
+                )
+            }
+        } finally {
+            onHostScrollConsumed(requestSerial)
+        }
+    }
+    LaunchedEffect(pendingPairingReviewsScrollSerial) {
+        val requestSerial = pendingPairingReviewsScrollSerial ?: return@LaunchedEffect
+        try {
+            listState.animateScrollToItem(MORE_PAIRING_REVIEWS_INDEX)
+        } finally {
+            onPairingReviewsScrollConsumed(requestSerial)
+        }
+    }
     LazyColumn(
         modifier = Modifier.fillMaxSize().padding(padding).testTag("more-screen"),
+        state = listState,
         contentPadding = PaddingValues(18.dp),
         verticalArrangement = Arrangement.spacedBy(14.dp)
     ) {
@@ -2138,6 +2723,30 @@ private fun MoreScreen(
                     }
                 }
             }
+        }
+        item {
+            FleetAlertSettingsCard(
+                settings = fleetAlertSettings,
+                onSettings = onFleetAlertSettings,
+                onPause = onPauseFleetAlerts,
+                onResume = onResumeFleetAlerts
+            )
+        }
+        item {
+            FeatureCard(
+                title = "Awaiting pairing reviews",
+                detail = if (awaitingPairingRequests.isEmpty()) {
+                    "No device proposals need review."
+                } else {
+                    "${awaitingPairingRequests.size} verified device proposal${if (awaitingPairingRequests.size == 1) "" else "s"} need an exact review."
+                },
+                modifier = Modifier.testTag("awaiting-pairing-reviews"),
+                highlightLabel = if (highlightedPairingReviews) "Selected from alert" else null,
+                highlightTag = if (highlightedPairingReviews) "awaiting-pairing-reviews-highlight" else null
+            )
+        }
+        items(awaitingPairingRequests, key = { "pairing-review:${it.id}" }) { request ->
+            AwaitingPairingReviewCard(request, onReviewPairingRequest)
         }
         item {
             val peerPackage = AgentFleetMigrationPeer.counterpart(context.packageName)
@@ -2174,7 +2783,9 @@ private fun MoreScreen(
                             automaticSessionTitles = it
                             AutomaticSessionTitleSettings.setEnabled(context, it)
                         },
-                        modifier = Modifier.testTag("automatic-session-titles")
+                        modifier = Modifier
+                            .semantics { contentDescription = "Automatic coding-session titles" }
+                            .testTag("automatic-session-titles")
                     )
                 }
             }
@@ -2191,7 +2802,10 @@ private fun MoreScreen(
                         onCheckedChange = {
                             nativeSessionEnabled = it
                             NativeSessionSettings.setEnabled(context, it)
-                        }
+                        },
+                        modifier = Modifier
+                            .semantics { contentDescription = "Native session view" }
+                            .testTag("native-session-view")
                     )
                 }
             }
@@ -2245,7 +2859,7 @@ private fun MoreScreen(
                         color = if (localModelUi.error.isBlank()) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.error
                     )
                     if (localModelUi.busy || localModelUi.progressBytes in 1 until LocalSuggestionModel.SIZE) {
-                        LinearProgressIndicator(progress = localModelUi.progress, modifier = Modifier.fillMaxWidth())
+                        LinearProgressIndicator(progress = { localModelUi.progress }, modifier = Modifier.fillMaxWidth())
                     }
                     Text(
                         "Pinned verified model · ${formatModelBytes(LocalSuggestionModel.SIZE)} storage. Off/background releases all model RAM.",
@@ -2276,7 +2890,7 @@ private fun MoreScreen(
         }
         item { FeatureCard("Schedules", "$pendingSchedules pending · guarded delivery runs on the destination host") }
         if (snapshot != null) {
-            items(snapshot.schedules.filter { it.status == "pending" }, key = { it.id }) { schedule ->
+            items(snapshot.schedules.filter { it.status == "pending" }, key = { "schedule:${it.id}" }) { schedule ->
                 Card(shape = RoundedCornerShape(18.dp), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)) {
                     Row(Modifier.fillMaxWidth().padding(18.dp), verticalAlignment = Alignment.CenterVertically) {
                         Column(Modifier.weight(1f)) {
@@ -2290,10 +2904,17 @@ private fun MoreScreen(
         }
         item { FeatureCard("Fleet health", "$healthyHosts of $hostCount hosts healthy${snapshot?.generatedAt?.let { " · $it" }.orEmpty()}") }
         if (snapshot != null) {
-            items(snapshot.physicalHosts, key = { it.id }) { host ->
+            items(snapshot.physicalHosts, key = { "host:${it.id}" }) { host ->
                 val detail = physicalHostRecoveryDetail(snapshot, host)
                     ?: "${transportEndpointLabel(selectedTransportEndpoint(snapshot, host))} · Connected"
-                FeatureCard(host.name, detail)
+                val highlighted = host.id == highlightedHostId
+                FeatureCard(
+                    host.name,
+                    detail,
+                    modifier = Modifier.testTag("fleet-host-${host.id}"),
+                    highlightLabel = if (highlighted) "Selected from alert" else null,
+                    highlightTag = if (highlighted) "fleet-host-${host.id}-highlight" else null
+                )
             }
         }
         item {
@@ -2577,9 +3198,38 @@ private fun PreparingTerminalScreen(runtimeUi: RuntimeUiState, onRetry: () -> Un
 }
 
 @Composable
-private fun FeatureCard(title: String, detail: String) {
-    Card(shape = RoundedCornerShape(18.dp), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)) {
+private fun FeatureCard(
+    title: String,
+    detail: String,
+    modifier: Modifier = Modifier,
+    highlightLabel: String? = null,
+    highlightTag: String? = null
+) {
+    Card(
+        modifier = if (highlightLabel == null) {
+            modifier
+        } else {
+            modifier.semantics { liveRegion = LiveRegionMode.Polite }
+        },
+        shape = RoundedCornerShape(18.dp),
+        colors = CardDefaults.cardColors(
+            containerColor = if (highlightLabel == null) {
+                MaterialTheme.colorScheme.surface
+            } else {
+                MaterialTheme.colorScheme.secondaryContainer
+            }
+        )
+    ) {
         Column(Modifier.fillMaxWidth().padding(18.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
+            if (highlightLabel != null) {
+                Text(
+                    highlightLabel,
+                    modifier = if (highlightTag == null) Modifier else Modifier.testTag(highlightTag),
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.primary
+                )
+            }
             Text(title, fontSize = 18.sp, fontWeight = FontWeight.Bold)
             Text(detail, fontSize = 16.sp, lineHeight = 22.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
@@ -2636,9 +3286,37 @@ private val FleetDarkColors = darkColorScheme(
     onSurfaceVariant = Color(0xFFBFC5D1)
 )
 
+private fun TextStyle.withFleetFontMetrics(): TextStyle = copy(
+    platformStyle = PlatformTextStyle(includeFontPadding = true),
+    lineHeightStyle = null
+)
+
+private val FleetTypography = Typography().let { defaults ->
+    Typography(
+        displayLarge = defaults.displayLarge.withFleetFontMetrics(),
+        displayMedium = defaults.displayMedium.withFleetFontMetrics(),
+        displaySmall = defaults.displaySmall.withFleetFontMetrics(),
+        headlineLarge = defaults.headlineLarge.withFleetFontMetrics(),
+        headlineMedium = defaults.headlineMedium.withFleetFontMetrics(),
+        headlineSmall = defaults.headlineSmall.withFleetFontMetrics(),
+        titleLarge = defaults.titleLarge.withFleetFontMetrics(),
+        titleMedium = defaults.titleMedium.withFleetFontMetrics(),
+        titleSmall = defaults.titleSmall.withFleetFontMetrics(),
+        bodyLarge = defaults.bodyLarge.withFleetFontMetrics(),
+        bodyMedium = defaults.bodyMedium.withFleetFontMetrics(),
+        bodySmall = defaults.bodySmall.withFleetFontMetrics(),
+        labelLarge = defaults.labelLarge.withFleetFontMetrics(),
+        labelMedium = defaults.labelMedium.withFleetFontMetrics(),
+        labelSmall = defaults.labelSmall.withFleetFontMetrics()
+    )
+}
+
 @Composable
 fun AgentFleetTheme(darkTheme: Boolean = isSystemInDarkTheme(), content: @Composable () -> Unit) {
-    MaterialTheme(colorScheme = if (darkTheme) FleetDarkColors else FleetLightColors) {
+    MaterialTheme(
+        colorScheme = if (darkTheme) FleetDarkColors else FleetLightColors,
+        typography = FleetTypography
+    ) {
         Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background, content = content)
     }
 }

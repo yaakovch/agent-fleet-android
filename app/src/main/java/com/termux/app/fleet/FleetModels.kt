@@ -6,7 +6,8 @@ data class FleetHost(
     val status: String,
     val platform: String,
     val lastSeenAt: String?,
-    val capabilities: Set<String>
+    val capabilities: Set<String>,
+    val wtmuxVersion: String = ""
 )
 
 data class FleetPhysicalHost(
@@ -147,12 +148,22 @@ class FleetDownloadCancellation {
 
     fun cancel() {
         cancelled = true
-        process?.destroy()
+        process?.let { value ->
+            runCatching { value.destroy() }
+            value.closePipesCompat()
+        }
     }
 
     internal fun bind(value: Process) {
         process = value
-        if (cancelled) value.destroy()
+        if (cancelled) {
+            runCatching { value.destroy() }
+            value.closePipesCompat()
+        }
+    }
+
+    internal fun unbind(value: Process) {
+        if (process === value) process = null
     }
 
     internal fun isCancelled(): Boolean = cancelled
@@ -164,7 +175,9 @@ data class FleetSchedule(
     val hostId: String,
     val sessionId: String,
     val deliverAt: String,
-    val status: String
+    val status: String,
+    val outcomeCode: String = "",
+    val detail: String = ""
 )
 
 data class FleetAttention(
@@ -173,7 +186,34 @@ data class FleetAttention(
     val sessionId: String,
     val agent: String,
     val resetAt: String?,
-    val state: String
+    val state: String,
+    val kind: String = "hard-limit",
+    val title: String = "",
+    val detail: String = ""
+)
+
+data class FleetPairingRequest(
+    val id: String,
+    val deviceName: String,
+    val platform: String,
+    val peer: String,
+    val requestedAt: String,
+    val expiresAt: String,
+    val status: String
+)
+
+data class FleetPairingReview(
+    val requestId: String,
+    val deviceName: String,
+    val platform: String,
+    val peer: String,
+    val peerIp: String,
+    val proposalJson: String
+)
+
+data class FleetPairingReviewResult(
+    val snapshot: FleetSnapshot,
+    val review: FleetPairingReview
 )
 
 data class FleetLimitWindow(
@@ -206,7 +246,8 @@ data class FleetSnapshot(
     val fleetId: String = "legacy",
     val physicalHosts: List<FleetPhysicalHost> = legacyPhysicalHosts(hosts),
     val endpoints: List<FleetEndpoint> = emptyList(),
-    val executionTargets: List<FleetExecutionTarget> = legacyExecutionTargets(physicalHosts)
+    val executionTargets: List<FleetExecutionTarget> = legacyExecutionTargets(physicalHosts),
+    val pairingRequests: List<FleetPairingRequest> = emptyList()
 )
 
 private fun legacyPhysicalHosts(hosts: List<FleetHost>): List<FleetPhysicalHost> = hosts.map { host ->

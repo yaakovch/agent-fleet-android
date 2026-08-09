@@ -3,6 +3,7 @@ package com.termux.shared.activities;
 import androidx.annotation.NonNull;
 import androidx.appcompat.app.ActionBar;
 import androidx.appcompat.app.AppCompatActivity;
+import androidx.annotation.NonNull;
 import androidx.appcompat.widget.Toolbar;
 import androidx.recyclerview.widget.LinearLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
@@ -28,7 +29,6 @@ import com.termux.shared.interact.ShareUtils;
 import com.termux.shared.models.ReportInfo;
 
 import org.commonmark.node.FencedCodeBlock;
-import org.jetbrains.annotations.NotNull;
 
 import io.noties.markwon.Markwon;
 import io.noties.markwon.recycler.MarkwonAdapter;
@@ -384,7 +384,7 @@ public class ReportActivity extends AppCompatActivity {
 
 
 
-    @NotNull
+    @NonNull
     private static String getReportInfoDirectoryPath(Context context) {
         // Canonicalize to solve /data/data and /data/user/0 issues when comparing with reportInfoFilePath
         return FileUtils.getCanonicalPath(context.getCacheDir().getAbsolutePath(), null) + "/" + CACHE_DIR_BASENAME;

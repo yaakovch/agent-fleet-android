@@ -64,6 +64,14 @@ class EmulatorBackendTest(unittest.TestCase):
         text = (ROOT / "scripts/debug/android-check.sh").read_text(encoding="utf-8")
         self.assertIn("-no-snapshot-load -no-snapshot-save", text)
 
+    def test_runner_collapses_retained_system_panels_after_emulator_validation(self):
+        text = (ROOT / "scripts/debug/android-check.sh").read_text(encoding="utf-8")
+        validation = text.index('ro.kernel.qemu')
+        collapse = text.index('shell cmd statusbar collapse')
+        instrumentation = text.index('shell am instrument')
+        self.assertLess(validation, collapse)
+        self.assertLess(collapse, instrumentation)
+
     def test_windows_backend_and_legacy_conflict(self):
         with tempfile.TemporaryDirectory() as temporary:
             sdk = pathlib.Path(temporary)

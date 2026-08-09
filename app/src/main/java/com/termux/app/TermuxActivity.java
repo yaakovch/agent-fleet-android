@@ -34,8 +34,11 @@ import com.termux.app.terminal.TermuxActivityRootView;
 import com.termux.app.fleet.AgentFleetComposer;
 import com.termux.app.fleet.AgentFleetContract;
 import com.termux.app.fleet.AgentFleetDisplayDensityStore;
+import com.termux.app.fleet.AgentFleetExternalImageRequest;
+import com.termux.app.fleet.AgentFleetCameraStaging;
 import com.termux.app.fleet.NativeSessionController;
 import com.termux.app.fleet.NativeSessionHost;
+import com.termux.app.fleet.LocalSuggestionRuntime;
 import com.termux.app.fleet.TerminalScrollbackController;
 import com.termux.app.fleet.DrawerSessionSurface;
 import com.termux.app.fleet.DrawerSessionStore;
@@ -184,9 +187,17 @@ public final class TermuxActivity extends ComponentActivity implements ServiceCo
     private static final int CONTEXT_MENU_REPORT_ID = 9;
 
     private static final String ARG_TERMINAL_TOOLBAR_TEXT_INPUT = "terminal_toolbar_text_input";
+    private static final String ARG_AGENT_FLEET_PICKER_TARGET = "agent_fleet_picker_target";
+    private static final String ARG_AGENT_FLEET_PICKER_GENERATION = "agent_fleet_picker_generation";
+    private static final String ARG_AGENT_FLEET_CAMERA_TARGET = "agent_fleet_camera_target";
+    private static final String ARG_AGENT_FLEET_CAMERA_GENERATION = "agent_fleet_camera_generation";
+    private static final String ARG_AGENT_FLEET_CAMERA_FILE = "agent_fleet_camera_file";
     private static final int REQUEST_AGENT_FLEET_IMAGES = 8401;
     private static final int REQUEST_AGENT_FLEET_CAMERA = 8402;
+    private AgentFleetExternalImageRequest mAgentFleetPickerRequest;
+    private AgentFleetExternalImageRequest mAgentFleetCameraRequest;
     private Uri mAgentFleetCameraUri;
+    private File mAgentFleetCameraFile;
     private NativeSessionController mAgentFleetNativeSession;
     private TerminalScrollbackController mAgentFleetTerminalScrollback;
     private AgentFleetSessionResumeController mAgentFleetSessionResume;
@@ -216,6 +227,7 @@ public final class TermuxActivity extends ComponentActivity implements ServiceCo
         super.onCreate(savedInstanceState);
 
         mShouldRestoreAgentFleetSession = savedInstanceState != null && managedSessionId(getIntent()) != null;
+        restoreAgentFleetExternalImageRequests(savedInstanceState);
 
         setContentView(R.layout.activity_termux);
 
@@ -291,6 +303,8 @@ public final class TermuxActivity extends ComponentActivity implements ServiceCo
         Logger.logDebug(LOG_TAG, "onStart");
 
         if (mIsInvalidState) return;
+
+        LocalSuggestionRuntime.onSurfaceStarted(this);
 
         mIsVisible = true;
 
@@ -618,20 +632,43 @@ public final class TermuxActivity extends ComponentActivity implements ServiceCo
     }
 
     public void pickAgentFleetImages() {
+        AgentFleetExternalImageRequest request = AgentFleetComposer.beginExternalImageRequest(false);
+        if (request == null) {
+            Toast.makeText(
+                this, "This session has no image target, or an image picker is already open.",
+                Toast.LENGTH_LONG
+            ).show();
+            return;
+        }
+        mAgentFleetPickerRequest = request;
         Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT);
         intent.addCategory(Intent.CATEGORY_OPENABLE);
         intent.setType("image/*");
         intent.putExtra(Intent.EXTRA_ALLOW_MULTIPLE, true);
         try {
             startActivityForResult(intent, REQUEST_AGENT_FLEET_IMAGES);
-        } catch (ActivityNotFoundException error) {
+        } catch (RuntimeException error) {
+            if (mAgentFleetPickerRequest == request) mAgentFleetPickerRequest = null;
+            AgentFleetComposer.cancelExternalImageRequest(request);
             Toast.makeText(this, "No image picker is available", Toast.LENGTH_LONG).show();
         }
     }
 
+    @Override
     public void pickAgentFleetCamera() {
+        AgentFleetExternalImageRequest request = AgentFleetComposer.beginExternalImageRequest(true);
+        if (request == null) {
+            Toast.makeText(
+                this, "This session has no image target, or the camera is already open.",
+                Toast.LENGTH_LONG
+            ).show();
+            return;
+        }
+        mAgentFleetCameraRequest = request;
         File directory = new File(getCacheDir(), "agent-fleet-camera");
         if (!directory.exists() && !directory.mkdirs()) {
+            mAgentFleetCameraRequest = null;
+            AgentFleetComposer.cancelExternalImageRequest(request);
             Toast.makeText(this, "Camera staging is unavailable", Toast.LENGTH_LONG).show();
             return;
         }
@@ -640,25 +677,58 @@ public final class TermuxActivity extends ComponentActivity implements ServiceCo
             long cutoff = System.currentTimeMillis() - 24L * 60L * 60L * 1000L;
             for (File file : staleFiles) if (file.lastModified() < cutoff) file.delete();
         }
-        File output = new File(directory, UUID.randomUUID() + ".jpg");
-        mAgentFleetCameraUri = FileProvider.getUriForFile(this, getPackageName() + ".agentfleet.images", output);
-        Intent intent = new Intent("android.media.action.IMAGE_CAPTURE");
-        intent.putExtra("output", mAgentFleetCameraUri);
-        intent.addFlags(Intent.FLAG_GRANT_WRITE_URI_PERMISSION | Intent.FLAG_GRANT_READ_URI_PERMISSION);
+        File output = null;
         try {
+            output = new File(directory, UUID.randomUUID() + ".jpg");
+            Uri cameraUri = FileProvider.getUriForFile(
+                this, getPackageName() + ".agentfleet.images", output);
+            mAgentFleetCameraFile = output;
+            mAgentFleetCameraUri = cameraUri;
+            Intent intent = new Intent("android.media.action.IMAGE_CAPTURE");
+            intent.putExtra("output", cameraUri);
+            intent.addFlags(Intent.FLAG_GRANT_WRITE_URI_PERMISSION | Intent.FLAG_GRANT_READ_URI_PERMISSION);
             startActivityForResult(intent, REQUEST_AGENT_FLEET_CAMERA);
-        } catch (ActivityNotFoundException error) {
-            Toast.makeText(this, "No camera is available", Toast.LENGTH_LONG).show();
+        } catch (RuntimeException error) {
+            if (mAgentFleetCameraRequest == request) {
+                mAgentFleetCameraRequest = null;
+                mAgentFleetCameraFile = null;
+                mAgentFleetCameraUri = null;
+            }
+            AgentFleetComposer.cancelExternalImageRequest(request);
+            if (output != null) output.delete();
+            Toast.makeText(
+                this, "Camera could not be opened. Retry or choose an existing image.",
+                Toast.LENGTH_LONG
+            ).show();
         }
     }
 
     @Override
     protected void onActivityResult(int requestCode, int resultCode, Intent data) {
         super.onActivityResult(requestCode, resultCode, data);
-        if (requestCode == REQUEST_AGENT_FLEET_IMAGES && resultCode == RESULT_OK && data != null)
-            AgentFleetComposer.handleImageResult(this, data);
-        if (requestCode == REQUEST_AGENT_FLEET_CAMERA && resultCode == RESULT_OK && mAgentFleetCameraUri != null)
-            AgentFleetComposer.handleCapturedImage(this, mAgentFleetCameraUri);
+        if (requestCode == REQUEST_AGENT_FLEET_IMAGES) {
+            AgentFleetExternalImageRequest request = mAgentFleetPickerRequest;
+            mAgentFleetPickerRequest = null;
+            if (resultCode == RESULT_OK && data != null)
+                AgentFleetComposer.handleImageResult(this, data, request);
+            else
+                AgentFleetComposer.cancelExternalImageRequest(request);
+        }
+        if (requestCode == REQUEST_AGENT_FLEET_CAMERA) {
+            AgentFleetExternalImageRequest request = mAgentFleetCameraRequest;
+            Uri cameraUri = mAgentFleetCameraUri;
+            File cameraFile = mAgentFleetCameraFile;
+            mAgentFleetCameraRequest = null;
+            mAgentFleetCameraUri = null;
+            mAgentFleetCameraFile = null;
+            if (resultCode == RESULT_OK && cameraUri != null && cameraFile != null)
+                AgentFleetComposer.handleCapturedImage(
+                    this, cameraUri, cameraFile.getAbsolutePath(), request);
+            else {
+                AgentFleetComposer.cancelExternalImageRequest(request);
+                if (cameraFile != null) cameraFile.delete();
+            }
+        }
     }
 
     @Override
@@ -713,13 +783,26 @@ public final class TermuxActivity extends ComponentActivity implements ServiceCo
 
         if (mUnifiedDrawerController != null)
             mUnifiedDrawerController.onStop();
+
+        LocalSuggestionRuntime.onSurfaceStopped(getApplicationContext(), this);
     }
 
     @Override
     public void onDestroy() {
+        LocalSuggestionRuntime.onSurfaceStopped(getApplicationContext(), this);
         super.onDestroy();
 
         Logger.logDebug(LOG_TAG, "onDestroy");
+
+        if (!isChangingConfigurations()) {
+            AgentFleetComposer.cancelExternalImageRequest(mAgentFleetPickerRequest);
+            AgentFleetComposer.cancelExternalImageRequest(mAgentFleetCameraRequest);
+            if (mAgentFleetCameraFile != null) mAgentFleetCameraFile.delete();
+        }
+        mAgentFleetPickerRequest = null;
+        mAgentFleetCameraRequest = null;
+        mAgentFleetCameraFile = null;
+        mAgentFleetCameraUri = null;
 
         if (mIsInvalidState) return;
 
@@ -764,6 +847,75 @@ public final class TermuxActivity extends ComponentActivity implements ServiceCo
     public void onSaveInstanceState(@NonNull Bundle savedInstanceState) {
         super.onSaveInstanceState(savedInstanceState);
         saveTerminalToolbarTextInput(savedInstanceState);
+        saveAgentFleetExternalImageRequest(
+            savedInstanceState,
+            mAgentFleetPickerRequest,
+            ARG_AGENT_FLEET_PICKER_TARGET,
+            ARG_AGENT_FLEET_PICKER_GENERATION
+        );
+        saveAgentFleetExternalImageRequest(
+            savedInstanceState,
+            mAgentFleetCameraRequest,
+            ARG_AGENT_FLEET_CAMERA_TARGET,
+            ARG_AGENT_FLEET_CAMERA_GENERATION
+        );
+        if (mAgentFleetCameraFile != null)
+            savedInstanceState.putString(ARG_AGENT_FLEET_CAMERA_FILE, mAgentFleetCameraFile.getAbsolutePath());
+    }
+
+    private void restoreAgentFleetExternalImageRequests(@Nullable Bundle savedInstanceState) {
+        if (savedInstanceState == null) return;
+        mAgentFleetPickerRequest = restoreAgentFleetExternalImageRequest(
+            savedInstanceState,
+            false,
+            ARG_AGENT_FLEET_PICKER_TARGET,
+            ARG_AGENT_FLEET_PICKER_GENERATION
+        );
+        mAgentFleetCameraRequest = restoreAgentFleetExternalImageRequest(
+            savedInstanceState,
+            true,
+            ARG_AGENT_FLEET_CAMERA_TARGET,
+            ARG_AGENT_FLEET_CAMERA_GENERATION
+        );
+        if (mAgentFleetCameraRequest == null) return;
+        String path = savedInstanceState.getString(ARG_AGENT_FLEET_CAMERA_FILE);
+        try {
+            File restored = AgentFleetCameraStaging.restore(getCacheDir(), path);
+            mAgentFleetCameraFile = restored;
+            mAgentFleetCameraUri = FileProvider.getUriForFile(
+                this, getPackageName() + ".agentfleet.images", restored);
+        } catch (Exception error) {
+            AgentFleetComposer.cancelExternalImageRequest(mAgentFleetCameraRequest);
+            mAgentFleetCameraRequest = null;
+            mAgentFleetCameraFile = null;
+            mAgentFleetCameraUri = null;
+        }
+    }
+
+    private static void saveAgentFleetExternalImageRequest(
+        Bundle state,
+        @Nullable AgentFleetExternalImageRequest request,
+        String targetKey,
+        String generationKey
+    ) {
+        if (request == null) return;
+        state.putString(targetKey, request.getTarget());
+        state.putLong(generationKey, request.getGeneration());
+    }
+
+    @Nullable
+    private static AgentFleetExternalImageRequest restoreAgentFleetExternalImageRequest(
+        Bundle state,
+        boolean camera,
+        String targetKey,
+        String generationKey
+    ) {
+        String target = state.getString(targetKey);
+        long generation = state.getLong(generationKey, 0L);
+        if (target == null || target.trim().isEmpty() || generation <= 0L) return null;
+        AgentFleetExternalImageRequest request =
+            new AgentFleetExternalImageRequest(target, camera, generation);
+        return AgentFleetComposer.restoreExternalImageRequest(request) ? request : null;
     }
 
 

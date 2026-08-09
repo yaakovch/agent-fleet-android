@@ -18,15 +18,15 @@ object ConversationStreamParser {
                 root.requireConversationFields(setOf("protocolVersion", "type", "timestamp", "session", "questionId", "status"))
                 safe(root.getString("timestamp"), 64)
                 safe(root.getString("session"), 160)
-                safe(root.getString("questionId"), 160)
+                safe(root.getString("questionId"), 160).also { require(it.isNotEmpty()) }
                 require(root.getString("status") == "delivered")
             }
             "approval.response" -> {
                 root.requireConversationFields(setOf("protocolVersion", "type", "timestamp", "session", "approvalId", "choice", "status"))
                 safe(root.getString("timestamp"), 64)
                 safe(root.getString("session"), 160)
-                safe(root.getString("approvalId"), 160)
-                safe(root.getString("choice"), 32)
+                safe(root.getString("approvalId"), 160).also { require(it.isNotEmpty()) }
+                safe(root.getString("choice"), 32).also { require(it.isNotEmpty()) }
                 require(root.getString("status") == "delivered")
             }
             else -> error("Unknown conversation protocol frame")
@@ -44,13 +44,15 @@ object ConversationStreamParser {
                     setOf("timestamp", "providerActivity", "providerState")
                 )
                 val items = root.getJSONArray("items").also { require(it.length() <= 200) }
+                val parsedItems = List(items.length()) { parseItem(items.getJSONObject(it)) }
+                    .also { requireUniqueNonEmpty(it.map(ConversationItem::id)) }
                 ConversationFrame.Snapshot(
                 session = safe(root.getString("session"), 160),
                 adapter = safe(root.getString("adapter"), 32),
                 mode = safe(root.getString("mode"), 32),
                 interactionMode = interactionMode(root),
                 revision = safe(root.getString("revision"), 160),
-                items = List(items.length()) { parseItem(items.getJSONObject(it)) },
+                items = parsedItems,
                 nextCursor = root.optString("nextCursor").takeIf { it.isNotBlank() },
                 hasMore = root.getBoolean("hasMore"),
                 providerActivity = providerActivity(root),
@@ -210,7 +212,33 @@ object ConversationStreamParser {
                     safe(task.getString("state"), 32).also { require(it in setOf("pending", "in_progress", "completed")) }
                 )
             }
-        )
+        ).also(::validateItemIdentities)
+    }
+
+    private fun validateItemIdentities(item: ConversationItem) {
+        require(item.id.isNotEmpty())
+        requireUniqueNonEmpty(item.choices.map(ConversationChoice::id))
+        requireUniqueNonEmpty(item.questions.map(ConversationQuestion::id))
+        item.questions.forEach { question ->
+            requireUniqueNonEmpty(question.options.map(ConversationQuestionOption::id))
+        }
+        requireUniqueNonEmpty(item.answers.map(ConversationAnswer::questionId))
+        item.answers.forEach { requireUniqueNonEmpty(it.choiceIds) }
+        requireUniqueNonEmpty(item.tasks.map(ConversationTask::id))
+        if (item.questions.isEmpty()) return
+        val questions = item.questions.associateBy(ConversationQuestion::id)
+        item.answers.forEach { answer ->
+            val question = requireNotNull(questions[answer.questionId]) { "Answer references an unknown question" }
+            val allowed = question.options.map(ConversationQuestionOption::id).toMutableSet()
+            if (question.type == "boolean" && allowed.isEmpty()) allowed += setOf("true", "false")
+            require(answer.choiceIds.all(allowed::contains)) { "Answer references an unknown option" }
+        }
+    }
+
+    private fun requireUniqueNonEmpty(values: List<String>) {
+        require(values.all(String::isNotEmpty) && values.toSet().size == values.size) {
+            "Conversation identities must be non-empty and unique"
+        }
     }
 
     private fun parsePresentation(value: JSONObject): ToolPresentation {

@@ -1,6 +1,7 @@
 package com.termux.app;
 
 import com.termux.shared.data.UrlUtils;
+import com.termux.shared.data.ExternalUrlPolicy;
 
 import org.junit.Assert;
 import org.junit.Test;
@@ -27,6 +28,22 @@ public class TermuxActivityTest {
 
         assertUrlsAre("hello https://example.com/#bar https://example.com/foo#bar",
             "https://example.com/#bar", "https://example.com/foo#bar");
+    }
+
+    @Test
+    public void testTerminalExternalUrlPolicy() {
+        Assert.assertEquals(ExternalUrlPolicy.Action.OPEN,
+            ExternalUrlPolicy.classify("https://example.com/path?q=1").action);
+        Assert.assertEquals(ExternalUrlPolicy.Action.CONFIRM,
+            ExternalUrlPolicy.classify("mailto:team@example.com").action);
+        Assert.assertEquals(ExternalUrlPolicy.Action.BLOCK,
+            ExternalUrlPolicy.classify("file:///data/data/private").action);
+        Assert.assertEquals(ExternalUrlPolicy.Action.BLOCK,
+            ExternalUrlPolicy.classify("https://user:secret@example.com").action);
+        Assert.assertEquals(ExternalUrlPolicy.Action.BLOCK,
+            ExternalUrlPolicy.classify("javascript:alert(1)").action);
+        Assert.assertEquals(ExternalUrlPolicy.Action.BLOCK,
+            ExternalUrlPolicy.classify("https://example.com/\ncredential").action);
     }
 
     @Test

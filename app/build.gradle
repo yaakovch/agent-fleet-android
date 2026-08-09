@@ -29,21 +29,24 @@ android {
 
     dependencies {
         coreLibraryDesugaring "com.android.tools:desugar_jdk_libs:2.0.3"
+        def composeBom = platform("androidx.compose:compose-bom:2026.06.00")
+        implementation composeBom
+        androidTestImplementation composeBom
         implementation "androidx.annotation:annotation:1.3.0"
         implementation "androidx.core:core:1.6.0"
         implementation "androidx.drawerlayout:drawerlayout:1.1.1"
         implementation "androidx.preference:preference:1.1.1"
         implementation "androidx.viewpager:viewpager:1.0.0"
         implementation "androidx.activity:activity-compose:1.7.2"
-        implementation "androidx.compose.foundation:foundation:1.5.4"
-        implementation "androidx.compose.material3:material3:1.1.2"
-        implementation "androidx.compose.runtime:runtime:1.11.4"
-        implementation "androidx.compose.runtime:runtime-saveable:1.11.4"
-        implementation "androidx.compose.ui:ui:1.5.4"
-        implementation "androidx.compose.ui:ui-tooling-preview:1.5.4"
+        implementation "androidx.compose.foundation:foundation"
+        implementation "androidx.compose.material3:material3"
+        implementation "androidx.compose.runtime:runtime"
+        implementation "androidx.compose.runtime:runtime-saveable"
+        implementation "androidx.compose.ui:ui"
+        implementation "androidx.compose.ui:ui-tooling-preview"
         implementation "com.google.ai.edge.litertlm:litertlm-android:0.14.0"
         implementation "com.google.code.gson:gson:2.13.2"
-        debugImplementation "androidx.compose.ui:ui-tooling:1.5.4"
+        debugImplementation "androidx.compose.ui:ui-tooling"
         implementation "com.google.guava:guava:24.1-jre"
         implementation "io.noties.markwon:core:$markwonVersion"
         implementation "io.noties.markwon:ext-strikethrough:$markwonVersion"
@@ -76,7 +79,7 @@ android {
 
         externalNativeBuild {
             ndkBuild {
-                cFlags "-std=c11", "-Wall", "-Wextra", "-Werror", "-Os", "-fno-stack-protector", "-Wl,--gc-sections"
+                cFlags "-std=c11", "-Wall", "-Wextra", "-Werror", "-Os", "-fstack-protector-strong", "-D_FORTIFY_SOURCE=2", "-fPIC"
             }
         }
 
@@ -190,6 +193,181 @@ def agentFleetRuntimeRootPackages = [
     "bash", "ca-certificates", "coreutils", "curl", "findutils", "git", "grep", "gzip",
     "openssh", "procps", "python", "sed", "tar", "termux-tools"
 ]
+def agentFleetPinFields = [
+    "schemaVersion", "applicationId", "prefix", "architecture", "upstreamCommit", "forkCommit",
+    "releaseTag", "url", "file", "sha256", "size", "bootstrapFile", "bootstrapSha256",
+    "bootstrapSize", "packageLockSha256", "packageLockSize", "sbomSha256", "sbomSize",
+    "packageCount", "packagePayloadSize"
+] as Set
+def agentFleetPinClosureFields = [
+    "runtimeRootsSha256", "closureManifestFile", "closureManifestSha256",
+    "closureManifestSize", "excludedPackageCount"
+] as Set
+def agentFleetLockFields = [
+    "schemaVersion", "applicationId", "prefix", "architecture", "repository", "bundleUrl",
+    "upstreamCommit", "forkCommit", "rootPackages", "totalSize", "packages"
+] as Set
+def agentFleetLockClosureFields = [
+    "runtimeRootsSha256", "closureManifestFile", "closureManifestSha256", "closureManifestSize"
+] as Set
+def agentFleetPackageFields = [
+    "name", "version", "architecture", "file", "sha256", "size", "sourcePackage",
+    "recipe", "homepage", "license", "description"
+] as Set
+def agentFleetPackageClosureFields = [
+    "essential", "preDepends", "depends", "provides", "resolvedDependencies"
+] as Set
+
+def hasCompleteMetadataExtension = { value, Set baseFields, Set extensionFields, String label ->
+    def fields = value.keySet() as Set
+    if (fields == baseFields) return false
+    if (fields == baseFields + extensionFields) return true
+    throw new GradleException("${label} fields are incomplete")
+}
+
+def boundedMetadata = { value, int maximum, boolean allowEmpty = false ->
+    value instanceof String &&
+        (allowEmpty || !value.isEmpty()) &&
+        value.length() <= maximum &&
+        !value.any { character -> Character.isISOControl(character as char) }
+}
+
+def validPackageName = { value -> value instanceof String && value ==~ /^[a-z0-9][a-z0-9+.-]*$/ }
+def debianDependency = ~/^([a-z0-9][a-z0-9+.-]{0,127})(?::([a-z0-9_-]+))?(?: \((<<|<=|=|>=|>>) ([A-Za-z0-9.+:~_-]{1,128})\))?(?: \[([A-Za-z0-9_! -]{1,256})\])?(?: <([A-Za-z0-9_!+.-]{1,128})>)?$/
+def debianArchitecture = ~/^!?[a-z0-9][a-z0-9_-]{0,63}$/
+def debianVersionPartOrder = { Character character ->
+    if (character == null) return 0
+    if (character == ('~' as char)) return -1
+    Character.isLetter(character as char) ? (character as int) : (character as int) + 256
+}
+def compareDebianVersionPart = { String left, String right ->
+    int leftIndex = 0
+    int rightIndex = 0
+    while (leftIndex < left.length() || rightIndex < right.length()) {
+        while ((leftIndex < left.length() && !Character.isDigit(left.charAt(leftIndex))) ||
+            (rightIndex < right.length() && !Character.isDigit(right.charAt(rightIndex)))) {
+            Character leftCharacter = leftIndex < left.length() ? left.charAt(leftIndex) : null
+            Character rightCharacter = rightIndex < right.length() ? right.charAt(rightIndex) : null
+            int comparison = debianVersionPartOrder(leftCharacter) <=> debianVersionPartOrder(rightCharacter)
+            if (comparison != 0) return comparison
+            if (leftIndex < left.length()) leftIndex++
+            if (rightIndex < right.length()) rightIndex++
+        }
+        while (leftIndex < left.length() && left.charAt(leftIndex) == ('0' as char)) leftIndex++
+        while (rightIndex < right.length() && right.charAt(rightIndex) == ('0' as char)) rightIndex++
+        int leftStart = leftIndex
+        int rightStart = rightIndex
+        while (leftIndex < left.length() && Character.isDigit(left.charAt(leftIndex))) leftIndex++
+        while (rightIndex < right.length() && Character.isDigit(right.charAt(rightIndex))) rightIndex++
+        String leftDigits = left.substring(leftStart, leftIndex)
+        String rightDigits = right.substring(rightStart, rightIndex)
+        if (leftDigits.length() != rightDigits.length()) return leftDigits.length() <=> rightDigits.length()
+        int comparison = leftDigits <=> rightDigits
+        if (comparison != 0) return comparison
+    }
+    0
+}
+def compareDebianVersions = { String left, String right ->
+    def split = { String value ->
+        if (!value || value.length() > 128 || value.any { Character.isWhitespace(it as char) }) return null
+        int colon = value.indexOf(':')
+        String epoch = colon >= 0 ? value.substring(0, colon) : "0"
+        String remainder = colon >= 0 ? value.substring(colon + 1) : value
+        if (!(epoch ==~ /^[0-9]+$/) || !remainder) return null
+        int hyphen = remainder.lastIndexOf('-')
+        String upstream = hyphen >= 0 ? remainder.substring(0, hyphen) : remainder
+        String revision = hyphen >= 0 ? remainder.substring(hyphen + 1) : "0"
+        if (!upstream || !revision) return null
+        [epoch, upstream, revision]
+    }
+    def leftVersion = split(left)
+    def rightVersion = split(right)
+    if (leftVersion == null || rightVersion == null) {
+        throw new GradleException("Invalid Debian package version")
+    }
+    def normalizeEpoch = { String value -> value.replaceFirst(/^0+(?!$)/, "") }
+    String leftEpoch = normalizeEpoch(leftVersion[0])
+    String rightEpoch = normalizeEpoch(rightVersion[0])
+    int epochComparison = leftEpoch.length() == rightEpoch.length()
+        ? leftEpoch <=> rightEpoch
+        : leftEpoch.length() <=> rightEpoch.length()
+    if (epochComparison != 0) return epochComparison
+    int upstreamComparison = compareDebianVersionPart(leftVersion[1], rightVersion[1])
+    upstreamComparison != 0
+        ? upstreamComparison
+        : compareDebianVersionPart(leftVersion[2], rightVersion[2])
+}
+def debianVersionSatisfies = { String actual, String operator, String expected ->
+    if (!operator) return true
+    int comparison = compareDebianVersions(actual, expected)
+    switch (operator) {
+        case "<<": return comparison < 0
+        case "<=": return comparison <= 0
+        case "=": return comparison == 0
+        case ">=": return comparison >= 0
+        case ">>": return comparison > 0
+        default: return false
+    }
+}
+def parsedDebianDependency = { value, String architecture, boolean provided = false ->
+    if (!(value instanceof String)) return null
+    def matcher = value =~ debianDependency
+    if (!matcher.matches()) return null
+    def qualifier = matcher.group(2) ?: ""
+    def operator = matcher.group(3) ?: ""
+    def version = matcher.group(4) ?: ""
+    if (!!operator != !!version) return null
+    def architectures = (matcher.group(5) ?: "").split(" ").findAll { !it.isEmpty() }
+    def profiles = matcher.group(6) ?: ""
+    if (!architectures.every { it ==~ debianArchitecture }) return null
+    if (provided) {
+        if (qualifier || architectures || profiles || !(operator in ["", "="])) return null
+        return [name: matcher.group(1), applicable: true, requiresMultiArchAllowed: false,
+            operator: operator, version: version]
+    }
+    if (profiles || qualifier == "native" || !(qualifier in ["", "any", architecture])) return null
+    def positives = architectures.findAll { !it.startsWith("!") }.toSet()
+    def negatives = architectures.findAll { it.startsWith("!") }.collect { it.substring(1) }.toSet()
+    if (positives && negatives) return null
+    if ((positives + negatives).any { it == "any" || it.startsWith("any-") || it.endsWith("-any") }) return null
+    [
+        name: matcher.group(1),
+        applicable: !negatives.contains(architecture) && (!positives || positives.contains(architecture)),
+        requiresMultiArchAllowed: qualifier == "any",
+        operator: operator,
+        version: version
+    ]
+}
+def integralJsonNumber = { value ->
+    value instanceof Byte || value instanceof Short || value instanceof Integer ||
+        value instanceof Long || value instanceof BigInteger
+}
+
+def checkedNameList = { value, int maximum ->
+    value instanceof List &&
+        value.size() <= maximum &&
+        value.every(validPackageName) &&
+        value.toSet().size() == value.size()
+}
+
+def checkedDependencyGroups = { value, String architecture ->
+    value instanceof List &&
+        value.size() <= 128 &&
+        value.every { alternatives ->
+            alternatives instanceof List &&
+                !alternatives.isEmpty() &&
+                alternatives.size() <= 32 &&
+                alternatives.every { parsedDebianDependency(it, architecture) != null } &&
+                alternatives.toSet().size() == alternatives.size()
+        }
+}
+
+def checkedProvides = { value, String architecture ->
+    value instanceof List &&
+        value.size() <= 128 &&
+        value.every { parsedDebianDependency(it, architecture, true) != null } &&
+        value.toSet().size() == value.size()
+}
 
 def fileSha256 = { File input ->
     def digest = java.security.MessageDigest.getInstance("SHA-256")
@@ -215,13 +393,11 @@ def checkedRuntimeDescriptor = { String architecture ->
         throw new GradleException("Missing pinned Agent Fleet runtime descriptor for ${architecture}")
     }
     def descriptor = new groovy.json.JsonSlurper().parse(descriptorFile)
-    def expectedFields = [
-        "schemaVersion", "applicationId", "prefix", "architecture", "upstreamCommit", "forkCommit",
-        "releaseTag", "url", "file", "sha256", "size", "bootstrapFile", "bootstrapSha256",
-        "bootstrapSize", "packageLockSha256", "packageLockSize", "sbomSha256", "sbomSize",
-        "packageCount", "packagePayloadSize"
-    ] as Set
-    if (descriptor.keySet() != expectedFields || descriptor.schemaVersion != 1 ||
+    def closureFormat = hasCompleteMetadataExtension(
+        descriptor, agentFleetPinFields, agentFleetPinClosureFields,
+        "Pinned Agent Fleet runtime descriptor"
+    )
+    if (descriptor.schemaVersion != 1 ||
         descriptor.applicationId != agentFleetApplicationId || descriptor.prefix != agentFleetPrefix ||
         descriptor.architecture != architecture || descriptor.upstreamCommit != agentFleetRuntimeUpstreamCommit ||
         !(descriptor.forkCommit ==~ /^[a-f0-9]{40}$/) ||
@@ -237,6 +413,15 @@ def checkedRuntimeDescriptor = { String architecture ->
         !(descriptor.packageCount instanceof Number) || descriptor.packageCount < 1 || descriptor.packageCount > 512 ||
         !(descriptor.packagePayloadSize instanceof Number) || descriptor.packagePayloadSize < 1 || descriptor.packagePayloadSize > 512L * 1024L * 1024L) {
         throw new GradleException("Pinned Agent Fleet runtime descriptor is invalid for ${architecture}")
+    }
+    if (closureFormat &&
+        (!(descriptor.runtimeRootsSha256 ==~ /^[a-f0-9]{64}$/) ||
+            descriptor.closureManifestFile != "agent-fleet-runtime-closure-v1.json" ||
+            !(descriptor.closureManifestSha256 ==~ /^[a-f0-9]{64}$/) ||
+            !integralJsonNumber(descriptor.closureManifestSize) ||
+            descriptor.closureManifestSize < 1 || descriptor.closureManifestSize > 2L * 1024L * 1024L ||
+            !integralJsonNumber(descriptor.excludedPackageCount) || descriptor.excludedPackageCount < 0)) {
+        throw new GradleException("Pinned Agent Fleet runtime closure descriptor is invalid for ${architecture}")
     }
     def expectedUrl = "${agentFleetPackageRepository}/releases/download/${descriptor.releaseTag}/${descriptor.file}"
     if (descriptor.url != expectedUrl) {
@@ -352,6 +537,26 @@ task prepareAgentFleetRuntimeAssets {
             fileSha256(sbomFile) != descriptor.sbom.sha256 || sbomFile.length() != descriptor.sbom.size) {
             throw new GradleException("Agent Fleet package lock does not match embedded-runtime-v1")
         }
+        def committedLock = new groovy.json.JsonSlurper().parse(lockFile)
+        def committedClosureFormat = hasCompleteMetadataExtension(
+            committedLock, agentFleetLockFields, agentFleetLockClosureFields,
+            "Committed Agent Fleet package lock"
+        )
+        def committedClosureFile = committedClosureFormat
+            ? new File(agentFleetRuntimeSource, committedLock.closureManifestFile)
+            : null
+        if (committedClosureFormat &&
+            (committedLock.closureManifestFile != "agent-fleet-runtime-closure-v1.json" ||
+                !(committedLock.runtimeRootsSha256 ==~ /^[a-f0-9]{64}$/) ||
+                !(committedLock.closureManifestSha256 ==~ /^[a-f0-9]{64}$/) ||
+                !integralJsonNumber(committedLock.closureManifestSize) ||
+                committedLock.closureManifestSize < 1 ||
+                committedLock.closureManifestSize > 2L * 1024L * 1024L ||
+                !committedClosureFile.isFile() ||
+                committedClosureFile.length() != committedLock.closureManifestSize ||
+                fileSha256(committedClosureFile) != committedLock.closureManifestSha256)) {
+            throw new GradleException("Committed Agent Fleet closure manifest is invalid")
+        }
         delete(agentFleetGeneratedAssets)
         agentFleetGeneratedAssets.mkdirs()
         copy {
@@ -366,8 +571,17 @@ task prepareAgentFleetRuntimeAssets {
         }
         if (runtimePins.values()*.releaseTag.toSet().size() != 1 ||
             runtimePins.values()*.upstreamCommit.toSet().size() != 1 ||
-            runtimePins.values()*.forkCommit.toSet().size() != 1) {
+            runtimePins.values()*.forkCommit.toSet().size() != 1 ||
+            runtimePins.values().collect {
+                pin -> agentFleetPinClosureFields.every { field -> pin.containsKey(field) }
+            }.toSet().size() != 1) {
             throw new GradleException("Pinned Agent Fleet runtime architectures do not share one source release")
+        }
+        def pinsUseClosureFormat = agentFleetPinClosureFields.every {
+            field -> runtimePins["aarch64"].containsKey(field)
+        }
+        if (pinsUseClosureFormat != committedClosureFormat) {
+            throw new GradleException("Pinned and committed Agent Fleet metadata use different closure formats")
         }
 
         fileTree(file("src/main/cpp")) { include "bootstrap-*.zip" }.files.each { bootstrap ->
@@ -389,18 +603,25 @@ task prepareAgentFleetRuntimeAssets {
                 def lockBytes = checkedZipBytes(archive, "agent-fleet-package-lock-v2.json", 2L * 1024L * 1024L)
                 def sbomBytes = checkedZipBytes(archive, "agent-fleet-packages.spdx.json", 2L * 1024L * 1024L)
                 def bootstrapBytes = checkedZipBytes(archive, pin.bootstrapFile, 256L * 1024L * 1024L)
+                def pinClosureFormat = agentFleetPinClosureFields.every { field -> pin.containsKey(field) }
+                def closureBytes = pinClosureFormat
+                    ? checkedZipBytes(archive, pin.closureManifestFile, 2L * 1024L * 1024L)
+                    : null
                 if (lockBytes.length != pin.packageLockSize || bytesSha256(lockBytes) != pin.packageLockSha256 ||
                     sbomBytes.length != pin.sbomSize || bytesSha256(sbomBytes) != pin.sbomSha256 ||
-                    bootstrapBytes.length != pin.bootstrapSize || bytesSha256(bootstrapBytes) != pin.bootstrapSha256) {
+                    bootstrapBytes.length != pin.bootstrapSize || bytesSha256(bootstrapBytes) != pin.bootstrapSha256 ||
+                    (pinClosureFormat &&
+                        (closureBytes.length != pin.closureManifestSize ||
+                            bytesSha256(closureBytes) != pin.closureManifestSha256))) {
                     throw new GradleException("Agent Fleet runtime metadata does not match its pin: ${architecture}")
                 }
                 verifyOfflineBootstrap(bootstrapBytes, architecture)
                 def lock = new groovy.json.JsonSlurper().parse(lockBytes)
-                def expectedLockFields = [
-                    "schemaVersion", "applicationId", "prefix", "architecture", "repository", "bundleUrl",
-                    "upstreamCommit", "forkCommit", "rootPackages", "totalSize", "packages"
-                ] as Set
-                if (lock.keySet() != expectedLockFields || lock.schemaVersion != 2 ||
+                def lockClosureFormat = hasCompleteMetadataExtension(
+                    lock, agentFleetLockFields, agentFleetLockClosureFields,
+                    "Agent Fleet package lock"
+                )
+                if (lockClosureFormat != pinClosureFormat || lock.schemaVersion != 2 ||
                     lock.applicationId != agentFleetApplicationId || lock.prefix != agentFleetPrefix ||
                     lock.architecture != architecture || lock.repository != agentFleetPackageRepository ||
                     lock.bundleUrl != pin.url || lock.upstreamCommit != pin.upstreamCommit || lock.forkCommit != pin.forkCommit ||
@@ -408,21 +629,70 @@ task prepareAgentFleetRuntimeAssets {
                     !(lock.packages instanceof List) || lock.packages.size() != pin.packageCount || lock.totalSize != pin.packagePayloadSize) {
                     throw new GradleException("Agent Fleet package lock does not match its pin: ${architecture}")
                 }
+                if (lockClosureFormat &&
+                    (lock.runtimeRootsSha256 != pin.runtimeRootsSha256 ||
+                        lock.closureManifestFile != "agent-fleet-runtime-closure-v1.json" ||
+                        lock.closureManifestFile != pin.closureManifestFile ||
+                        lock.closureManifestSha256 != pin.closureManifestSha256 ||
+                        lock.closureManifestSize != pin.closureManifestSize)) {
+                    throw new GradleException("Agent Fleet closure lock does not match its pin: ${architecture}")
+                }
                 def expectedEntries = ["agent-fleet-package-lock-v2.json", "agent-fleet-packages.spdx.json", pin.bootstrapFile] as Set
+                if (lockClosureFormat) expectedEntries.add(lock.closureManifestFile)
                 def packageNames = [] as Set
                 def packageFiles = [] as Set
+                def orderedPackageNames = []
+                def packagesByName = [:]
                 long payloadSize = 0
                 lock.packages.each { item ->
-                    def expectedPackageFields = [
-                        "name", "version", "architecture", "file", "sha256", "size", "sourcePackage",
-                        "recipe", "homepage", "license", "description"
-                    ] as Set
-                    if (item.keySet() != expectedPackageFields || !(item.name ==~ /^[a-z0-9][a-z0-9+.-]*$/) ||
+                    def packageFields = item.keySet() as Set
+                    def packageClosureFormat
+                    if (packageFields == agentFleetPackageFields) {
+                        packageClosureFormat = false
+                    } else if (packageFields == agentFleetPackageFields + agentFleetPackageClosureFields ||
+                        packageFields == agentFleetPackageFields + agentFleetPackageClosureFields + ["multiArch"]) {
+                        packageClosureFormat = true
+                    } else {
+                        throw new GradleException("Agent Fleet package record fields are incomplete")
+                    }
+                    def homepageValid = false
+                    if (item.homepage == "NOASSERTION") {
+                        homepageValid = true
+                    } else if (boundedMetadata(item.homepage, 2048)) {
+                        try {
+                            def homepage = new URI(item.homepage)
+                            homepageValid = homepage.scheme in ["http", "https"] &&
+                                homepage.host && homepage.userInfo == null
+                        } catch (java.net.URISyntaxException ignored) {
+                            homepageValid = false
+                        }
+                    }
+                    if (packageClosureFormat != lockClosureFormat || !(item.name ==~ /^[a-z0-9][a-z0-9+.-]*$/) ||
+                        !boundedMetadata(item.version, 128) ||
                         !(item.file ==~ /^[A-Za-z0-9][A-Za-z0-9._+~-]*\.deb$/) || !(item.sha256 ==~ /^[a-f0-9]{64}$/) ||
-                        !(item.size instanceof Number) || item.size < 1 || item.size > 64L * 1024L * 1024L ||
-                        !(item.architecture in [architecture, "all"]) || !packageNames.add(item.name) || !packageFiles.add(item.file)) {
+                        !integralJsonNumber(item.size) || item.size < 1 || item.size > 64L * 1024L * 1024L ||
+                        !(item.architecture in [architecture, "all"]) ||
+                        !(item.sourcePackage ==~ /^[a-z0-9][a-z0-9+.-]*$/) ||
+                        !(item.recipe ==~ /^(?:NOASSERTION|(?:packages|root-packages|x11-packages)\/[a-z0-9][a-z0-9+.-]*\/build\.sh)$/) ||
+                        !homepageValid || !boundedMetadata(item.license, 256) ||
+                        !boundedMetadata(item.description, 4096, true) ||
+                        !packageNames.add(item.name) || !packageFiles.add(item.file)) {
                         throw new GradleException("Agent Fleet package lock contains an invalid record: ${architecture}")
                     }
+                    if (compareDebianVersions(item.version as String, item.version as String) != 0) {
+                        throw new GradleException("Agent Fleet package version is invalid: ${item.name}")
+                    }
+                    if (lockClosureFormat &&
+                        (!(item.essential instanceof Boolean) ||
+                            !((item.multiArch ?: "no") in ["no", "same", "foreign", "allowed"]) ||
+                            !checkedDependencyGroups(item.preDepends, architecture) ||
+                            !checkedDependencyGroups(item.depends, architecture) ||
+                            !checkedProvides(item.provides, architecture) ||
+                            !checkedNameList(item.resolvedDependencies, 128))) {
+                        throw new GradleException("Agent Fleet package dependency record is invalid: ${item.name}")
+                    }
+                    orderedPackageNames.add(item.name)
+                    packagesByName[item.name] = item
                     def entryName = "packages/${item.file}"
                     def payload = checkedZipBytes(archive, entryName, 64L * 1024L * 1024L)
                     if (payload.length != item.size || bytesSha256(payload) != item.sha256) {
@@ -434,11 +704,198 @@ task prepareAgentFleetRuntimeAssets {
                         new File(packageOutput, item.file).bytes = payload
                     }
                 }
+                if (lockClosureFormat) {
+                    if (orderedPackageNames != orderedPackageNames.sort(false)) {
+                        throw new GradleException("Agent Fleet closure package records are not sorted: ${architecture}")
+                    }
+                    def providers = [:].withDefault { [] }
+                    lock.packages.each { item ->
+                        item.provides.each { provided ->
+                            def parsed = parsedDebianDependency(provided, architecture, true)
+                            providers[parsed.name].add([packageName: item.name, version: parsed.version])
+                        }
+                    }
+                    lock.packages.each { item ->
+                        def groups = (item.preDepends + item.depends).collect { alternatives ->
+                            alternatives.collect {
+                                parsedDebianDependency(it, architecture)
+                            }.findAll { it.applicable }
+                        }.findAll { !it.isEmpty() }
+                        def represented = { dependency, group ->
+                            group.any { alternative ->
+                                def selected = packagesByName[dependency]
+                                if (selected == null ||
+                                    (alternative.requiresMultiArchAllowed &&
+                                        (selected.multiArch ?: "no") != "allowed")) {
+                                    return false
+                                }
+                                if (dependency == alternative.name) {
+                                    return debianVersionSatisfies(
+                                        selected.version as String,
+                                        alternative.operator as String,
+                                        alternative.version as String
+                                    )
+                                }
+                                def provided = providers[alternative.name].find {
+                                    it.packageName == dependency
+                                }
+                                provided != null &&
+                                    (!alternative.operator ||
+                                        (provided.version && debianVersionSatisfies(
+                                            provided.version as String,
+                                            alternative.operator as String,
+                                            alternative.version as String
+                                        )))
+                            }
+                        }
+                        if (!item.resolvedDependencies.every { packagesByName.containsKey(it) } ||
+                            !groups.every { group ->
+                                item.resolvedDependencies.any { represented(it, group) }
+                            } ||
+                            !item.resolvedDependencies.every { dependency ->
+                                groups.any { represented(dependency, it) }
+                            }) {
+                            throw new GradleException("Agent Fleet resolved dependency record is invalid: ${item.name}")
+                        }
+                    }
+                    def pending = (lock.rootPackages + lock.packages.findAll { it.essential }*.name)
+                        .toSet().sort()
+                    def selected = [] as Set
+                    while (!pending.isEmpty()) {
+                        def name = pending.remove(pending.size() - 1)
+                        if (!selected.add(name)) continue
+                        def item = packagesByName[name]
+                        if (item == null) {
+                            throw new GradleException("Agent Fleet runtime closure root is missing: ${name}")
+                        }
+                        item.resolvedDependencies.each { dependency ->
+                            if (!selected.contains(dependency)) pending.add(dependency)
+                        }
+                    }
+                    if (selected != packageNames) {
+                        throw new GradleException("Agent Fleet dependency closure attestation is invalid: ${architecture}")
+                    }
+
+                    def closure = new groovy.json.JsonSlurper().parse(closureBytes)
+                    def expectedSelected = lock.packages.collect { item -> [
+                        name: item.name,
+                        file: item.file,
+                        sha256: item.sha256,
+                        size: item.size,
+                        resolvedDependencies: item.resolvedDependencies
+                    ] }
+                    def closureFields = [
+                        "schemaVersion", "architecture", "runtimeRootsSha256", "rootPackages",
+                        "selectedPackages", "selectedPayloadSize", "excludedPackages", "ignoredFiles"
+                    ] as Set
+                    if (closure.keySet() != closureFields || closure.schemaVersion != 1 ||
+                        closure.architecture != architecture ||
+                        closure.runtimeRootsSha256 != lock.runtimeRootsSha256 ||
+                        closure.rootPackages != lock.rootPackages ||
+                        closure.selectedPackages != expectedSelected ||
+                        closure.selectedPayloadSize != lock.totalSize ||
+                        !checkedNameList(closure.excludedPackages, 512) ||
+                        closure.excludedPackages != closure.excludedPackages.sort(false) ||
+                        !java.util.Collections.disjoint(closure.excludedPackages, packageNames) ||
+                        !(closure.ignoredFiles instanceof List) ||
+                        closure.ignoredFiles.size() > 512 ||
+                        closure.ignoredFiles.toSet().size() != closure.ignoredFiles.size() ||
+                        closure.ignoredFiles != closure.ignoredFiles.sort(false) ||
+                        !closure.ignoredFiles.every { it instanceof String && it ==~ /^[A-Za-z0-9][A-Za-z0-9._+~-]*\.deb$/ } ||
+                        closure.excludedPackages.size() + closure.ignoredFiles.size() != pin.excludedPackageCount) {
+                        throw new GradleException("Agent Fleet closure manifest does not match its package lock: ${architecture}")
+                    }
+
+                    def sbom = new groovy.json.JsonSlurper().parse(sbomBytes)
+                    def sbomFields = [
+                        "spdxVersion", "dataLicense", "SPDXID", "name", "documentNamespace",
+                        "creationInfo", "documentComment", "packages", "relationships"
+                    ] as Set
+                    if (sbom.containsKey("hasExtractedLicensingInfos")) {
+                        sbomFields.add("hasExtractedLicensingInfos")
+                    }
+                    if (sbom.keySet() != sbomFields || sbom.spdxVersion != "SPDX-2.3" ||
+                        sbom.dataLicense != "CC0-1.0" || sbom.SPDXID != "SPDXRef-DOCUMENT" ||
+                        sbom.name != "Agent-Fleet-Termux-${architecture}" ||
+                        !(sbom.documentNamespace ==~ /^https:\/\/agent-fleet\.local\/sbom\/[a-f0-9]{64}$/) ||
+                        sbom.creationInfo != [
+                            created: "1970-01-01T00:00:00Z",
+                            creators: ["Tool: package-runtime.py"]
+                        ] ||
+                        sbom.documentComment != "Built from fork commit ${lock.forkCommit} based on upstream commit ${lock.upstreamCommit}." ||
+                        !(sbom.packages instanceof List) || sbom.packages.size() != lock.packages.size()) {
+                        throw new GradleException("Agent Fleet SPDX closure summary is invalid: ${architecture}")
+                    }
+                    def expectedRelationships = []
+                    def declaredLicenseRefs = [] as Set
+                    sbom.packages.eachWithIndex { spdxPackage, index ->
+                        def item = lock.packages[index]
+                        def safeName = item.name.replaceAll(/[^A-Za-z0-9.-]/, "-")
+                        if (safeName != item.name) {
+                            safeName += "-${bytesSha256(item.name.getBytes(java.nio.charset.StandardCharsets.UTF_8)).take(8)}"
+                        }
+                        def packageId = "SPDXRef-Package-${safeName}"
+                        def expectedSpdxFields = [
+                            "SPDXID", "name", "versionInfo", "downloadLocation", "filesAnalyzed",
+                            "checksums", "licenseConcluded", "licenseDeclared", "copyrightText",
+                            "sourceInfo", "comment"
+                        ] as Set
+                        if (spdxPackage.keySet() != expectedSpdxFields ||
+                            spdxPackage.SPDXID != packageId || spdxPackage.name != item.name ||
+                            spdxPackage.versionInfo != item.version ||
+                            spdxPackage.downloadLocation != "${lock.bundleUrl}#packages/${item.file}" ||
+                            spdxPackage.filesAnalyzed != false ||
+                            spdxPackage.checksums != [[algorithm: "SHA256", checksumValue: item.sha256]] ||
+                            spdxPackage.licenseConcluded != "NOASSERTION" ||
+                            !boundedMetadata(spdxPackage.licenseDeclared, 1024) ||
+                            spdxPackage.copyrightText != "NOASSERTION" ||
+                            spdxPackage.sourceInfo != "Termux recipe ${item.recipe}; upstream ${item.homepage}" ||
+                            spdxPackage.comment != "Termux recipe license metadata: ${item.license}") {
+                            throw new GradleException("Agent Fleet SPDX package record is invalid: ${item.name}")
+                        }
+                        (spdxPackage.licenseDeclared.findAll(/LicenseRef-[A-Za-z0-9.-]+/) ?: []).each {
+                            declaredLicenseRefs.add(it)
+                        }
+                        expectedRelationships.add([
+                            spdxElementId: "SPDXRef-DOCUMENT",
+                            relationshipType: "DESCRIBES",
+                            relatedSpdxElement: packageId
+                        ])
+                        item.resolvedDependencies.each { dependency ->
+                            def dependencySafeName = dependency.replaceAll(/[^A-Za-z0-9.-]/, "-")
+                            if (dependencySafeName != dependency) {
+                                dependencySafeName += "-${bytesSha256(dependency.getBytes(java.nio.charset.StandardCharsets.UTF_8)).take(8)}"
+                            }
+                            expectedRelationships.add([
+                                spdxElementId: packageId,
+                                relationshipType: "DEPENDS_ON",
+                                relatedSpdxElement: "SPDXRef-Package-${dependencySafeName}"
+                            ])
+                        }
+                    }
+                    if (sbom.relationships != expectedRelationships) {
+                        throw new GradleException("Agent Fleet SPDX relationships do not match the package lock: ${architecture}")
+                    }
+                    def extracted = sbom.hasExtractedLicensingInfos ?: []
+                    if (!(extracted instanceof List) ||
+                        extracted.collect { it.licenseId }.toSet().size() != extracted.size() ||
+                        extracted.any {
+                            it.keySet() != (["licenseId", "name", "extractedText"] as Set) ||
+                                !(it.licenseId ==~ /^LicenseRef-[A-Za-z0-9.-]+$/) ||
+                                !boundedMetadata(it.name, 256) ||
+                                it.extractedText != "Termux recipe license metadata: ${it.name}"
+                        } ||
+                        extracted.collect { it.licenseId }.toSet() != declaredLicenseRefs) {
+                        throw new GradleException("Agent Fleet SPDX extracted licenses are invalid: ${architecture}")
+                    }
+                }
                 if (!packageNames.containsAll(lock.rootPackages) || payloadSize != pin.packagePayloadSize || names.toSet() != expectedEntries) {
                     throw new GradleException("Agent Fleet runtime bundle closure is incomplete: ${architecture}")
                 }
                 if (architecture == "aarch64" &&
-                    (!java.util.Arrays.equals(lockBytes, lockFile.bytes) || !java.util.Arrays.equals(sbomBytes, sbomFile.bytes))) {
+                    (!java.util.Arrays.equals(lockBytes, lockFile.bytes) ||
+                        !java.util.Arrays.equals(sbomBytes, sbomFile.bytes) ||
+                        (lockClosureFormat && !java.util.Arrays.equals(closureBytes, committedClosureFile.bytes)))) {
                     throw new GradleException("Pinned aarch64 metadata differs from the committed embedded metadata")
                 }
                 def bootstrapOutput = file("src/main/cpp/${pin.bootstrapFile}")
@@ -463,8 +920,8 @@ dependencies {
     androidTestImplementation "androidx.test.ext:junit:1.1.5"
     androidTestImplementation "androidx.test:runner:1.5.2"
     androidTestImplementation "androidx.test:rules:1.5.0"
-    androidTestImplementation "androidx.compose.ui:ui-test-junit4:1.5.4"
-    debugImplementation "androidx.compose.ui:ui-test-manifest:1.5.4"
+    androidTestImplementation "androidx.compose.ui:ui-test-junit4"
+    debugImplementation "androidx.compose.ui:ui-test-manifest"
 }
 
 task versionName {

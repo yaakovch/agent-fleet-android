@@ -64,6 +64,27 @@ class FleetModelControlProtocolTest {
     }
 
     @Test
+    fun rejectsConflictingDuplicateModelAndEffortIds() {
+        val runtime = FleetRuntime(RuntimeEnvironment.getApplication())
+        val duplicateModel = payload().also { value ->
+            val models = value.getJSONObject("catalog").getJSONArray("models")
+            models.put(JSONObject(models.getJSONObject(0).toString()).put("label", "Conflicting label"))
+        }
+        assertThrows(IllegalArgumentException::class.java) {
+            runtime.parseModelControl(duplicateModel, "gaming:managed-one")
+        }
+
+        val duplicateEffort = payload().also { value ->
+            val efforts = value.getJSONObject("catalog").getJSONArray("models")
+                .getJSONObject(0).getJSONArray("efforts")
+            efforts.put(JSONObject(efforts.getJSONObject(0).toString()).put("label", "Conflicting label"))
+        }
+        assertThrows(IllegalArgumentException::class.java) {
+            runtime.parseModelControl(duplicateEffort, "gaming:managed-one")
+        }
+    }
+
+    @Test
     fun rejectsCrossSessionResponses() {
         val runtime = FleetRuntime(RuntimeEnvironment.getApplication())
         assertThrows(IllegalArgumentException::class.java) {

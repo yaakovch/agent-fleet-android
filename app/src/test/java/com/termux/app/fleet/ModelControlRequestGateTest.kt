@@ -9,6 +9,12 @@ import org.junit.Test
 
 class ModelControlRequestGateTest {
     @Test
+    fun passivePollingBacksOffUnlessAChangeIsPending() {
+        assertEquals(30_000L, modelControlPollDelayMillis(hasPendingChange = false))
+        assertEquals(3_000L, modelControlPollDelayMillis(hasPendingChange = true))
+    }
+
+    @Test
     fun explicitCatalogRefreshRunsAfterAnActiveBackgroundPoll() {
         val gate = ModelControlRequestGate()
         val background = gate.beginRefresh(includeCatalog = false)

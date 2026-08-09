@@ -6,6 +6,36 @@ install, type, scroll, capture, or run ADB commands against it.
 
 ## Daily commands
 
+Run the offline/static policy gate after changing scripts, workflows, Gradle
+integrity metadata, runtime provenance, or repository policy:
+
+```bash
+bash scripts/quality-gate.sh static
+```
+
+Run the canonical local gate used by push and pull-request CI. It discovers
+extensionless Bash and Python sources, verifies immutable workflow actions,
+the Gradle wrapper/distribution and dependency checksums, runtime
+license/SBOM/provenance, script regressions and rollback, all JVM variants,
+debug lint, and the signed debug APK identity/archive/ABI set:
+
+```bash
+bash scripts/quality-gate.sh local
+```
+
+For a cross-layer or pre-handoff change, run the same checks plus exactly one
+protected API 36 instrumentation suite:
+
+```bash
+bash scripts/quality-gate.sh full
+```
+
+Under WSL, `full` retains the protected Windows AVD default. The emulator CI
+workflow invokes that exact command with
+`AGENT_FLEET_EMULATOR_BACKEND=managed`. `package` is an additional
+build-workflow mode for producing and verifying debug artifacts; it is not a
+substitute for `local`.
+
 Run a focused JVM regression through the Java-17-aware launcher:
 
 ```bash
@@ -37,6 +67,10 @@ prefers the protected persistent Windows AVD even when `/dev/kvm` is usable:
 ```bash
 bash scripts/debug/android-check.sh full
 ```
+
+`android-check.sh` remains the direct emulator iteration runner. Use
+`quality-gate.sh full` when the repository-wide local=CI checks are part of
+the acceptance gate.
 
 For a publish-bound change, run the focused regression and then `full`; do not
 also run `fast`, because `full` contains that Compose coverage. `fast` remains
@@ -83,6 +117,9 @@ The Windows emulator path also sets `hide_error_dialogs=1` before
 instrumentation. This prevents a System UI ANR dialog from covering golden
 screens while preserving crash detection through the required terminal
 instrumentation result and status codes.
+It also collapses any Quick Settings or notification panel retained by the
+headless AVD immediately before instrumentation, so screenshot tests capture
+the Compose host rather than system UI left open by an earlier run.
 Focused mode requires an explicit `com.termux.app.*` instrumentation class and
 retains the same install, device-validation, artifact, and result-checking path
 as the complete suite.
@@ -116,6 +153,34 @@ scripts/debug/benchmark-gradle.sh
 Results are written under `build/reports/agent-fleet/gradle/`. Keep a candidate
 only when its independent median improvement is at least 10% and subsequent
 focused/full validation passes.
+
+## Build integrity updates
+
+The quality gate enforces the reviewed wrapper JAR hash, the Gradle 8.11.1
+distribution checksum, strict dependency locks for the buildscript and every
+project, `gradle/verification-metadata.xml` checksums, fixed dependency
+versions, immutable GitHub Action commits, fixed Ubuntu runner versions, and
+explicit workflow permissions.
+
+Do not regenerate integrity metadata during an ordinary build. When an
+approved dependency or toolchain change intentionally alters the resolved
+graph, regenerate all dependency locks with:
+
+```bash
+bash scripts/debug/android-gradle.sh resolveAndLockAll --write-locks \
+  --no-daemon --no-build-cache --console=plain
+```
+
+Review every lock-file change. If the graph introduces or changes downloaded
+artifacts, separately run the relevant test/lint/package tasks through
+`scripts/debug/android-gradle.sh` with
+`--write-verification-metadata sha256`, then review every added or removed
+component and checksum. Prove the reviewed graph is locally complete by
+running a focused Gradle task with `--offline`, followed by
+`bash scripts/quality-gate.sh local`. Never combine lock generation with a
+dependency-verification override. A wrapper version change must update and
+independently verify both the distribution checksum and wrapper JAR
+provenance.
 
 ## Coverage
 

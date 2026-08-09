@@ -2,9 +2,11 @@ package com.termux.app.fleet
 
 sealed class ConversationRow {
     abstract val id: String
+    abstract val composeKey: String
 
     data class Item(val value: ConversationItem) : ConversationRow() {
         override val id: String = value.id
+        override val composeKey: String = "item:${value.id}"
     }
 
     data class ToolGroup(
@@ -12,6 +14,7 @@ sealed class ConversationRow {
         val continuesIntoOlderHistory: Boolean
     ) : ConversationRow() {
         override val id: String = "tool-group:${calls.first().id}"
+        override val composeKey: String = "group:${calls.first().id}"
     }
 }
 

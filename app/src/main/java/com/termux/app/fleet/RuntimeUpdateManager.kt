@@ -130,7 +130,10 @@ object RuntimeUpdateManifestVerifier {
 class RuntimeUpdateManager(
     private val context: Context,
     private val embedded: EmbeddedRuntimeManager = EmbeddedRuntimeManager(context),
-    private val policyStore: ClientPolicyStore = ClientPolicyStore(context)
+    private val policyStore: ClientPolicyStore = ClientPolicyStore(context),
+    private val installedRuntimeVerifier: (EmbeddedRuntimeStatus) -> Boolean = {
+        embedded.isInstalledRuntimeVerified(it.current)
+    }
 ) {
     private val preferences = context.getSharedPreferences("agent-fleet-runtime-updates", Context.MODE_PRIVATE)
 
@@ -142,8 +145,12 @@ class RuntimeUpdateManager(
     fun shouldPreserveCurrentRuntime(status: EmbeddedRuntimeStatus): Boolean {
         return shouldPreserveVerifiedRuntime(
             status,
-            maxOf(acceptedSequence(), acceptedReleaseSetSequence()),
-            maxOf(healthySequence(), healthyReleaseSetSequence())
+            preferences.getString("last-healthy-version", "").orEmpty(),
+            preferences.getString("last-healthy-channel", "").orEmpty(),
+            acceptedSequence(),
+            healthySequence(),
+            acceptedReleaseSetSequence(),
+            healthyReleaseSetSequence()
         )
     }
 
@@ -153,7 +160,7 @@ class RuntimeUpdateManager(
         require(status.supported && status.usable && status.baseline == status.embeddedBaseline) {
             "APK runtime floor cannot be recorded before its baseline is healthy"
         }
-        val preserveCurrent = shouldPreserveCurrentRuntime(status)
+        val preserveCurrent = shouldPreserveCurrentRuntime(status) && installedRuntimeVerifier(status)
         val reconciled = if (status.current == status.baseline || preserveCurrent) status else embedded.restoreBaseline()
         require(
             reconciled.usable && reconciled.baseline == reconciled.embeddedBaseline &&
@@ -161,9 +168,25 @@ class RuntimeUpdateManager(
         ) {
             "APK runtime floor activation failed"
         }
+        require(installedRuntimeVerifier(reconciled)) {
+            "APK runtime floor files did not match their verified manifest"
+        }
         check(preferences.edit()
             .putLong("accepted-sequence", maxOf(acceptedSequence(), floor))
             .putLong("healthy-sequence", maxOf(healthySequence(), floor))
+            .putString("last-healthy-version", reconciled.current)
+            .putString(
+                "last-healthy-sha256",
+                if (preserveCurrent) {
+                    preferences.getString("last-healthy-sha256", "").orEmpty()
+                } else {
+                    embedded.descriptor().runtime.sha256
+                }
+            )
+            .putString(
+                "last-healthy-channel",
+                if (preserveCurrent) preferences.getString("last-healthy-channel", "").orEmpty() else "baseline"
+            )
             .putString("last-error", "")
             .commit()
         ) { "Runtime floor state could not be persisted" }
@@ -177,7 +200,10 @@ class RuntimeUpdateManager(
             "Built-in runtime must be prepared before checking for fixes"
         }
         if (!manual && !shouldCheck()) {
-            return RuntimeUpdateResult.Current(preferences.getString("last-source", "").orEmpty(), acceptedSequence())
+            return RuntimeUpdateResult.Current(
+                preferences.getString("last-source", "").orEmpty(),
+                maxOf(healthySequence(), healthyReleaseSetSequence())
+            )
         }
         preferences.edit().putLong("last-check-at", System.currentTimeMillis()).apply()
         val descriptor = embedded.descriptor()
@@ -196,25 +222,29 @@ class RuntimeUpdateManager(
                 val update = RuntimeUpdateManifestVerifier.verify(
                     text, keys, descriptor.protocolVersion, installedVersionCode(), policy.artifactOrigins
                 )
-                if (update.sequence <= maxOf(acceptedSequence(), floor)) {
-                    require(update.sequence <= healthySequence()) {
-                        "This signed runtime update previously failed its health check and will not be retried"
-                    }
+                if (!runtimeSequenceNeedsActivation(update.sequence, floor)) {
                     preferences.edit().putString("last-source", manifestUrl).putString("last-error", "").apply()
-                    return RuntimeUpdateResult.Current(manifestUrl, acceptedSequence())
+                    return RuntimeUpdateResult.Current(manifestUrl, maxOf(healthySequence(), floor))
                 }
-                require(update.version != embedded.inspect().current) { "Runtime update sequence changed without a new version" }
-                val artifact = download(update)
-                check(preferences.edit().putLong("accepted-sequence", update.sequence).commit()) {
-                    "Runtime replay-protection state could not be persisted"
+                val healthy = acquireAndActivateRuntime(
+                    update = update,
+                    acquire = { download(update) },
+                    activate = embedded::installHotfix
+                )
+                require(installedRuntimeVerifier(healthy)) {
+                    "Activated runtime files did not match their verified manifest"
                 }
-                embedded.installHotfix(artifact, update.sha256)
-                preferences.edit()
+                check(preferences.edit()
+                    .putLong("accepted-sequence", update.sequence)
                     .putLong("healthy-sequence", update.sequence)
+                    .putString("last-healthy-version", update.version)
+                    .putString("last-healthy-sha256", update.sha256)
+                    .putString("last-healthy-channel", "legacy")
                     .putString("last-source", manifestUrl)
                     .putString("last-key-id", update.keyId)
                     .putString("last-error", "")
-                    .apply()
+                    .commit()
+                ) { "Runtime replay-protection state could not be persisted" }
                 return RuntimeUpdateResult.Installed(manifestUrl, update)
             } catch (error: Exception) {
                 lastError = error
@@ -233,6 +263,24 @@ class RuntimeUpdateManager(
     fun lastSource(): String = preferences.getString("last-source", "").orEmpty()
     fun lastKeyId(): String = preferences.getString("last-key-id", "").orEmpty()
     fun lastError(): String = preferences.getString("last-error", "").orEmpty()
+
+    /**
+     * Returns only an app-signed baseline version or a host-runtime version
+     * retained from the currently healthy, signature-verified release set.
+     * Once a release set is healthy, missing/corrupt retained metadata fails
+     * closed instead of silently falling back to an older APK expectation.
+     */
+    fun verifiedExpectedHostRuntimeVersion(): VerifiedExpectedHostRuntimeVersion? {
+        if (healthyReleaseSetSequence() > 0L) {
+            val retained = preferences.getString(KEY_HEALTHY_HOST_RUNTIME_VERSION, "").orEmpty()
+            return runCatching { VerifiedExpectedHostRuntimeVersion.fromVerifiedSource(retained) }.getOrNull()
+        }
+        return runCatching {
+            VerifiedExpectedHostRuntimeVersion.fromVerifiedSource(
+                embedded.descriptor().components.getValue("hostRuntime").version
+            )
+        }.getOrNull()
+    }
 
     private fun installReleaseSet(
         text: String,
@@ -253,17 +301,19 @@ class RuntimeUpdateManager(
             ),
             componentFloors = releaseComponentFloors()
         )
-        if (releaseSet.releaseSetSequence <= acceptedReleaseSetSequence()) {
-            require(releaseSet.releaseSetSequence <= healthyReleaseSetSequence()) {
-                "This signed release set previously failed its health check and will not be retried"
-            }
-            preferences.edit().putString("last-source", manifestUrl).putString("last-error", "").apply()
-            return RuntimeUpdateResult.Current(manifestUrl, acceptedReleaseSetSequence())
+        val expectedHostRuntimeVersion = releaseSet.components.getValue("hostRuntime").version
+        if (!releaseSetSequenceNeedsActivation(releaseSet.releaseSetSequence)) {
+            check(preferences.edit()
+                .putString(KEY_HEALTHY_HOST_RUNTIME_VERSION, expectedHostRuntimeVersion)
+                .putString("last-source", manifestUrl)
+                .putString("last-error", "")
+                .commit()
+            ) { "Verified host-runtime expectation could not be persisted" }
+            return RuntimeUpdateResult.Current(manifestUrl, healthyReleaseSetSequence())
         }
-        val artifact = releaseSet.artifacts.singleOrNull {
-            it.component == "clientRuntime" && it.platform in setOf("termux", "any") &&
-                it.architecture in setOf("arm64", "universal", "any")
-        } ?: throw IllegalArgumentException("release_set_incompatible: no Android client runtime artifact")
+        val supportedDeviceAbis = android.os.Build.SUPPORTED_ABIS
+            .filter { it in descriptor.supportedAbis }
+        val artifact = selectAndroidClientRuntimeArtifact(releaseSet.artifacts, supportedDeviceAbis)
         val selected = releaseSet.components.getValue("clientRuntime")
         require(artifact.componentSequence == selected.sequence && artifact.version == selected.version)
         val update = RuntimeUpdate(
@@ -278,9 +328,32 @@ class RuntimeUpdateManager(
             keyId = releaseSet.signature.keyId
         )
         val current = embedded.inspect()
-        val sameRuntime = current.current == update.version && current.usable
+        val sameRuntime = current.current == update.version && current.usable &&
+            when {
+                current.current == current.baseline && current.baseline == current.embeddedBaseline ->
+                    update.version == descriptor.baselineVersion && update.sha256 == descriptor.runtime.sha256
+                shouldPreserveCurrentRuntime(current) && installedRuntimeVerifier(current) ->
+                    update.sha256 == preferences.getString("last-healthy-sha256", "").orEmpty()
+                else -> false
+            }
+        val healthy = if (sameRuntime) current else acquireAndActivateRuntime(
+            update = update,
+            acquire = { download(update) },
+            activate = embedded::installHotfix
+        )
+        require(healthy.usable && healthy.current == update.version) {
+            "Activated runtime does not match the signed release set"
+        }
+        require(installedRuntimeVerifier(healthy)) {
+            "Activated runtime files did not match their verified manifest"
+        }
         check(preferences.edit()
             .putLong("accepted-release-set-sequence", releaseSet.releaseSetSequence)
+            .putLong("healthy-release-set-sequence", releaseSet.releaseSetSequence)
+            .putString("last-healthy-version", update.version)
+            .putString("last-healthy-sha256", update.sha256)
+            .putString("last-healthy-channel", "release-set")
+            .putString(KEY_HEALTHY_HOST_RUNTIME_VERSION, expectedHostRuntimeVersion)
             .putLong("release-set-floor", maxOf(
                 preferences.getLong("release-set-floor", 0),
                 releaseSet.rollbackFloor.releaseSetSequence
@@ -292,22 +365,11 @@ class RuntimeUpdateManager(
                     ))
                 }
             }
-            .commit()
-        ) { "Release-set replay-protection state could not be persisted" }
-        if (!sameRuntime) {
-            val downloaded = download(update)
-            embedded.installHotfix(downloaded, update.sha256)
-        }
-        val healthy = embedded.inspect()
-        require(healthy.usable && healthy.current == update.version) {
-            "Activated runtime does not match the signed release set"
-        }
-        preferences.edit()
-            .putLong("healthy-release-set-sequence", releaseSet.releaseSetSequence)
             .putString("last-source", manifestUrl)
             .putString("last-key-id", update.keyId)
             .putString("last-error", "")
-            .apply()
+            .commit()
+        ) { "Release-set replay-protection state could not be persisted" }
         return if (sameRuntime) {
             RuntimeUpdateResult.Current(manifestUrl, releaseSet.releaseSetSequence)
         } else {
@@ -318,6 +380,16 @@ class RuntimeUpdateManager(
     private fun releaseComponentFloors(): Map<String, Long> = listOf(
         "windowsApp", "androidApp", "clientRuntime", "hostRuntime", "providerAdapters", "contracts"
     ).associateWith { preferences.getLong("component-floor-$it", 0) }
+
+    private companion object {
+        const val KEY_HEALTHY_HOST_RUNTIME_VERSION = "healthy-host-runtime-version"
+    }
+
+    internal fun runtimeSequenceNeedsActivation(sequence: Long, builtInFloor: Long): Boolean =
+        sequence > maxOf(healthySequence(), builtInFloor)
+
+    internal fun releaseSetSequenceNeedsActivation(sequence: Long): Boolean =
+        sequence > healthyReleaseSetSequence()
 
     @Suppress("DEPRECATION")
     private fun installedVersionCode(): Long {
@@ -409,12 +481,81 @@ class RuntimeUpdateManager(
 
 internal fun shouldPreserveVerifiedRuntime(
     status: EmbeddedRuntimeStatus,
+    lastHealthyVersion: String,
+    lastHealthyChannel: String,
     acceptedSequence: Long,
-    healthySequence: Long
+    healthySequence: Long,
+    acceptedReleaseSetSequence: Long,
+    healthyReleaseSetSequence: Long
 ): Boolean = status.supported && status.usable &&
     status.baseline == status.embeddedBaseline &&
     status.current.isNotBlank() && status.current != status.baseline &&
-    acceptedSequence > 0 && acceptedSequence == healthySequence
+    status.current == lastHealthyVersion &&
+    when (lastHealthyChannel) {
+        "legacy" -> acceptedSequence > 0 && acceptedSequence == healthySequence
+        "release-set" ->
+            acceptedReleaseSetSequence > 0 && acceptedReleaseSetSequence == healthyReleaseSetSequence
+        else -> false
+    }
+
+internal fun acquireAndActivateRuntime(
+    update: RuntimeUpdate,
+    acquire: () -> File,
+    activate: (File, String) -> EmbeddedRuntimeStatus
+): EmbeddedRuntimeStatus {
+    val artifact = acquire()
+    val status = activate(artifact, update.sha256)
+    require(status.usable && status.current == update.version) {
+        "Activated runtime does not match the verified update"
+    }
+    return status
+}
+
+private data class AndroidRuntimeArtifactRank(
+    val architecture: Int,
+    val platform: Int
+) : Comparable<AndroidRuntimeArtifactRank> {
+    override fun compareTo(other: AndroidRuntimeArtifactRank): Int =
+        compareValuesBy(this, other, AndroidRuntimeArtifactRank::architecture, AndroidRuntimeArtifactRank::platform)
+}
+
+internal fun selectAndroidClientRuntimeArtifact(
+    artifacts: List<ReleaseArtifact>,
+    supportedAbis: List<String>
+): ReleaseArtifact {
+    require(supportedAbis.isNotEmpty()) {
+        "release_set_incompatible: Android did not report a supported runtime ABI"
+    }
+    val architectures = supportedAbis.mapNotNull { abi ->
+        when (abi) {
+            "arm64-v8a" -> "arm64"
+            "x86_64" -> "x86_64"
+            else -> null
+        }
+    }.distinct()
+    val ranked = artifacts.mapNotNull { artifact ->
+        if (artifact.component != "clientRuntime") return@mapNotNull null
+        val platformRank = when (artifact.platform) {
+            "termux" -> 2
+            "any" -> 1
+            else -> return@mapNotNull null
+        }
+        val architectureRank = when (artifact.architecture) {
+            in architectures -> 1_000 - architectures.indexOf(artifact.architecture)
+            "universal" -> 100
+            "any" -> 1
+            else -> return@mapNotNull null
+        }
+        artifact to AndroidRuntimeArtifactRank(architectureRank, platformRank)
+    }
+    val bestRank = ranked.maxOfOrNull(Pair<ReleaseArtifact, AndroidRuntimeArtifactRank>::second)
+        ?: throw IllegalArgumentException("release_set_incompatible: no Android client runtime artifact")
+    val best = ranked.filter { it.second == bestRank }.map(Pair<ReleaseArtifact, AndroidRuntimeArtifactRank>::first)
+    require(best.size == 1) {
+        "release_set_ambiguous: multiple Android client runtime artifacts have equal priority"
+    }
+    return best.single()
+}
 
 private fun ByteArray.sha256(): String = MessageDigest.getInstance("SHA-256").digest(this).toHex()
 private fun ByteArray.toHex(): String = joinToString("") { "%02x".format(it) }

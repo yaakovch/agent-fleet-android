@@ -46,6 +46,9 @@
     <!-- ShareUtils -->
     <string name="title_share_with">Share With</string>
     <string name="title_open_url_with">Open URL With</string>
+    <string name="title_confirm_external_url">Open external link?</string>
+    <string name="msg_confirm_external_url">This link uses the %1$s scheme. Open it with another app?</string>
+    <string name="action_open_external_url">Open</string>
     <string name="msg_storage_permission_not_granted">The storage permission not granted."</string>
     <string name="msg_file_saved_successfully">The %1$s file saved successfully at \"%2$s\""</string>
 

@@ -33,6 +33,10 @@ APK-baseline recovery targets.
 - [Migration and rollback runbook](docs/MIGRATION_AND_ROLLBACK.md)
 - [Emulator-first debugging](docs/ANDROID_DEBUGGING.md)
 
+The canonical repository gate is `bash scripts/quality-gate.sh local`.
+Cross-layer handoff uses `bash scripts/quality-gate.sh full`, which adds one
+protected API 36 emulator suite and never targets a physical phone.
+
 The upstream Termux documentation is preserved below because its package,
 terminal, plugin-signing, and troubleshooting details remain applicable.
 

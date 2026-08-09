@@ -1,6 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
-    package="com.termux"
     android:installLocation="internalOnly">
 
     <uses-feature
@@ -29,7 +28,6 @@
         android:name=".app.TermuxApplication"
         android:allowBackup="false"
         android:banner="@drawable/banner"
-        android:extractNativeLibs="true"
         android:icon="@mipmap/ic_agent_fleet"
         android:label="@string/application_name"
         android:roundIcon="@mipmap/ic_agent_fleet_round"

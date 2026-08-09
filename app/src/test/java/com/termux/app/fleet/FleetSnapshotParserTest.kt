@@ -45,6 +45,18 @@ class FleetSnapshotParserTest {
     }
 
     @Test
+    fun limitIdMatchesTheCanonical320CharacterBound() {
+        val fixture = requireNotNull(javaClass.classLoader?.getResource("fleet_snapshot_v1.json")).readText()
+        val atLimit = JSONObject(fixture)
+        atLimit.getJSONArray("limits").getJSONObject(0).put("id", "x".repeat(320))
+        assertEquals(320, FleetSnapshotParser.parse(atLimit.toString()).limits.single().id.length)
+
+        val overLimit = JSONObject(fixture)
+        overLimit.getJSONArray("limits").getJSONObject(0).put("id", "x".repeat(321))
+        assertThrows(IllegalArgumentException::class.java) { FleetSnapshotParser.parse(overLimit.toString()) }
+    }
+
+    @Test
     fun parsesNegotiatedCanonicalIdentityWithoutChangingLegacySessionId() {
         val fixture = requireNotNull(javaClass.classLoader?.getResource("contracts/fleet-snapshot-identity-v1.json")).readText()
         val snapshot = FleetSnapshotParser.parse(fixture)
@@ -69,6 +81,74 @@ class FleetSnapshotParserTest {
         val inconsistent = JSONObject(fixture)
         inconsistent.getJSONArray("sessions").getJSONObject(0).put("executionTargetId", "windows")
         assertThrows(IllegalArgumentException::class.java) { FleetSnapshotParser.parse(inconsistent.toString()) }
+
+        val collidingNamespace = JSONObject(fixture)
+        val hosts = collidingNamespace.getJSONArray("physicalHosts")
+        hosts.put(JSONObject(hosts.getJSONObject(0).toString())
+            .put("id", hosts.getJSONObject(0).getJSONArray("legacyHostIds").getString(0))
+            .put("legacyHostIds", JSONArray().put("other-legacy-host")))
+        assertThrows(IllegalArgumentException::class.java) {
+            FleetSnapshotParser.parse(collidingNamespace.toString())
+        }
+    }
+
+    @Test
+    fun rejectsDuplicateAlertSourceIds() {
+        listOf("hosts", "schedules", "attention").forEach { field ->
+            val duplicate = JSONObject(validSnapshot)
+            val values = duplicate.getJSONArray(field)
+            val second = JSONObject(values.getJSONObject(0).toString())
+            when (field) {
+                "hosts" -> second.put("name", "Other display name")
+                "schedules" -> second.put("status", "delivered")
+                "attention" -> second.put("state", "resolved")
+            }
+            values.put(second)
+            assertThrows(IllegalArgumentException::class.java) { FleetSnapshotParser.parse(duplicate.toString()) }
+        }
+
+        val pairing = JSONObject()
+            .put("id", "pair")
+            .put("deviceName", "Review phone")
+            .put("platform", "Android")
+            .put("peer", "phone.example.ts.net")
+            .put("requestedAt", "2026-07-12T05:00:00Z")
+            .put("expiresAt", "2026-07-12T05:10:00Z")
+            .put("status", "awaiting-review")
+        val duplicatePairing = JSONObject(validSnapshot).put(
+            "pairingRequests",
+            JSONArray().put(pairing).put(JSONObject(pairing.toString()).put("deviceName", "Other phone"))
+        )
+        assertThrows(IllegalArgumentException::class.java) { FleetSnapshotParser.parse(duplicatePairing.toString()) }
+    }
+
+    @Test
+    fun rejectsDuplicateLimitAndPresetIds() {
+        val quotaFixture = requireNotNull(javaClass.classLoader?.getResource("fleet_snapshot_v1.json")).readText()
+        val duplicateLimit = JSONObject(quotaFixture)
+        val limits = duplicateLimit.getJSONArray("limits")
+        limits.put(JSONObject(limits.getJSONObject(0).toString()).put("profileAlias", "Other profile"))
+        assertThrows(IllegalArgumentException::class.java) { FleetSnapshotParser.parse(duplicateLimit.toString()) }
+
+        val preset = JSONObject()
+            .put("id", "favorite-duplicate")
+            .put("name", "Demo Codex")
+            .put("hostId", "gaming")
+            .put("project", "wtmux")
+            .put("backend", "linux")
+            .put("tool", "codex")
+            .put("profileAlias", "")
+        val duplicatePreset = JSONObject(validSnapshot).put(
+            "presets",
+            JSONArray().put(preset).put(JSONObject(preset.toString()).put("name", "Other preset"))
+        )
+        assertThrows(IllegalArgumentException::class.java) { FleetSnapshotParser.parse(duplicatePreset.toString()) }
+
+        val unknownHostPreset = JSONObject(validSnapshot).put(
+            "presets",
+            JSONArray().put(JSONObject(preset.toString()).put("id", "favorite-unknown").put("hostId", "unknown"))
+        )
+        assertThrows(IllegalArgumentException::class.java) { FleetSnapshotParser.parse(unknownHostPreset.toString()) }
     }
 
     @Test
@@ -124,5 +204,60 @@ class FleetSnapshotParserTest {
         }
         val updated = JSONObject(validSnapshot).put("attention", items).toString()
         assertEquals(listOf("detected", "offering", "offered"), FleetSnapshotParser.parse(updated).attention.map { it.state })
+    }
+
+    @Test
+    fun retainsOnlyBoundedCanonicalAlertSourceFields() {
+        val root = JSONObject(validSnapshot)
+        root.getJSONArray("schedules").getJSONObject(0).put("status", "failed").put("outcomeCode", "host_unavailable")
+        root.put(
+            "pairingRequests",
+            JSONArray().put(
+                JSONObject()
+                    .put("id", "pair-1")
+                    .put("deviceName", "Review phone")
+                    .put("platform", "Android")
+                    .put("peer", "phone.example.ts.net")
+                    .put("requestedAt", "2026-07-12T05:00:00Z")
+                    .put("expiresAt", "2026-07-12T05:10:00Z")
+                    .put("status", "awaiting-review")
+            )
+        )
+
+        val snapshot = FleetSnapshotParser.parse(root.toString())
+        assertEquals("test", snapshot.hosts.single().wtmuxVersion)
+        assertEquals("host_unavailable", snapshot.schedules.single().outcomeCode)
+        assertEquals("Host unavailable", snapshot.schedules.single().detail)
+        assertEquals("hard-limit", snapshot.attention.single().kind)
+        assertEquals("Codex usage limit detected", snapshot.attention.single().title)
+        assertEquals("gaming · resets 2026-07-12T06:00:00Z", snapshot.attention.single().detail)
+        assertEquals("pair-1", snapshot.pairingRequests.single().id)
+        assertEquals("awaiting-review", snapshot.pairingRequests.single().status)
+    }
+
+    @Test
+    fun alertParsingKeepsHardLimitKindClosedAndPairingBounded() {
+        val wrongAttentionKind = JSONObject(validSnapshot)
+        wrongAttentionKind.getJSONArray("attention").getJSONObject(0).put("kind", "delivery")
+        assertThrows(IllegalArgumentException::class.java) {
+            FleetSnapshotParser.parse(wrongAttentionKind.toString())
+        }
+
+        val pairing = JSONObject()
+            .put("id", "pair")
+            .put("deviceName", "Review phone")
+            .put("platform", "Android")
+            .put("peer", "phone.example.ts.net")
+            .put("requestedAt", "2026-07-12T05:00:00Z")
+            .put("expiresAt", "2026-07-12T05:10:00Z")
+            .put("status", "awaiting-review")
+        val tooMany = JSONArray()
+        repeat(MAX_FLEET_ALERT_PAIRING_STATES + 1) { index ->
+            tooMany.put(JSONObject(pairing.toString()).put("id", "pair-$index"))
+        }
+        val oversizedPairing = JSONObject(validSnapshot).put("pairingRequests", tooMany)
+        assertThrows(IllegalArgumentException::class.java) {
+            FleetSnapshotParser.parse(oversizedPairing.toString())
+        }
     }
 }

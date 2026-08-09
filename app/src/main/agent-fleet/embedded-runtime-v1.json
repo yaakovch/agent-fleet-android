@@ -31,6 +31,7 @@
     "sha256": "864e656fe7b4390a4ae419b7e6b6d412b2415c1719df0587ca36c386c4774a43",
     "size": 1628160,
     "formatVersion": 2,
+    "manifestSha256": "6ffbdac4b8e2099d5c57b34e2e43d9435d8f179c8d8bc820bcf7b0f276c96cf0",
     "sbomSha256": "da34ee20e18b9a2f980ffcf20ddea4ab62f5f4f19d6435b0e2c9edfe7605a38e",
     "licenseSha256": "f238e36d2f45e4ebd31e31545886f683d8f72766ba9b669dca522522482b41c7"
   },

@@ -241,14 +241,23 @@ class AgentFleetDiagnosticsRunner(
             val bash = executable("bash") ?: error("Bash is missing")
             val process = ProcessBuilder(localShellDiagnosticCommand(bash))
                 .directory(home).apply { configureEnvironment(environment()) }.start()
-            if (!process.waitForCompat(LOCAL_TIMEOUT_SECONDS, TimeUnit.SECONDS)) {
-                process.destroyForciblyCompat()
-                error("Local shell timed out")
+            try {
+                if (!process.waitForCompat(LOCAL_TIMEOUT_SECONDS, TimeUnit.SECONDS)) {
+                    error("Local shell timed out")
+                }
+                val output = BoundedUtf8LineReader(process.inputStream, LOCAL_SHELL_MAX_OUTPUT_BYTES).use { reader ->
+                    val marker = reader.readLine()
+                    require(reader.readLine() == null) { "Local shell returned excessive output" }
+                    marker
+                }
+                require(process.exitValue() == 0 && output == "agent-fleet-diagnostic-ok") {
+                    "Local shell returned an invalid result"
+                }
+                "Local shell is responsive" to "A bounded process started, returned the expected marker, and exited cleanly."
+            } finally {
+                if (process.isAliveCompat()) process.terminateAndReapCompat()
+                else process.closePipesCompat()
             }
-            require(process.exitValue() == 0 && process.inputStream.bufferedReader().readText() == "agent-fleet-diagnostic-ok") {
-                "Local shell returned an invalid result"
-            }
-            "Local shell is responsive" to "A bounded process started, returned the expected marker, and exited cleanly."
         }
 
         var snapshot = snapshotHint
@@ -388,6 +397,7 @@ class AgentFleetDiagnosticsRunner(
         private const val WHOLE_TIMEOUT_MS = 45_000L
         private const val MAX_DOCTOR_HOSTS = 8
         private const val EXPORT_MAX_AGE_MS = 24L * 60L * 60L * 1_000L
+        private const val LOCAL_SHELL_MAX_OUTPUT_BYTES = 128
     }
 }
 

@@ -137,6 +137,65 @@ class ConversationStreamParserTest {
     }
 
     @Test
+    fun rejectsAmbiguousConversationIdentitiesAndAnswerReferences() {
+        val fixture = checkNotNull(
+            javaClass.classLoader?.getResourceAsStream("contracts/conversation-structured-work-v2.json")
+        ).bufferedReader().use { it.readText() }
+        fun reject(mutate: (org.json.JSONObject) -> Unit) {
+            val candidate = org.json.JSONObject(fixture)
+            mutate(candidate)
+            assertThrows(IllegalArgumentException::class.java) {
+                ConversationStreamParser.parseFrame(candidate.toString())
+            }
+        }
+
+        reject { root ->
+            val items = root.getJSONArray("items")
+            items.put(org.json.JSONObject(items.getJSONObject(0).toString()).put("title", "Conflicting board"))
+        }
+        reject { root ->
+            val item = root.getJSONArray("items").getJSONObject(2)
+            item.getJSONArray("choices")
+                .put(org.json.JSONObject().put("id", "approve").put("label", "Approve"))
+                .put(org.json.JSONObject().put("id", "approve").put("label", "Different label"))
+        }
+        reject { root ->
+            val questions = root.getJSONArray("items").getJSONObject(2).getJSONArray("questions")
+            questions.put(org.json.JSONObject(questions.getJSONObject(0).toString()).put("prompt", "Different prompt"))
+        }
+        reject { root ->
+            val options = root.getJSONArray("items").getJSONObject(2)
+                .getJSONArray("questions").getJSONObject(0).getJSONArray("options")
+            options.put(org.json.JSONObject(options.getJSONObject(0).toString()).put("label", "Different label"))
+        }
+        reject { root ->
+            val tasks = root.getJSONArray("items").getJSONObject(0).getJSONArray("tasks")
+            tasks.put(org.json.JSONObject(tasks.getJSONObject(0).toString()).put("title", "Different task"))
+        }
+        reject { root ->
+            val item = root.getJSONArray("items").getJSONObject(2)
+            val question = item.getJSONArray("questions").getJSONObject(0)
+            item.put("answers", org.json.JSONArray().put(
+                org.json.JSONObject()
+                    .put("questionId", question.getString("id"))
+                    .put("choiceIds", org.json.JSONArray().put("unknown-option"))
+                    .put("text", "")
+            ))
+        }
+        reject { root ->
+            val item = root.getJSONArray("items").getJSONObject(2)
+            val questionId = item.getJSONArray("questions").getJSONObject(0).getString("id")
+            val answer = org.json.JSONObject()
+                .put("questionId", questionId)
+                .put("choiceIds", org.json.JSONArray())
+                .put("text", "First")
+            item.put("answers", org.json.JSONArray()
+                .put(answer)
+                .put(org.json.JSONObject(answer.toString()).put("text", "Second")))
+        }
+    }
+
+    @Test
     fun parsesConversationSnapshotAndApproval() {
         val line = """
             {"protocolVersion":2,"type":"conversation.snapshot","session":"wtmux-main","adapter":"codex","mode":"ai","interactionMode":"plan","revision":"rev-1","items":[${item("m1")},{"id":"approval-1","kind":"approval","timestamp":"","role":"","title":"Run command?","text":"git status","detail":"","state":"pending","tool":"shell","attachments":[],"choices":[{"id":"approve","label":"Approve"},{"id":"deny","label":"Deny"}],"revision":"approval-rev"}],"nextCursor":"older","hasMore":true}
@@ -231,6 +290,12 @@ class ConversationStreamParserTest {
         assertTrue(rows[1] is ConversationRow.Item)
         assertTrue(rows[2] is ConversationRow.Item)
         assertEquals("2+ tool calls · Command 1, Read 1", toolGroupTitle(rows[0] as ConversationRow.ToolGroup))
+
+        val adversarial = buildConversationRows(
+            listOf(start, second, message.copy(id = "tool-group:${start.id}")),
+            hasMore = false
+        )
+        assertEquals(adversarial.size, adversarial.map(ConversationRow::composeKey).toSet().size)
     }
 
     @Test
@@ -372,6 +437,10 @@ class ConversationStreamParserTest {
         assertEquals(NativeViewMode.AutomaticTerminal, terminalScreenViewMode("shell", true, NativeViewMode.Native))
         assertEquals(NativeViewMode.Native, terminalScreenViewMode("shell", false, NativeViewMode.AutomaticTerminal))
         assertEquals(NativeViewMode.ManualTerminal, terminalScreenViewMode("shell", false, NativeViewMode.ManualTerminal))
+        assertEquals(8L, localSuggestionCancellationSerialForModeChange(7, NativeViewMode.Native, NativeViewMode.ManualTerminal))
+        assertEquals(7L, localSuggestionCancellationSerialForModeChange(7, NativeViewMode.ManualTerminal, NativeViewMode.Native))
+        assertEquals(8L, localSuggestionCancellationSerialForFocusChange(7, true, false))
+        assertEquals(7L, localSuggestionCancellationSerialForFocusChange(7, false, true))
     }
 
     @Test

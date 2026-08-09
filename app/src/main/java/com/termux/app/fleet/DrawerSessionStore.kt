@@ -171,7 +171,14 @@ class DrawerSessionStore(context: Context) {
             return migrated
         }
         return runCatching { decode(JSONObject(raw)) }.getOrElse {
-            StoredState(counter = 0, records = linkedMapOf()).also(::saveState)
+            val empty = StoredState(counter = 0, records = linkedMapOf())
+            check(
+                preferences.edit()
+                    .putString(CORRUPT_BACKUP_KEY, raw.take(MAX_CORRUPT_BACKUP_CHARS))
+                    .putString(KEY, encodeState(empty))
+                    .commit()
+            ) { "Unable to preserve corrupt drawer session state" }
+            empty
         }
     }
 
@@ -181,13 +188,19 @@ class DrawerSessionStore(context: Context) {
         val bounded = state.records.values
             .sortedWith(compareByDescending<DrawerSessionRecord> { it.pinned }.thenByDescending { it.lastUsed })
             .take(MAX_RECORDS)
-        val objectValue = JSONObject()
-            .put("version", VERSION)
-            .put("counter", state.counter)
-            .put("records", JSONArray().apply { bounded.forEach { put(encodeRecord(it)) } })
-        preferences.edit().putString(KEY, objectValue.toString()).apply()
+        val boundedState = StoredState(
+            counter = state.counter,
+            records = LinkedHashMap(bounded.associateBy { it.session.id })
+        )
+        preferences.edit().putString(KEY, encodeState(boundedState)).apply()
         state.records.keys.retainAll(bounded.mapTo(mutableSetOf()) { it.session.id })
     }
+
+    private fun encodeState(state: StoredState): String = JSONObject()
+        .put("version", VERSION)
+        .put("counter", state.counter)
+        .put("records", JSONArray().apply { state.records.values.forEach { put(encodeRecord(it)) } })
+        .toString()
 
     private fun decode(value: JSONObject): StoredState {
         require(value.getInt("version") == VERSION)
@@ -256,8 +269,10 @@ class DrawerSessionStore(context: Context) {
     companion object {
         private const val PREFERENCES = "agent_fleet_terminal_drawer"
         private const val KEY = "drawer_sessions_v2"
+        private const val CORRUPT_BACKUP_KEY = "drawer_sessions_v2_corrupt_backup"
         private const val ACTIVE_FULLSCREEN_KEY = "active_fullscreen_session_v1"
         private const val VERSION = 2
         private const val MAX_RECORDS = 64
+        private const val MAX_CORRUPT_BACKUP_CHARS = 256 * 1024
     }
 }

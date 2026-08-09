@@ -1,7 +1,12 @@
 package com.termux.app.fleet
 
+import android.annotation.SuppressLint
 import java.io.File
 import java.nio.file.Files
+import java.nio.file.attribute.PosixFilePermissions
+import java.security.MessageDigest
+import org.json.JSONArray
+import org.json.JSONObject
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -61,6 +66,120 @@ class EmbeddedRuntimeMetadataParserTest {
         }
     }
 
+    @Test
+    @SuppressLint("NewApi")
+    fun installedRuntimeVerificationRejectsChangedReleaseBytes() {
+        val root = Files.createTempDirectory("agent-fleet-installed-runtime").toFile()
+        val runtimeRoot = File(root, "wtmux")
+        val version = "git-abcdef0"
+        val release = File(runtimeRoot, "releases/$version")
+        try {
+            val script = File(release, "scripts/wtmux").apply {
+                parentFile!!.mkdirs()
+                writeText("safe")
+                Files.setPosixFilePermissions(parentFile!!.toPath(), PosixFilePermissions.fromString("rwx------"))
+                Files.setPosixFilePermissions(toPath(), PosixFilePermissions.fromString("rwxr-xr-x"))
+            }
+            Files.setPosixFilePermissions(release.toPath(), PosixFilePermissions.fromString("rwx------"))
+            fun checksum(file: File): String = MessageDigest.getInstance("SHA-256")
+                .digest(file.readBytes()).joinToString("") { "%02x".format(it) }
+            val manifest = JSONObject()
+                .put("formatVersion", 2)
+                .put("version", version)
+                .put(
+                    "components",
+                    JSONObject()
+                        .put("clientRuntime", JSONObject().put("sequence", 7).put("version", version))
+                        .put("hostRuntime", JSONObject().put("sequence", 6).put("version", version))
+                        .put("providerAdapters", JSONObject().put("sequence", 5).put("version", version))
+                        .put("contracts", JSONObject().put("sequence", 4).put("version", "1.0.0"))
+                )
+                .put(
+                    "source",
+                    JSONObject()
+                        .put("schemaVersion", 1)
+                        .put("repository", "https://github.com/yaakovch/wtmux")
+                        .put("commit", "abcdef0".padEnd(40, '0'))
+                        .put("license", "NOASSERTION")
+                        .put("contractPackageVersion", "1.0.0")
+                )
+                .put(
+                    "target",
+                    JSONObject()
+                        .put("platform", "termux")
+                        .put("architecture", "arm64")
+                        .put("prefix", runtimeRoot.absolutePath)
+                )
+                .put("files", JSONArray().put(
+                    JSONObject()
+                        .put("path", "scripts/wtmux")
+                        .put("sha256", checksum(script))
+                        .put("size", script.length())
+                        .put("mode", 493)
+                ))
+            val manifestFile = File(release, "runtime-manifest.json").apply {
+                writeText(manifest.toString())
+                Files.setPosixFilePermissions(toPath(), PosixFilePermissions.fromString("rw-------"))
+            }
+            val expectedManifestSha256 = checksum(manifestFile)
+
+            assertEquals(
+                expectedManifestSha256,
+                verifyInstalledRuntimeRelease(release, version, expectedManifestSha256)
+            )
+            Files.setPosixFilePermissions(manifestFile.toPath(), PosixFilePermissions.fromString("rw-r--r--"))
+            assertThrows(IllegalArgumentException::class.java) {
+                verifyInstalledRuntimeRelease(release, version, expectedManifestSha256)
+            }
+            Files.setPosixFilePermissions(manifestFile.toPath(), PosixFilePermissions.fromString("rw-------"))
+            Files.setPosixFilePermissions(script.parentFile!!.toPath(), PosixFilePermissions.fromString("rwxr-xr-x"))
+            assertThrows(IllegalArgumentException::class.java) {
+                verifyInstalledRuntimeRelease(release, version, expectedManifestSha256)
+            }
+            Files.setPosixFilePermissions(script.parentFile!!.toPath(), PosixFilePermissions.fromString("rwx------"))
+
+            script.writeText("evil")
+            assertThrows(IllegalArgumentException::class.java) {
+                verifyInstalledRuntimeRelease(release, version, expectedManifestSha256)
+            }
+
+            script.writeText("safe")
+            File(release, "scripts/json.py").writeText("raise SystemExit('unlisted')")
+            assertThrows(IllegalArgumentException::class.java) {
+                verifyInstalledRuntimeRelease(release, version, expectedManifestSha256)
+            }
+            File(release, "scripts/json.py").delete()
+
+            manifest.getJSONObject("source").put("repository", "https://example.invalid/wtmux")
+            manifestFile.writeText(manifest.toString())
+            assertThrows(IllegalArgumentException::class.java) {
+                verifyInstalledRuntimeRelease(release, version, checksum(manifestFile))
+            }
+
+            manifest.getJSONObject("source").put("repository", "https://github.com/yaakovch/wtmux")
+            manifest.getJSONArray("files").getJSONObject(0)
+                .put("sha256", checksum(script.apply { writeText("rewritten") }))
+                .put("size", script.length())
+            manifestFile.writeText(manifest.toString())
+            assertThrows(IllegalArgumentException::class.java) {
+                verifyInstalledRuntimeRelease(release, version, expectedManifestSha256)
+            }
+        } finally {
+            root.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun runtimeExecutionAdmissionFailsBeforeUnverifiedFilesCanRun() {
+        assertEquals("git-safe", admittedRuntimeExecutionTarget("git-safe") { true })
+        assertThrows(IllegalArgumentException::class.java) {
+            admittedRuntimeExecutionTarget("git-corrupt") { false }
+        }
+        assertThrows(IllegalArgumentException::class.java) {
+            admittedRuntimeExecutionTarget("") { true }
+        }
+    }
+
     private val descriptor = """
         {
           "schemaVersion":1,
@@ -78,7 +197,8 @@ class EmbeddedRuntimeMetadataParserTest {
           "supportedAbis":["arm64-v8a"],
           "runtime":{
             "file":"runtime.tar","sha256":"${"ab".repeat(32)}","size":123,
-            "formatVersion":2,"sbomSha256":"${"bc".repeat(32)}","licenseSha256":"${"de".repeat(32)}"
+            "formatVersion":2,"manifestSha256":"${"bd".repeat(32)}",
+            "sbomSha256":"${"bc".repeat(32)}","licenseSha256":"${"de".repeat(32)}"
           },
           "registry":{"file":"registry.tar","sha256":"${"ac".repeat(32)}","size":321},
           "packageLock":{"file":"packages.json","sha256":"${"cd".repeat(32)}","size":456,"packages":1,"payloadSize":789},
@@ -108,6 +228,25 @@ class EmbeddedRuntimeMetadataParserTest {
         }
     """.trimIndent()
 
+    private val closurePackages = packages
+        .replace(
+            "\"rootPackages\":[\"python\"],",
+            """
+            "rootPackages":["python"],
+            "runtimeRootsSha256":"${"89".repeat(32)}",
+            "closureManifestFile":"agent-fleet-runtime-closure-v1.json",
+            "closureManifestSha256":"${"9a".repeat(32)}",
+            "closureManifestSize":321,
+            """.trimIndent()
+        )
+        .replace(
+            "\"recipe\":\"packages/python/build.sh\",\"license\":\"custom\"",
+            """
+            "recipe":"packages/python/build.sh","license":"custom",
+            "essential":true,"preDepends":[],"depends":[],"provides":[],"resolvedDependencies":[]
+            """.trimIndent()
+        )
+
     @Test
     fun parsesCrossRepositoryDescriptorAndPackageFloors() {
         val value = EmbeddedRuntimeMetadataParser.descriptor(descriptor)
@@ -118,6 +257,122 @@ class EmbeddedRuntimeMetadataParserTest {
         assertEquals("registry.tar", value.registry.file)
         assertEquals("12".repeat(16), value.trustedRuntimeKeys.single().keyId)
         assertEquals("python", EmbeddedRuntimeMetadataParser.packages(packages).single().name)
+    }
+
+    @Test
+    fun acceptsCompleteClosureAttestationAndRejectsPartialMetadata() {
+        val value = EmbeddedRuntimeMetadataParser.packages(closurePackages).single()
+        assertTrue(value.essential)
+        assertEquals(emptyList<String>(), value.resolvedDependencies)
+
+        assertThrows(IllegalArgumentException::class.java) {
+            EmbeddedRuntimeMetadataParser.packages(
+                closurePackages.replace(
+                    "\"closureManifestSize\":321,",
+                    ""
+                )
+            )
+        }
+        assertThrows(IllegalArgumentException::class.java) {
+            EmbeddedRuntimeMetadataParser.packages(
+                closurePackages.replace(
+                    "\"provides\":[],",
+                    ""
+                )
+            )
+        }
+        assertThrows(IllegalArgumentException::class.java) {
+            EmbeddedRuntimeMetadataParser.packages(
+                closurePackages.replace(
+                    "\"resolvedDependencies\":[]",
+                    "\"resolvedDependencies\":[\"missing\"]"
+                )
+            )
+        }
+    }
+
+    @Test
+    fun acceptsCanonicalVersionedDependenciesAndProvidesAcrossRuntimeRepositories() {
+        val root = JSONObject(closurePackages)
+        val template = root.getJSONArray("packages").getJSONObject(0)
+        val app = JSONObject(template.toString())
+            .put("name", "app")
+            .put("version", "1.0")
+            .put("file", "app_1.0_aarch64.deb")
+            .put("sha256", "12".repeat(32))
+            .put("sourcePackage", "app")
+            .put("recipe", "packages/app/build.sh")
+            .put(
+                "depends",
+                JSONArray()
+                    .put(JSONArray().put("provider:any (>= 1.2) [aarch64]").put("fallback"))
+                    .put(JSONArray().put("virtual-api (>= 2.0)"))
+            )
+            .put("resolvedDependencies", JSONArray().put("provider"))
+        val provider = JSONObject(template.toString())
+            .put("name", "provider")
+            .put("version", "2.1")
+            .put("file", "provider_2.1_aarch64.deb")
+            .put("sha256", "34".repeat(32))
+            .put("sourcePackage", "provider")
+            .put("recipe", "packages/provider/build.sh")
+            .put("essential", false)
+            .put("multiArch", "allowed")
+            .put("provides", JSONArray().put("virtual-api (= 2.1)"))
+        root.put("rootPackages", JSONArray().put("app"))
+            .put("totalSize", 200)
+            .put("packages", JSONArray().put(app).put(provider))
+
+        val values = EmbeddedRuntimeMetadataParser.packages(root.toString())
+
+        assertEquals(listOf("provider"), values.first { it.name == "app" }.resolvedDependencies)
+        assertEquals(
+            listOf("virtual-api (= 2.1)"),
+            values.first { it.name == "provider" }.provides
+        )
+        assertThrows(IllegalArgumentException::class.java) {
+            EmbeddedRuntimeMetadataParser.packages(
+                root.toString().replace(
+                    "provider:any (>= 1.2) [aarch64]",
+                    "provider (=> 1.2)"
+                )
+            )
+        }
+        assertThrows(IllegalArgumentException::class.java) {
+            EmbeddedRuntimeMetadataParser.packages(
+                root.toString().replace("provider:any", "provider:native")
+            )
+        }
+        assertThrows(IllegalArgumentException::class.java) {
+            EmbeddedRuntimeMetadataParser.packages(
+                root.toString().replace("\"multiArch\":\"allowed\"", "\"multiArch\":\"same\"")
+            )
+        }
+        assertThrows(IllegalArgumentException::class.java) {
+            val invalid = JSONObject(root.toString())
+            invalid.getJSONArray("packages").getJSONObject(1).put("version", "1.0")
+            EmbeddedRuntimeMetadataParser.packages(invalid.toString())
+        }
+        assertThrows(IllegalArgumentException::class.java) {
+            EmbeddedRuntimeMetadataParser.packages(
+                root.toString().replace("virtual-api (= 2.1)", "virtual-api (= 1.0)")
+            )
+        }
+    }
+
+    @Test
+    fun comparesDebianEpochTildeRevisionAndNumericSegmentsLikeDpkg() {
+        val ordered = listOf(
+            "1.0~rc1-1" to "1.0-1",
+            "1.0-1" to "1.0-2",
+            "1.0-2" to "1.0-10",
+            "2.0-99" to "1:1.0-1"
+        )
+        ordered.forEach { (lower, higher) ->
+            assertTrue("$lower must sort before $higher", compareDebianVersions(lower, higher) < 0)
+            assertTrue("$higher must sort after $lower", compareDebianVersions(higher, lower) > 0)
+        }
+        assertEquals(0, compareDebianVersions("1:01.002-03", "1:1.2-3"))
     }
 
     @Test

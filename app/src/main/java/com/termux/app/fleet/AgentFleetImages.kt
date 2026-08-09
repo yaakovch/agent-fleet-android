@@ -1,23 +1,71 @@
 package com.termux.app.fleet
 
+import android.annotation.SuppressLint
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.graphics.ImageDecoder
 import android.os.Build
+import android.system.ErrnoException
+import android.system.Os
+import android.system.OsConstants
+import java.io.ByteArrayOutputStream
 import java.io.File
 import java.io.FileOutputStream
 import java.io.IOException
 import java.io.InputStream
+import java.nio.file.Files
 import java.util.UUID
 import kotlin.concurrent.thread
 
 internal class AgentFleetImageException(message: String) : IllegalArgumentException(message)
 
+/** Restores only the UUID-named, app-owned output used by the camera contract. */
+object AgentFleetCameraStaging {
+    @JvmStatic
+    @SuppressLint("NewApi") // Robolectric-only host-JDK fallback for incomplete ShadowLinux lstat.
+    fun restore(cacheDirectory: File, savedPath: String?): File {
+        require(!savedPath.isNullOrBlank()) { "Camera staging path is missing" }
+        val root = File(cacheDirectory, "agent-fleet-camera").canonicalFile
+        val rawCandidate = File(savedPath).absoluteFile
+        if (Build.FINGERPRINT == "robolectric") {
+            require(!Files.isSymbolicLink(rawCandidate.toPath()) && (!rawCandidate.exists() || rawCandidate.isFile)) {
+                "Camera staging entry is unsafe"
+            }
+        } else {
+            val rawMetadata = try {
+                Os.lstat(rawCandidate.absolutePath)
+            } catch (error: ErrnoException) {
+                if (error.errno == OsConstants.ENOENT) null else throw error
+            }
+            require(rawMetadata == null || OsConstants.S_ISREG(rawMetadata.st_mode)) {
+                "Camera staging entry is unsafe"
+            }
+        }
+        val candidate = rawCandidate.canonicalFile
+        val stem = candidate.name.removeSuffix(".jpg")
+        require(
+            candidate.parentFile == root &&
+                candidate.name.endsWith(".jpg") &&
+                runCatching { UUID.fromString(stem).toString() == stem }.getOrDefault(false)
+        ) { "Camera staging path is unsafe" }
+        if (Build.FINGERPRINT == "robolectric") return candidate
+        val metadata = try {
+            Os.lstat(candidate.absolutePath)
+        } catch (error: ErrnoException) {
+            if (error.errno == OsConstants.ENOENT) return candidate
+            throw error
+        }
+        require(OsConstants.S_ISREG(metadata.st_mode)) { "Camera staging entry is unsafe" }
+        return candidate
+    }
+}
+
 internal fun importAgentFleetImage(
     input: InputStream,
     mimeType: String?,
     directory: File,
-    maxBytes: Long = AGENT_FLEET_MAX_IMAGE_BYTES
+    maxBytes: Long = AGENT_FLEET_MAX_IMAGE_BYTES,
+    decoderValidation: (File) -> Unit = ::validateDecodedAgentFleetImage
 ): File {
     if (!directory.isDirectory && !directory.mkdirs()) {
         throw AgentFleetImageException("Image storage is unavailable.")
@@ -29,6 +77,7 @@ internal fun importAgentFleetImage(
         copyBounded(input, source, maxBytes)
         val extension = detectAgentFleetImageExtension(source.readHeader())
         if (extension != null) {
+            decoderValidation(source)
             val output = File(directory, "${UUID.randomUUID()}.$extension")
             if (!source.renameTo(output)) {
                 source.copyTo(output)
@@ -65,24 +114,7 @@ private fun copyBounded(input: InputStream, output: File, maxBytes: Long) {
 }
 
 private fun normalizeAgentFleetImage(source: File, directory: File, maxBytes: Long): File {
-    val bitmap = try {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
-            ImageDecoder.decodeBitmap(ImageDecoder.createSource(source)) { decoder, info, _ ->
-                decoder.allocator = ImageDecoder.ALLOCATOR_SOFTWARE
-                val width = info.size.width
-                val height = info.size.height
-                val longest = maxOf(width, height)
-                if (longest > MAX_NORMALIZED_IMAGE_DIMENSION) {
-                    val scale = MAX_NORMALIZED_IMAGE_DIMENSION.toDouble() / longest
-                    decoder.setTargetSize((width * scale).toInt().coerceAtLeast(1), (height * scale).toInt().coerceAtLeast(1))
-                }
-            }
-        } else {
-            BitmapFactory.decodeFile(source.absolutePath)
-        }
-    } catch (_: Exception) {
-        null
-    } ?: throw AgentFleetImageException("This image format is not supported on this phone.")
+    val bitmap = decodeBoundedAgentFleetImage(source, MAX_NORMALIZED_IMAGE_DIMENSION)
 
     source.delete()
     val prefersPng = bitmap.hasAlpha()
@@ -115,6 +147,55 @@ private fun normalizeAgentFleetImage(source: File, directory: File, maxBytes: Lo
     }
 }
 
+private fun validateDecodedAgentFleetImage(source: File) {
+    decodeBoundedAgentFleetImage(source, VALIDATION_DECODE_DIMENSION).recycle()
+}
+
+private fun decodeBoundedAgentFleetImage(source: File, targetDimension: Int): Bitmap {
+    return try {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+            ImageDecoder.decodeBitmap(ImageDecoder.createSource(source)) { decoder, info, _ ->
+                val width = info.size.width
+                val height = info.size.height
+                validateAgentFleetImageDimensions(width, height)
+                decoder.allocator = ImageDecoder.ALLOCATOR_SOFTWARE
+                val longest = maxOf(width, height)
+                if (longest > targetDimension) {
+                    val scale = targetDimension.toDouble() / longest
+                    decoder.setTargetSize(
+                        (width * scale).toInt().coerceAtLeast(1),
+                        (height * scale).toInt().coerceAtLeast(1)
+                    )
+                }
+            }
+        } else {
+            val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+            BitmapFactory.decodeFile(source.absolutePath, bounds)
+            validateAgentFleetImageDimensions(bounds.outWidth, bounds.outHeight)
+            var sample = 1
+            while (maxOf(bounds.outWidth, bounds.outHeight) / sample > targetDimension && sample < 128) {
+                sample *= 2
+            }
+            BitmapFactory.decodeFile(source.absolutePath, BitmapFactory.Options().apply {
+                inSampleSize = sample
+            })
+        }
+    } catch (_: AgentFleetImageException) {
+        throw AgentFleetImageException("This image has unsafe dimensions or cannot be decoded.")
+    } catch (_: Exception) {
+        null
+    }?.takeIf { it.width > 0 && it.height > 0 }
+        ?: throw AgentFleetImageException("This image format is not supported on this phone.")
+}
+
+internal fun validateAgentFleetImageDimensions(width: Int, height: Int) {
+    if (width !in 1..MAX_IMAGE_DIMENSION || height !in 1..MAX_IMAGE_DIMENSION ||
+        width.toLong() * height.toLong() > MAX_IMAGE_PIXELS
+    ) {
+        throw AgentFleetImageException("This image has unsafe dimensions.")
+    }
+}
+
 internal fun detectAgentFleetImageExtension(header: ByteArray): String? = when {
     header.size >= 8 && header.copyOfRange(0, 8).contentEquals(PNG_SIGNATURE) -> "png"
     header.size >= 3 && header[0] == 0xff.toByte() && header[1] == 0xd8.toByte() && header[2] == 0xff.toByte() -> "jpg"
@@ -129,11 +210,19 @@ private fun File.readHeader(): ByteArray = inputStream().use { input ->
     if (count <= 0) byteArrayOf() else header.copyOf(count)
 }
 
-internal data class AgentFleetProcessOutput(val exitCode: Int, val stdout: String, val stderr: String)
+internal data class AgentFleetProcessOutput(
+    val exitCode: Int,
+    val stdout: String,
+    val stderr: String,
+    val stdoutTruncated: Boolean = false,
+    val stderrTruncated: Boolean = false
+)
+
+private data class BoundedProcessText(val text: String, val truncated: Boolean)
 
 internal fun collectAgentFleetProcess(process: Process, timeoutSeconds: Long): AgentFleetProcessOutput {
-    var stdout = ""
-    var stderr = ""
+    var stdout = BoundedProcessText("", truncated = false)
+    var stderr = BoundedProcessText("", truncated = false)
     val stdoutReader = thread(name = "agent-fleet-image-stdout", isDaemon = true) {
         stdout = process.inputStream.readBoundedText()
     }
@@ -141,31 +230,45 @@ internal fun collectAgentFleetProcess(process: Process, timeoutSeconds: Long): A
         stderr = process.errorStream.readBoundedText()
     }
     if (!process.waitForCompat(timeoutSeconds, java.util.concurrent.TimeUnit.SECONDS)) {
-        process.destroyForciblyCompat()
-        stdoutReader.join(1_000)
-        stderrReader.join(1_000)
+        process.terminateAndReapCompat()
+        stdoutReader.join(2_000)
+        stderrReader.join(2_000)
         throw AgentFleetImageException("Image upload timed out. Check the connection and retry.")
     }
-    stdoutReader.join(1_000)
-    stderrReader.join(1_000)
-    return AgentFleetProcessOutput(process.exitValue(), stdout, stderr)
+    stdoutReader.join(2_000)
+    stderrReader.join(2_000)
+    if (stdoutReader.isAlive || stderrReader.isAlive) {
+        process.closePipesCompat()
+        throw AgentFleetImageException("Image upload output did not close. Retry the upload.")
+    }
+    process.closePipesCompat()
+    return AgentFleetProcessOutput(
+        process.exitValue(),
+        stdout.text,
+        stderr.text,
+        stdout.truncated,
+        stderr.truncated
+    )
 }
 
-private fun InputStream.readBoundedText(): String {
+private fun InputStream.readBoundedText(): BoundedProcessText {
     val buffer = ByteArray(4 * 1024)
-    val output = StringBuilder()
+    val output = ByteArrayOutputStream()
+    var truncated = false
     try {
         while (true) {
             val count = read(buffer)
             if (count < 0) break
-            if (output.length < MAX_PROCESS_OUTPUT_CHARS) {
-                output.append(String(buffer, 0, minOf(count, MAX_PROCESS_OUTPUT_CHARS - output.length), Charsets.UTF_8))
+            val room = MAX_PROCESS_OUTPUT_BYTES - output.size()
+            if (room > 0) {
+                output.write(buffer, 0, minOf(count, room))
             }
+            if (count > room) truncated = true
         }
     } catch (_: IOException) {
         // Android may close a completed Process pipe from another thread.
     }
-    return output.toString()
+    return BoundedProcessText(output.toString(Charsets.UTF_8.name()), truncated)
 }
 
 internal fun agentFleetImageUploadFailure(stderr: String, exitCode: Int): String {
@@ -205,19 +308,35 @@ internal fun shouldRetryAgentFleetImageUpload(output: AgentFleetProcessOutput, a
 }
 
 internal fun parseAgentFleetImagePath(stdout: String): String {
-    val path = stdout.lineSequence().map(String::trim).lastOrNull {
-        it.startsWith(".wtmux/images/") || it.contains("/.wtmux/images/")
-    } ?: throw AgentFleetImageException("The host did not confirm the image upload. Retry after refreshing the session.")
-    if (path.length > 512 || '\u0000' in path || '\n' in path || '\r' in path) {
+    val path = when {
+        stdout.endsWith("\r\n") -> stdout.dropLast(2)
+        stdout.endsWith("\n") -> stdout.dropLast(1)
+        else -> stdout
+    }
+    if (!AGENT_FLEET_IMAGE_PATH.matches(path)) {
         throw AgentFleetImageException("The host returned an invalid image path.")
     }
     return path
 }
 
+internal fun parseSuccessfulAgentFleetImageOutput(output: AgentFleetProcessOutput): String {
+    if (output.exitCode != 0 || output.stdoutTruncated || output.stderrTruncated) {
+        throw AgentFleetImageException("The host returned incomplete image upload output. Retry after refreshing the session.")
+    }
+    return parseAgentFleetImagePath(output.stdout)
+}
+
 internal const val AGENT_FLEET_MAX_IMAGE_BYTES = 20L * 1024 * 1024
 private const val MAX_NORMALIZED_IMAGE_DIMENSION = 4096
-private const val MAX_PROCESS_OUTPUT_CHARS = 64 * 1024
+private const val VALIDATION_DECODE_DIMENSION = 512
+private const val MAX_IMAGE_DIMENSION = 16_384
+private const val MAX_IMAGE_PIXELS = 25_000_000L
+private const val MAX_PROCESS_OUTPUT_BYTES = 64 * 1024
 private const val IMAGE_CACHE_RETENTION_MS = 7L * 24 * 60 * 60 * 1000
 private val PNG_SIGNATURE = byteArrayOf(0x89.toByte(), 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a)
 private val ANSI_ESCAPE = Regex("\\u001B\\[[;?0-9]*[ -/]*[@-~]")
 private val COMMAND_NOT_FOUND = Regex("(?i)([A-Za-z0-9._+-]{1,64}): (?:command )?not found")
+private val AGENT_FLEET_IMAGE_PATH = Regex(
+    """\.wtmux/images/[A-Za-z0-9._-]{1,255}\.(?:png|jpe?g|webp)""",
+    RegexOption.IGNORE_CASE
+)

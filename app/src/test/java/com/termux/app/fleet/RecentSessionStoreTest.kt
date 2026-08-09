@@ -1,5 +1,7 @@
 package com.termux.app.fleet
 
+import org.json.JSONArray
+import org.json.JSONObject
 import org.junit.Assert.assertEquals
 import org.junit.Before
 import org.junit.Test
@@ -31,6 +33,22 @@ class RecentSessionStoreTest {
         repeat(20) { store.record(session("session-$it")) }
         assertEquals(12, store.load().size)
         assertEquals("session-19", store.load().first().id)
+    }
+
+    @Test
+    fun corruptedDuplicateDescriptorsPreserveTheNewestRowWithoutDuplicateComposeKeys() {
+        store.record(session("one"))
+        val preferences = RuntimeEnvironment.getApplication()
+            .getSharedPreferences("agent_fleet_terminal_tabs", 0)
+        val original = JSONArray(preferences.getString("recent_sessions_v1", "[]")).getJSONObject(0)
+        val conflicting = JSONObject(original.toString()).put("name", "conflicting")
+        preferences.edit().putString(
+            "recent_sessions_v1",
+            JSONArray().put(original).put(conflicting).toString()
+        ).commit()
+
+        assertEquals(listOf("one"), store.load().map(FleetSession::id))
+        assertEquals("one", store.load().single().name)
     }
 
     private fun session(id: String) = FleetSession(

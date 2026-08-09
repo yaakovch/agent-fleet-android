@@ -9,20 +9,35 @@ on:
     branches:
       - agent-fleet-main
 
+permissions:
+  contents: read
+
 jobs:
   build:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
     steps:
       - name: Clone repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
       - name: Set up JDK 17
-        uses: actions/setup-java@v4
+        uses: actions/setup-java@c1e323688fd81a25caa38c78aa6df2d33d3e20d9 # v4
         with:
           distribution: temurin
           java-version: '17'
+      - uses: android-actions/setup-android@9fc6c4e9069bf8d3d10b2204b1fb8f6ef7065407 # v3
+      - uses: gradle/actions/setup-gradle@0b6dd653ba04f4f93bf581ec31e66cbd7dcb644d # v4
+        with:
+          cache-read-only: ${{ github.ref != 'refs/heads/agent-fleet-main' }}
+      - name: Install the pinned Android build inputs
+        run: |
+          sdkmanager \
+            "build-tools;36.0.0" \
+            "ndk;22.1.7171670" \
+            "platform-tools" \
+            "platforms;android-36"
 
-      - name: Build APKs
+      - name: Set deterministic build metadata
         shell: bash {0}
         run: |
           exit_on_error() { echo "$1"; exit 1; }
@@ -43,33 +58,22 @@ jobs:
           echo "APK_DIR_PATH=$APK_DIR_PATH" >> $GITHUB_ENV
           echo "APK_VERSION_TAG=$APK_VERSION_TAG" >> $GITHUB_ENV
           echo "APK_BASENAME_PREFIX=$APK_BASENAME_PREFIX" >> $GITHUB_ENV
+          echo "TERMUX_APP_VERSION_NAME=${RELEASE_VERSION_NAME/v/}" >> $GITHUB_ENV
+          echo "TERMUX_APK_VERSION_TAG=$APK_VERSION_TAG" >> $GITHUB_ENV
 
-          echo "Building APKs for '$RELEASE_VERSION_NAME' build"
-          export TERMUX_APP_VERSION_NAME="${RELEASE_VERSION_NAME/v/}" # Used by app/build.gradle
-          export TERMUX_APK_VERSION_TAG="$APK_VERSION_TAG" # Used by app/build.gradle
-          if ! ./gradlew assembleDebug; then
-            exit_on_error "Build failed for '$RELEASE_VERSION_NAME' build."
-          fi
+      - name: Run the canonical package gate
+        run: bash scripts/quality-gate.sh package
 
-          echo "Validating APKs"
-          for abi in universal arm64-v8a x86_64; do
-            if ! test -f "$APK_DIR_PATH/${APK_BASENAME_PREFIX}_$abi.apk"; then
-              files_found="$(ls "$APK_DIR_PATH")"
-              exit_on_error "Failed to find built APK at '$APK_DIR_PATH/${APK_BASENAME_PREFIX}_$abi.apk'. Files found: "$'\n'"$files_found"
-            fi
-          done
-
-          echo "Generating sha25sums file"
-          if ! (cd "$APK_DIR_PATH"; sha256sum \
+      - name: Generate artifact checksums
+        run: |
+          (cd "$APK_DIR_PATH"; sha256sum \
             "${APK_BASENAME_PREFIX}_universal.apk" \
             "${APK_BASENAME_PREFIX}_arm64-v8a.apk" \
             "${APK_BASENAME_PREFIX}_x86_64.apk" \
-            > sha256sums); then
-            exit_on_error "Generate sha25sums failed for '$RELEASE_VERSION_NAME' release."
-          fi
+            > sha256sums)
 
       - name: Attach universal APK file
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: ${{ env.APK_BASENAME_PREFIX }}_universal
           path: |
@@ -77,7 +81,7 @@ jobs:
             ${{ env.APK_DIR_PATH }}/output-metadata.json
 
       - name: Attach arm64-v8a APK file
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: ${{ env.APK_BASENAME_PREFIX }}_arm64-v8a
           path: |
@@ -85,7 +89,7 @@ jobs:
             ${{ env.APK_DIR_PATH }}/output-metadata.json
 
       - name: Attach x86_64 APK file
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: ${{ env.APK_BASENAME_PREFIX }}_x86_64
           path: |
@@ -93,7 +97,7 @@ jobs:
             ${{ env.APK_DIR_PATH }}/output-metadata.json
 
       - name: Attach sha256sums file
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: sha256sums
           path: |

@@ -1,7 +1,13 @@
 package com.termux.app.fleet
 
 import android.content.Context
+import java.io.File
+import java.security.MessageDigest
 import java.time.Instant
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.Executors
+import java.util.concurrent.TimeUnit
+import org.json.JSONObject
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertThrows
@@ -61,4 +67,73 @@ class FleetConfigurationTest {
         assertFalse(exported.lowercase().contains("credential"))
         FleetConfigurationParser.parse(exported)
     }
+
+    @Test
+    fun interruptedActivationIsReplayedBeforeConfigurationIsRead() {
+        val context: Context = RuntimeEnvironment.getApplication()
+        val root = File(context.filesDir, "fleet-configuration")
+        root.deleteRecursively()
+        assertTrue(root.mkdirs())
+        val content = FleetConfigurationParser.parse(fixture()).json
+        File(root, ".transaction-current.json").writeText(content)
+        File(root, "current.json").writeText("interrupted")
+        File(root, ".transaction.json").writeText(
+            JSONObject()
+                .put("version", 1)
+                .put("currentSha256", sha256(content))
+                .put("hasPrevious", false)
+                .put("previousSha256", "")
+                .toString()
+        )
+
+        val recovered = FleetConfigurationStore(context).current()
+
+        assertEquals(7L, recovered?.configurationRevision)
+        assertFalse(File(root, ".transaction.json").exists())
+        assertFalse(File(root, ".transaction-current.json").exists())
+        assertEquals(recovered?.digest, FleetConfigurationStore(context).current()?.digest)
+    }
+
+    @Test
+    fun concurrentStoreInstancesSerializeActivationWithoutCorruptingTheTransaction() {
+        val context: Context = RuntimeEnvironment.getApplication()
+        val root = File(context.filesDir, "fleet-configuration")
+        root.deleteRecursively()
+        val start = CountDownLatch(1)
+        val executor = Executors.newFixedThreadPool(8)
+        try {
+            val stores = List(8) { FleetConfigurationStore(context) }
+            val futures = stores.map { store ->
+                executor.submit<FleetConfigurationBundle> {
+                    start.await()
+                    store.activate(fixture())
+                }
+            }
+            start.countDown()
+            val digests = futures.map { it.get(10, TimeUnit.SECONDS).digest }.toSet()
+
+            assertEquals(1, digests.size)
+            assertEquals(digests.single(), FleetConfigurationStore(context).current()?.digest)
+            assertFalse(File(root, ".transaction.json").exists())
+        } finally {
+            executor.shutdownNow()
+        }
+    }
+
+    @Test
+    fun oversizedPersistedConfigurationIsRejectedBeforeItIsLoaded() {
+        val context: Context = RuntimeEnvironment.getApplication()
+        val root = File(context.filesDir, "fleet-configuration")
+        root.deleteRecursively()
+        assertTrue(root.mkdirs())
+        File(root, "current.json").writeBytes(ByteArray(4 * 1024 * 1024 + 1))
+
+        assertThrows(IllegalArgumentException::class.java) {
+            FleetConfigurationStore(context).current()
+        }
+    }
+
+    private fun sha256(value: String): String = MessageDigest.getInstance("SHA-256")
+        .digest(value.toByteArray(Charsets.UTF_8))
+        .joinToString("") { "%02x".format(it) }
 }
