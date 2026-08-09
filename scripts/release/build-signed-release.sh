@@ -11,9 +11,13 @@ version_name="$1"
 version_code="$2"
 base_url="${3%/}"
 [[ "$version_code" =~ ^[1-9][0-9]*$ ]] || { echo "version code must be a positive integer" >&2; exit 2; }
-[[ "$base_url" == https://* ]] || { echo "release URL must use HTTPS" >&2; exit 2; }
-
 repo="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+python3 - "$repo" "$base_url" <<'PY'
+import pathlib, sys
+sys.path.insert(0, str(pathlib.Path(sys.argv[1]) / "scripts/release"))
+from private_https import canonical_https_url
+canonical_https_url(sys.argv[2])
+PY
 source "$repo/scripts/release/release-common.sh"
 agent_fleet_release_read_version "$repo"
 [[ "$version_name" == "$AGENT_FLEET_RELEASE_VERSION_NAME" && "$version_code" == "$AGENT_FLEET_RELEASE_VERSION_CODE" ]] || {
@@ -61,9 +65,11 @@ if [[ "$sdk" == /mnt/* ]] && command -v cmd.exe >/dev/null; then
     [[ -x /init && -x "$native_cmd" ]] || { echo "Windows command runner is unavailable" >&2; exit 1; }
     windows_cmd=(/init "$native_cmd")
   fi
-  "${windows_cmd[@]}" /d /c "cd /d $windows_repo && set JAVA_HOME=$windows_java_home&& set ANDROID_SDK_ROOT=$windows_sdk&& set ANDROID_HOME=$windows_sdk&& set TERMUX_APP_VERSION_NAME=$version_name&& set TERMUX_APP_VERSION_CODE=$version_code&& set TERMUX_APK_VERSION_TAG=$version_name&& set TERMUX_SPLIT_APKS_FOR_RELEASE_BUILDS=1&& gradlew.bat app:assembleRelease --no-daemon --console=plain" </dev/null
+  env -u AGENT_FLEET_STORE_PASSWORD -u AGENT_FLEET_KEY_PASSWORD \
+    "${windows_cmd[@]}" /d /c "cd /d $windows_repo && set JAVA_HOME=$windows_java_home&& set ANDROID_SDK_ROOT=$windows_sdk&& set ANDROID_HOME=$windows_sdk&& set TERMUX_APP_VERSION_NAME=$version_name&& set TERMUX_APP_VERSION_CODE=$version_code&& set TERMUX_APK_VERSION_TAG=$version_name&& set TERMUX_SPLIT_APKS_FOR_RELEASE_BUILDS=1&& gradlew.bat app:assembleRelease --no-daemon --console=plain" </dev/null
 else
-  "$repo/scripts/debug/android-gradle.sh" app:assembleRelease --no-daemon --console=plain
+  env -u AGENT_FLEET_STORE_PASSWORD -u AGENT_FLEET_KEY_PASSWORD \
+    "$repo/scripts/debug/android-gradle.sh" app:assembleRelease --no-daemon --console=plain
 fi
 
 unsigned_arm64="$(find "$repo/app/build/outputs/apk/release" -maxdepth 1 -name '*arm64-v8a.apk' -type f -print -quit)"
@@ -78,7 +84,9 @@ sign_apk() {
   local input="$1"
   local output="$2"
   local report="$3"
-  "$java_home/bin/java" -jar "$apksigner_jar" sign \
+  env AGENT_FLEET_STORE_PASSWORD="$AGENT_FLEET_STORE_PASSWORD" \
+    AGENT_FLEET_KEY_PASSWORD="$AGENT_FLEET_KEY_PASSWORD" \
+    "$java_home/bin/java" -jar "$apksigner_jar" sign \
     --ks "$keystore" --ks-key-alias "$alias_name" \
     --ks-pass env:AGENT_FLEET_STORE_PASSWORD \
     --key-pass env:AGENT_FLEET_KEY_PASSWORD \
@@ -97,6 +105,10 @@ certificate_sha="$(awk -F': ' '/Signer #1 certificate SHA-256 digest:/{print tol
 universal_certificate_sha="$(awk -F': ' '/Signer #1 certificate SHA-256 digest:/{print tolower($2); exit}' "$out_dir/apksigner-universal.txt")"
 [[ "$certificate_sha" =~ ^[0-9a-f]{64}$ ]] || { echo "could not read APK certificate" >&2; exit 1; }
 [[ "$universal_certificate_sha" == "$certificate_sha" ]] || { echo "APK certificates do not match" >&2; exit 1; }
+[[ "$certificate_sha" == "$AGENT_FLEET_EXPECTED_CERTIFICATE_SHA256" ]] || {
+  echo "signed APK certificate does not match the pinned fingerprint" >&2
+  exit 1
+}
 arm64_name="$(basename "$signed_arm64")"
 universal_name="$(basename "$signed_universal")"
 

@@ -234,18 +234,23 @@ private fun validateInstalledRuntimeIdentity(
             source.getString("repository") == "https://github.com/yaakovch/wtmux" &&
             INSTALLED_RUNTIME_COMMIT.matches(source.getString("commit")) &&
             expectedVersion == "git-${source.getString("commit").take(7)}" &&
-            source.getString("license") == "NOASSERTION" &&
+            source.getString("license") in setOf("MIT", "NOASSERTION") &&
             INSTALLED_RUNTIME_VERSION.matches(source.getString("contractPackageVersion")) &&
             parsedComponents.getValue("contracts").version == source.getString("contractPackageVersion")
     ) { "Installed runtime source identity is invalid" }
 
     val target = manifest.getJSONObject("target")
     val runtimeRoot = requireNotNull(requireNotNull(release.parentFile).parentFile).absolutePath
+    fun normalizedUserZeroPath(value: String): String = if (value.startsWith("/data/data/")) {
+        "/data/user/0/${value.removePrefix("/data/data/")}"
+    } else {
+        value
+    }
     require(
         target.keys().asSequence().toSet() == setOf("platform", "architecture", "prefix") &&
             target.getString("platform") == "termux" &&
-            target.getString("architecture") == "arm64" &&
-            target.getString("prefix") == runtimeRoot
+            target.getString("architecture") in setOf("arm64", "universal") &&
+            normalizedUserZeroPath(target.getString("prefix")) == normalizedUserZeroPath(runtimeRoot)
     ) { "Installed runtime target identity is invalid" }
 
     expectedDescriptor?.let { descriptor ->

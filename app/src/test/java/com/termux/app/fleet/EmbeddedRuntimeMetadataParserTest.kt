@@ -100,7 +100,7 @@ class EmbeddedRuntimeMetadataParserTest {
                         .put("schemaVersion", 1)
                         .put("repository", "https://github.com/yaakovch/wtmux")
                         .put("commit", "abcdef0".padEnd(40, '0'))
-                        .put("license", "NOASSERTION")
+                        .put("license", "MIT")
                         .put("contractPackageVersion", "1.0.0")
                 )
                 .put(
@@ -127,6 +127,24 @@ class EmbeddedRuntimeMetadataParserTest {
                 expectedManifestSha256,
                 verifyInstalledRuntimeRelease(release, version, expectedManifestSha256)
             )
+            manifest.getJSONObject("source").put("license", "NOASSERTION")
+            manifestFile.writeText(manifest.toString())
+            val legacyManifestSha256 = checksum(manifestFile)
+            assertEquals(
+                legacyManifestSha256,
+                verifyInstalledRuntimeRelease(release, version, legacyManifestSha256)
+            )
+            manifest.getJSONObject("source").put("license", "MIT")
+            manifestFile.writeText(manifest.toString())
+            manifest.getJSONObject("target").put("architecture", "universal")
+            manifestFile.writeText(manifest.toString())
+            val universalManifestSha256 = checksum(manifestFile)
+            assertEquals(
+                universalManifestSha256,
+                verifyInstalledRuntimeRelease(release, version, universalManifestSha256)
+            )
+            manifest.getJSONObject("target").put("architecture", "arm64")
+            manifestFile.writeText(manifest.toString())
             Files.setPosixFilePermissions(manifestFile.toPath(), PosixFilePermissions.fromString("rw-r--r--"))
             assertThrows(IllegalArgumentException::class.java) {
                 verifyInstalledRuntimeRelease(release, version, expectedManifestSha256)
@@ -157,6 +175,13 @@ class EmbeddedRuntimeMetadataParserTest {
             }
 
             manifest.getJSONObject("source").put("repository", "https://github.com/yaakovch/wtmux")
+            manifest.getJSONObject("source").put("license", "GPL-3.0-only")
+            manifestFile.writeText(manifest.toString())
+            assertThrows(IllegalArgumentException::class.java) {
+                verifyInstalledRuntimeRelease(release, version, checksum(manifestFile))
+            }
+
+            manifest.getJSONObject("source").put("license", "MIT")
             manifest.getJSONArray("files").getJSONObject(0)
                 .put("sha256", checksum(script.apply { writeText("rewritten") }))
                 .put("size", script.length())

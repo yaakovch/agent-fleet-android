@@ -50,33 +50,55 @@ agent_fleet_release_load_config() {
 }
 
 agent_fleet_release_load_credentials() {
-  local signing_dir password_file mode owner
+  local signing_dir password_file repo
   signing_dir="${AGENT_FLEET_SIGNING_DIR:-$HOME/.local/share/agent-fleet/signing}"
   password_file="${AGENT_FLEET_STORE_PASSWORD_FILE:-$signing_dir/agent-fleet-release.pass}"
+  repo="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
   if [[ -z "${AGENT_FLEET_STORE_PASSWORD:-}" ]]; then
-    [[ -f "$password_file" ]] || agent_fleet_release_fail "missing signing password file: $password_file" || return
-    mode="$(stat -c '%a' "$password_file")"
-    owner="$(stat -c '%u' "$password_file")"
-    [[ "$mode" == "600" && "$owner" == "$(id -u)" ]] ||
-      agent_fleet_release_fail "signing password file must be user-owned mode 600" || return
-    AGENT_FLEET_STORE_PASSWORD="$(<"$password_file")"
+    AGENT_FLEET_STORE_PASSWORD="$(python3 "$repo/scripts/release/release_identity.py" password "$password_file")" || return
   fi
   [[ -n "$AGENT_FLEET_STORE_PASSWORD" && "$AGENT_FLEET_STORE_PASSWORD" != *$'\n'* ]] ||
     agent_fleet_release_fail "signing password must be one non-empty line" || return
   AGENT_FLEET_KEY_PASSWORD="${AGENT_FLEET_KEY_PASSWORD:-$AGENT_FLEET_STORE_PASSWORD}"
-  export AGENT_FLEET_STORE_PASSWORD AGENT_FLEET_KEY_PASSWORD
+  export -n AGENT_FLEET_STORE_PASSWORD AGENT_FLEET_KEY_PASSWORD 2>/dev/null || true
+}
+
+agent_fleet_release_load_certificate_fingerprint() {
+  local repo="$1" fingerprint_file
+  fingerprint_file="$repo/app/release-signing-certificate-sha256.txt"
+  AGENT_FLEET_EXPECTED_CERTIFICATE_SHA256="$(
+    python3 "$repo/scripts/release/release_identity.py" public-certificate "$fingerprint_file"
+  )" || return
+  export AGENT_FLEET_EXPECTED_CERTIFICATE_SHA256
+}
+
+agent_fleet_release_load_local_certificate_fingerprint() {
+  local repo="$1" signing_dir fingerprint_file
+  signing_dir="${AGENT_FLEET_SIGNING_DIR:-$HOME/.local/share/agent-fleet/signing}"
+  fingerprint_file="${AGENT_FLEET_CERTIFICATE_SHA256_FILE:-$signing_dir/certificate-sha256.txt}"
+  AGENT_FLEET_LOCAL_CERTIFICATE_SHA256="$(
+    python3 "$repo/scripts/release/release_identity.py" certificate "$fingerprint_file"
+  )" || return
 }
 
 agent_fleet_release_check_keystore() {
-  local repo="$1" signing_dir keystore alias_name java_home
+  local repo="$1" signing_dir keystore alias_name java_home observed
   signing_dir="${AGENT_FLEET_SIGNING_DIR:-$HOME/.local/share/agent-fleet/signing}"
   keystore="${AGENT_FLEET_KEYSTORE:-$signing_dir/agent-fleet-release.jks}"
   alias_name="${AGENT_FLEET_KEY_ALIAS:-agent-fleet}"
   [[ -f "$keystore" ]] || agent_fleet_release_fail "missing release keystore: $keystore" || return
+  agent_fleet_release_load_certificate_fingerprint "$repo" || return
+  agent_fleet_release_load_local_certificate_fingerprint "$repo" || return
+  [[ "$AGENT_FLEET_LOCAL_CERTIFICATE_SHA256" == "$AGENT_FLEET_EXPECTED_CERTIFICATE_SHA256" ]] ||
+    agent_fleet_release_fail "local certificate backup pin does not match the protected production fingerprint" || return
   java_home="$("$repo/scripts/debug/android-gradle.sh" --print-java-home)" || return
-  "$java_home/bin/keytool" -list -keystore "$keystore" -alias "$alias_name" \
-    -storepass:env AGENT_FLEET_STORE_PASSWORD >/dev/null 2>&1 ||
+  observed="$(env AGENT_FLEET_STORE_PASSWORD="$AGENT_FLEET_STORE_PASSWORD" \
+    "$java_home/bin/keytool" -list -v -keystore "$keystore" -alias "$alias_name" \
+    -storepass:env AGENT_FLEET_STORE_PASSWORD 2>/dev/null | \
+    awk -F': ' '/SHA256:/{gsub(":", "", $2); print tolower($2); exit}')" ||
     agent_fleet_release_fail "release keystore password or alias is invalid" || return
+  [[ "$observed" == "$AGENT_FLEET_EXPECTED_CERTIFICATE_SHA256" ]] ||
+    agent_fleet_release_fail "release keystore certificate does not match the pinned fingerprint" || return
   AGENT_FLEET_RELEASE_JAVA_HOME="$java_home"
   export AGENT_FLEET_RELEASE_JAVA_HOME
 }

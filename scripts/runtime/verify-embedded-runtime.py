@@ -578,12 +578,12 @@ def verify(root: Path) -> dict:
                 "schemaVersion": 1,
                 "repository": descriptor["sourceRepository"],
                 "commit": descriptor["wtmuxCommit"],
-                "license": "NOASSERTION",
+                "license": "MIT",
                 "contractPackageVersion": descriptor["contractPackageVersion"],
             }
             or manifest.get("target") != {
                 "platform": "termux",
-                "architecture": "arm64",
+                "architecture": "universal",
                 "prefix": "/data/data/com.yaakovch.fleet/files/home/.local/share/agent-fleet/wtmux",
             }
         ):

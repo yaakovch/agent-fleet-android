@@ -5,6 +5,8 @@ set -euo pipefail
 directory="$(cd "$1" && pwd)"
 (cd "$directory" && sha256sum -c SHA256SUMS)
 repo="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+source "$repo/scripts/release/release-common.sh"
+agent_fleet_release_load_certificate_fingerprint "$repo"
 java_home="$("$repo/scripts/debug/android-gradle.sh" --print-java-home)"
 java_bin="$java_home/bin/java"
 
@@ -29,13 +31,15 @@ if [[ ! -x "$aapt2" && -f "${aapt2}.exe" ]]; then
 fi
 [[ "$aapt2_platform" == "windows" || -x "$aapt2" ]] || { echo "missing aapt2 in $build_tools" >&2; exit 1; }
 
-python3 - "$directory/manifest.json" "$directory" "$apksigner_jar" "$aapt2" "$aapt2_platform" "$aapt2_directory" "$windows_cmd" "$java_bin" "$repo" <<'PY'
+python3 - "$directory/manifest.json" "$directory" "$apksigner_jar" "$aapt2" "$aapt2_platform" "$aapt2_directory" "$windows_cmd" "$java_bin" "$repo" "$AGENT_FLEET_EXPECTED_CERTIFICATE_SHA256" <<'PY'
 import base64, hashlib, importlib.util, io, json, pathlib, re, subprocess, sys, tarfile, zipfile
-manifest_path, directory, apksigner, aapt2, aapt2_platform, aapt2_directory, windows_cmd, java_bin, repo = sys.argv[1:]
+manifest_path, directory, apksigner, aapt2, aapt2_platform, aapt2_directory, windows_cmd, java_bin, repo, expected_certificate = sys.argv[1:]
 manifest = json.loads(pathlib.Path(manifest_path).read_text(encoding="utf-8"))
 required = {"schemaVersion", "applicationId", "versionCode", "versionName", "apkUrl", "apkSha256", "certificateSha256", "size"}
 if not required <= manifest.keys() or manifest["schemaVersion"] != 1 or manifest["applicationId"] != "com.yaakovch.fleet":
     raise SystemExit("invalid release manifest")
+if manifest["certificateSha256"] != expected_certificate:
+    raise SystemExit("release manifest certificate does not match the pinned fingerprint")
 artifacts = manifest.get("artifacts") or [{
     "abi": "primary", "apkUrl": manifest["apkUrl"], "apkSha256": manifest["apkSha256"], "size": manifest["size"],
 }]
@@ -267,3 +271,5 @@ if (manifest["apkUrl"], manifest["apkSha256"], manifest["size"]) != (primary["ap
     raise SystemExit("primary release fields do not select the arm64 APK")
 print(f"verified {manifest['versionName']} ({manifest['versionCode']}) runtime={embedded['baselineVersion']}")
 PY
+python3 "$repo/scripts/release/release_candidate.py" prove \
+  "$directory" "$AGENT_FLEET_EXPECTED_CERTIFICATE_SHA256" >/dev/null

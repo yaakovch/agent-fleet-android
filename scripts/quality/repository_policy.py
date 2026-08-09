@@ -4,9 +4,9 @@
 from __future__ import annotations
 
 import hashlib
+import json
 import os
 import re
-import sys
 import xml.etree.ElementTree as ET
 from pathlib import Path
 
@@ -16,6 +16,8 @@ SHA256 = re.compile(r"[0-9a-f]{64}")
 GIT_OBJECT = re.compile(r"[0-9a-f]{40}")
 GRADLE_DISTRIBUTION_SHA256 = "89d4e70e4e84e2d2dfbb63e4daa53e21b25017cc70c37e4eea31ee51fb15098a"
 GRADLE_WRAPPER_JAR_SHA256 = "e996d452d2645e70c01c11143ca2d3742734a28da2bf61f25c82bdc288c9e637"
+PRODUCTION_RUNTIME_KEY_ID = "ef1aa26c21be89f9ac220e41ae28a865"
+PRODUCTION_RUNTIME_KEY_SHA256 = "a3500746ab5f70c708741dd8f3c41b0dc66fabb7a47b43b726bceb6cf9108364"
 DEPENDENCY_LOCKS = (
     "buildscript-gradle.lockfile",
     "app/gradle.lockfile",
@@ -326,6 +328,37 @@ def validate_project_policy(root: Path) -> None:
     require(
         re.search(r"commit `[0-9a-f]{40}`", provenance) is not None,
         "upstream provenance must identify an exact commit",
+    )
+    production_certificate = (root / "app/release-signing-certificate-sha256.txt").read_text(
+        encoding="ascii"
+    )
+    require(
+        production_certificate
+        == "c5b2539c028ae1dc539ded3113cc3c735f60145bbfc5e4a8254056452db5e873\n",
+        "protected production signing-certificate fingerprint changed",
+    )
+    runtime_descriptor = json.loads(
+        (root / "app/src/main/agent-fleet/embedded-runtime-v1.json").read_text(encoding="utf-8")
+    )
+    runtime_keys = runtime_descriptor.get("trustedRuntimeKeys")
+    expected_runtime_key = {
+        "keyId": PRODUCTION_RUNTIME_KEY_ID,
+        "file": f"trusted-runtime-key-{PRODUCTION_RUNTIME_KEY_ID}.pem",
+        "sha256": PRODUCTION_RUNTIME_KEY_SHA256,
+    }
+    require(runtime_keys == [expected_runtime_key], "protected production runtime public-key pin changed")
+    runtime_key_path = root / "app/src/main/agent-fleet" / expected_runtime_key["file"]
+    require(
+        sha256(runtime_key_path) == PRODUCTION_RUNTIME_KEY_SHA256,
+        "embedded production runtime public key does not match its protected digest",
+    )
+    publication_store = (root / "scripts/release/publication_store.py").read_text(encoding="utf-8")
+    require(
+        f'PRODUCTION_CERTIFICATE_SHA256 = "{production_certificate.strip()}"' in publication_store
+        and f'RUNTIME_KEY_ID = "{PRODUCTION_RUNTIME_KEY_ID}"' in publication_store
+        and f'RUNTIME_KEY_SHA256 = "{PRODUCTION_RUNTIME_KEY_SHA256}"' in publication_store
+        and runtime_key_path.read_text(encoding="ascii").strip() in publication_store,
+        "publisher-side runtime reproof pin drifted from the protected embedded key",
     )
     for relative in (
         "AGENTS.md",

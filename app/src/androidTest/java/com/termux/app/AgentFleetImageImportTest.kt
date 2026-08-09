@@ -54,6 +54,8 @@ class AgentFleetImageImportTest {
         val testAssets = InstrumentationRegistry.getInstrumentation().context.assets
         val config = File(home, ".config/wtmux/wtmux.conf").apply { parentFile?.mkdirs() }
         testAssets.open("image-upload/wtmux.conf").use { input -> config.outputStream().use(input::copyTo) }
+        val knownHosts = File(home, ".ssh/known_hosts").apply { parentFile?.mkdirs() }
+        testAssets.open("image-upload/known_hosts").use { input -> knownHosts.outputStream().use(input::copyTo) }
         val fakeSsh = File(home, ".local/bin/ssh").apply { parentFile?.mkdirs() }
         testAssets.open("image-upload/ssh").use { input -> fakeSsh.outputStream().use(input::copyTo) }
         assertTrue(fakeSsh.setExecutable(true))
@@ -121,39 +123,38 @@ class AgentFleetImageImportTest {
         val manager = EmbeddedRuntimeManager(context)
         val descriptor = manager.descriptor()
         val wtmux = File(prefix, "bin/wtmux")
-        if (!wtmux.canExecute()) {
-            val bundle = File(context.cacheDir, descriptor.runtime.file)
-            context.assets.open("agent-fleet/${descriptor.runtime.file}").use { input ->
-                bundle.outputStream().use(input::copyTo)
-            }
-            assertEquals(descriptor.runtime.sha256, bundle.sha256())
-            val extraction = File(context.cacheDir, "image-runtime-installer").apply {
-                deleteRecursively()
-                mkdirs()
-            }
-            runTermux(
-                context,
-                listOf(File(prefix, "bin/tar").absolutePath, "-xf", bundle.absolutePath, "-C", extraction.absolutePath,
-                    "scripts/wtmux-runtime")
-            )
-            runTermux(
-                context,
-                listOf(
-                    File(prefix, "bin/python3").absolutePath, File(extraction, "scripts/wtmux-runtime").absolutePath,
-                    "install", "--bundle", bundle.absolutePath, "--sha256", descriptor.runtime.sha256,
-                    "--root", File(home, ".local/share/wtmux").absolutePath,
-                    "--bin-dir", File(prefix, "bin").absolutePath, "--baseline"
-                )
-            )
-            runTermux(
-                context,
-                listOf(
-                    File(prefix, "bin/bash").absolutePath,
-                    File(home, ".local/share/wtmux/current/setup.sh").absolutePath,
-                    "--refresh-only", "--no-hooks"
-                )
-            )
+        val runtimeRoot = File(home, ".local/share/agent-fleet/wtmux")
+        val bundle = File(context.cacheDir, descriptor.runtime.file)
+        context.assets.open("agent-fleet/${descriptor.runtime.file}").use { input ->
+            bundle.outputStream().use(input::copyTo)
         }
+        assertEquals(descriptor.runtime.sha256, bundle.sha256())
+        val extraction = File(context.cacheDir, "image-runtime-installer").apply {
+            deleteRecursively()
+            mkdirs()
+        }
+        runTermux(
+            context,
+            listOf(File(prefix, "bin/tar").absolutePath, "-xf", bundle.absolutePath, "-C", extraction.absolutePath,
+                "scripts/wtmux-runtime")
+        )
+        runTermux(
+            context,
+            listOf(
+                File(prefix, "bin/python3").absolutePath, File(extraction, "scripts/wtmux-runtime").absolutePath,
+                "install", "--bundle", bundle.absolutePath, "--sha256", descriptor.runtime.sha256,
+                "--root", runtimeRoot.absolutePath,
+                "--bin-dir", File(prefix, "bin").absolutePath, "--baseline"
+            )
+        )
+        runTermux(
+            context,
+            listOf(
+                File(prefix, "bin/bash").absolutePath,
+                File(runtimeRoot, "current/setup.sh").absolutePath,
+                "--refresh-only", "--no-hooks"
+            )
+        )
         assertTrue(wtmux.canExecute())
     }
 
