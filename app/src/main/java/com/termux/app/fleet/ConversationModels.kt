@@ -157,6 +157,20 @@ internal fun terminalScreenViewMode(sourceMode: String, alternateScreen: Boolean
     else -> current
 }
 
+internal fun localSuggestionCancellationSerialForModeChange(
+    currentSerial: Long,
+    previous: NativeViewMode,
+    next: NativeViewMode
+): Long = if (previous == NativeViewMode.Native && next != NativeViewMode.Native) {
+    Math.addExact(currentSerial, 1L)
+} else currentSerial
+
+internal fun localSuggestionCancellationSerialForFocusChange(
+    currentSerial: Long,
+    wasFocused: Boolean,
+    focused: Boolean
+): Long = if (wasFocused && !focused) Math.addExact(currentSerial, 1L) else currentSerial
+
 data class NativeSessionUiState(
     val sessionLabel: String,
     val hostId: String,
@@ -173,6 +187,9 @@ data class NativeSessionUiState(
     val olderLoadError: String? = null,
     val historyLimitReached: Boolean = false,
     val liveEventSerial: Long = 0,
+    val localSuggestionCancellationSerial: Long = 0,
+    val surfaceActive: Boolean = true,
+    val suggestionFocused: Boolean = true,
     val optimisticWorkStartedAt: Long? = null,
     val providerActivity: ProviderActivity? = null,
     val providerActivityAuthoritative: Boolean = false,

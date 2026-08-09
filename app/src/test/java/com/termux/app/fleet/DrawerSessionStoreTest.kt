@@ -112,6 +112,18 @@ class DrawerSessionStoreTest {
         assertEquals("", RecentSessionStore(context).load().single().title)
     }
 
+    @Test
+    fun corruptStateIsQuarantinedBeforeAValidEmptyStateReplacesIt() {
+        val preferences = context.getSharedPreferences("agent_fleet_terminal_drawer", Context.MODE_PRIVATE)
+        val corrupt = "{\"version\":2,\"records\":["
+        assertTrue(preferences.edit().putString("drawer_sessions_v2", corrupt).commit())
+
+        assertTrue(DrawerSessionStore(context).recordsForTest().isEmpty())
+
+        assertEquals(corrupt, preferences.getString("drawer_sessions_v2_corrupt_backup", null))
+        assertTrue(DrawerSessionStore(context).recordsForTest().isEmpty())
+    }
+
     private fun clear() {
         context.getSharedPreferences("agent_fleet_terminal_drawer", Context.MODE_PRIVATE).edit().clear().commit()
         context.getSharedPreferences("agent_fleet_terminal_tabs", Context.MODE_PRIVATE).edit().clear().commit()

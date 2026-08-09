@@ -4,6 +4,7 @@ import android.graphics.Color as AndroidColor
 import android.app.DatePickerDialog
 import android.app.TimePickerDialog
 import android.util.TypedValue
+import android.view.View
 import android.widget.TextView
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -85,7 +86,16 @@ import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.termux.shared.interact.ShareUtils
+import com.termux.shared.data.ExternalUrlPolicy
+import io.noties.markwon.AbstractMarkwonPlugin
+import io.noties.markwon.LinkResolver
 import io.noties.markwon.Markwon
+import io.noties.markwon.MarkwonConfiguration
+import io.noties.markwon.MarkwonSpansFactory
+import io.noties.markwon.SpanFactory
+import io.noties.markwon.core.CoreProps
+import org.commonmark.node.Link
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import org.json.JSONArray
@@ -94,6 +104,8 @@ import java.util.Calendar
 import java.util.Date
 import java.util.Locale
 import java.util.TimeZone
+import java.util.WeakHashMap
+import java.lang.ref.WeakReference
 import java.text.SimpleDateFormat
 
 private val LocalAgentFleetDisplayDensity = staticCompositionLocalOf { AgentFleetDisplayDensity() }
@@ -119,6 +131,7 @@ fun NativeSessionScreen(
     onDismissAttention: () -> Unit,
     onComposerText: (String, Boolean) -> Boolean = { _, _ -> false },
     onAttach: () -> Unit = {},
+    onCamera: () -> Unit = {},
     inlineComposer: Boolean = false,
     showChrome: Boolean = true,
     applyStatusBarInset: Boolean = true,
@@ -148,12 +161,16 @@ fun NativeSessionScreen(
         )
     }
     DisposableEffect(localSuggestions) { onDispose { localSuggestions.close() } }
-    LaunchedEffect(state.revision, state.liveEventSerial) { localSuggestions.clear() }
+    LaunchedEffect(state.revision, state.liveEventSerial, state.localSuggestionCancellationSerial) {
+        localSuggestions.clear()
+    }
     var actionSheetId by rememberSaveable { mutableStateOf("") }
     var dismissedActionId by rememberSaveable { mutableStateOf("") }
     var feedNearBottom by remember { mutableStateOf(true) }
     var viewerOpen by remember { mutableStateOf(false) }
     val pendingAction = activePendingAction(state.items)
+    val suggestionSurfaceActive = state.surfaceActive && state.suggestionFocused &&
+        state.viewMode == NativeViewMode.Native
     val automaticQuestion = pendingAction?.takeIf { it.kind == "question" }
         ?.questions?.firstOrNull()?.takeIf { canSuggestForQuestion(it, "") }
     val automaticQuestionTarget = automaticQuestion?.let {
@@ -169,7 +186,8 @@ fun NativeSessionScreen(
     LaunchedEffect(state.liveEventSerial) {
         val start = shouldStartAutomaticSuggestion(
             observedQuestionKey, automaticQuestionKey,
-            localSuggestions.mode == LocalSuggestionMode.AUTOMATIC && state.liveEventSerial > observedQuestionSerial,
+            suggestionSurfaceActive && localSuggestions.mode == LocalSuggestionMode.AUTOMATIC &&
+                state.liveEventSerial > observedQuestionSerial,
             historicalFrame = false
         )
         observedQuestionSerial = state.liveEventSerial
@@ -210,6 +228,7 @@ fun NativeSessionScreen(
                     state = state,
                     destinationLabel = "Terminal",
                     headerTag = "native-session-header",
+                    tickerActive = state.surfaceActive && state.viewMode == NativeViewMode.Native,
                     modifier = if (applyStatusBarInset) {
                         Modifier.windowInsetsPadding(WindowInsets.statusBars)
                     } else {
@@ -255,7 +274,7 @@ fun NativeSessionScreen(
             } else if (aiComposer && inlineComposer && state.providerState.mutationsAllowed) {
                 NativeAiComposer(
                     state.interactionMode, state.items, state.revision, state.liveEventSerial,
-                    localSuggestions, onComposerText, onAttach
+                    suggestionSurfaceActive, localSuggestions, onComposerText, onAttach, onCamera
                 )
             } else if (aiComposer && inlineComposer) {
                 ProviderFallbackBar(
@@ -362,6 +381,7 @@ fun AgentFleetTerminalSessionChrome(
         state = state,
         destinationLabel = "Native",
         headerTag = "terminal-session-chrome",
+        tickerActive = state.surfaceActive && state.viewMode != NativeViewMode.Native,
         aiComposer = aiComposer,
         onToggleView = onShowNative,
         onControlC = onControlC,
@@ -379,6 +399,7 @@ private fun CompactSessionHeader(
     state: NativeSessionUiState,
     destinationLabel: String,
     headerTag: String,
+    tickerActive: Boolean,
     aiComposer: Boolean,
     onToggleView: () -> Unit,
     onControlC: () -> Unit,
@@ -414,7 +435,7 @@ private fun CompactSessionHeader(
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis
                     )
-                    NativeSessionStatusLine(state)
+                    NativeSessionStatusLine(state, tickerActive)
                 }
                 Box {
                     TextButton(
@@ -484,7 +505,7 @@ private fun CompactSessionHeader(
 }
 
 @Composable
-private fun NativeSessionStatusLine(state: NativeSessionUiState) {
+private fun NativeSessionStatusLine(state: NativeSessionUiState, tickerActive: Boolean) {
     val exactActivity = state.providerActivity
     val exactActivityStartedAt = remember(exactActivity) {
         providerActivityStartedAt(exactActivity)
@@ -497,7 +518,9 @@ private fun NativeSessionStatusLine(state: NativeSessionUiState) {
     } else {
         providerWorkingStartedAt ?: state.optimisticWorkStartedAt
     }
-    val workingStartedAt = exactActivityStartedAt ?: fallbackStartedAt
+    val workingStartedAt = if (tickerActive) {
+        exactActivityStartedAt ?: fallbackStartedAt
+    } else null
     val completedDuration = remember(state.adapter, state.items) {
         latestCompletedWorkDuration(state.adapter, state.items)
     }
@@ -710,9 +733,11 @@ private fun NativeAiComposer(
     conversationItems: List<ConversationItem>,
     conversationRevision: String,
     liveEventSerial: Long,
+    active: Boolean,
     localSuggestions: NativeLocalSuggestionState,
     onComposerText: (String, Boolean) -> Boolean,
-    onAttach: () -> Unit
+    onAttach: () -> Unit,
+    onCamera: () -> Unit
 ) {
     var value by rememberSaveable { mutableStateOf("") }
     var observedLiveSerial by remember { mutableStateOf(liveEventSerial) }
@@ -728,7 +753,7 @@ private fun NativeAiComposer(
     LaunchedEffect(liveEventSerial) {
         val start = shouldStartAutomaticSuggestion(
             observedSuggestionKey, automaticKey,
-            localSuggestions.mode == LocalSuggestionMode.AUTOMATIC && liveEventSerial > observedLiveSerial,
+            active && localSuggestions.mode == LocalSuggestionMode.AUTOMATIC && liveEventSerial > observedLiveSerial,
             historicalFrame = false
         )
         observedLiveSerial = liveEventSerial
@@ -744,6 +769,13 @@ private fun NativeAiComposer(
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(4.dp), verticalAlignment = Alignment.CenterVertically) {
                 TextButton(onClick = onAttach, contentPadding = PaddingValues(horizontal = 7.dp, vertical = 4.dp)) {
                     Text("Attach", fontSize = 12.sp)
+                }
+                TextButton(
+                    onClick = onCamera,
+                    modifier = Modifier.testTag("native-camera"),
+                    contentPadding = PaddingValues(horizontal = 7.dp, vertical = 4.dp)
+                ) {
+                    Text("Camera", fontSize = 12.sp)
                 }
                 OutlinedTextField(
                     value = value,
@@ -963,7 +995,7 @@ private fun ConversationFeed(
                     ProviderConfidenceCard(state.providerState, onOpenTerminal)
                 }
             }
-            items(rows.asReversed(), key = { "conversation:${it.id}" }) { row ->
+            items(rows.asReversed(), key = ConversationRow::composeKey) { row ->
                 when (row) {
                     is ConversationRow.Item -> ConversationItemCard(
                         row.value, onApproval, onQuestion, onOpenTerminal, onRetry,
@@ -2125,11 +2157,17 @@ private fun MarkdownText(value: String) {
 @Composable
 private fun MarkwonText(value: String, textSizeSp: Int) {
     val context = LocalContext.current
-    val markwon = remember(context) { Markwon.create(context) }
+    val markwon = remember(context) { nativeMarkdownMarkwon(context) }
     val color = MaterialTheme.colorScheme.onSurface
     AndroidView(
         modifier = Modifier.fillMaxWidth(),
-        factory = { TextView(it).apply { setTextIsSelectable(true); setBackgroundColor(AndroidColor.TRANSPARENT) } },
+        factory = {
+            TextView(it).apply {
+                setTextIsSelectable(true)
+                setBackgroundColor(AndroidColor.TRANSPARENT)
+                importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_YES
+            }
+        },
         update = { view ->
             view.setTextColor(color.toArgbCompat())
             view.setTextSize(TypedValue.COMPLEX_UNIT_SP, textSizeSp.toFloat())
@@ -2137,6 +2175,33 @@ private fun MarkwonText(value: String, textSizeSp: Int) {
             markwon.setMarkdown(view, value)
         }
     )
+}
+
+private val nativeMarkdownCache = WeakHashMap<android.content.Context, WeakReference<Markwon>>()
+
+internal fun nativeMarkdownMarkwon(context: android.content.Context): Markwon = synchronized(nativeMarkdownCache) {
+    nativeMarkdownCache[context]?.get() ?: Markwon.builder(context)
+        .usePlugin(object : AbstractMarkwonPlugin() {
+            override fun configureConfiguration(builder: MarkwonConfiguration.Builder) {
+                builder.linkResolver(LinkResolver { view, destination ->
+                    ShareUtils.openURL(view.context, destination)
+                })
+            }
+
+            override fun configureSpansFactory(builder: MarkwonSpansFactory.Builder) {
+                val allowedLinkFactory = builder.requireFactory(Link::class.java)
+                builder.setFactory(Link::class.java, SpanFactory { configuration, properties ->
+                    val destination = CoreProps.LINK_DESTINATION.require(properties)
+                    if (ExternalUrlPolicy.classify(destination).action == ExternalUrlPolicy.Action.BLOCK) {
+                        null
+                    } else {
+                        allowedLinkFactory.getSpans(configuration, properties)
+                    }
+                })
+            }
+        })
+        .build()
+        .also { nativeMarkdownCache[context] = WeakReference(it) }
 }
 
 private sealed interface NativeMarkdownBlock {

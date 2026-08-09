@@ -1,15 +1,22 @@
 package com.termux.app
 
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.assertIsNotDisplayed
 import androidx.compose.ui.test.assertCountEquals
+import androidx.compose.ui.test.assertContentDescriptionEquals
+import androidx.compose.ui.test.assertHeightIsAtLeast
 import androidx.compose.ui.test.assertHeightIsEqualTo
+import androidx.compose.ui.test.assertIsNotSelected
+import androidx.compose.ui.test.assertIsSelected
 import androidx.compose.ui.test.assertTextContains
+import androidx.compose.ui.test.assertWidthIsAtLeast
 import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithTag
@@ -17,6 +24,7 @@ import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.performScrollToNode
+import androidx.compose.ui.test.performSemanticsAction
 import androidx.compose.ui.test.performTextInput
 import androidx.compose.ui.test.performTouchInput
 import androidx.test.ext.junit.runners.AndroidJUnit4
@@ -33,10 +41,17 @@ import com.termux.app.fleet.DiagnosticStatus
 import com.termux.app.fleet.DiagnosticsUiState
 import com.termux.app.fleet.EmbeddedRuntimeStatus
 import com.termux.app.fleet.FleetAttention
+import com.termux.app.fleet.FleetAlert
+import com.termux.app.fleet.FleetAlertCategory
+import com.termux.app.fleet.FleetAlertSettings
+import com.termux.app.fleet.FleetAlertTarget
+import com.termux.app.fleet.FleetPairingRequest
+import com.termux.app.fleet.FleetPairingReview
 import com.termux.app.fleet.FleetDirectoryListing
 import com.termux.app.fleet.FleetDownloadCancellation
 import com.termux.app.fleet.FleetDownloadState
 import com.termux.app.fleet.FleetHost
+import com.termux.app.fleet.FleetPhysicalHost
 import com.termux.app.fleet.FleetUnavailableException
 import com.termux.app.fleet.FleetLoadState
 import com.termux.app.fleet.FleetModelControlState
@@ -48,6 +63,7 @@ import com.termux.app.fleet.FleetRepositoryPage
 import com.termux.app.fleet.FleetSession
 import com.termux.app.fleet.FleetSnapshot
 import com.termux.app.fleet.NativeSessionScreen
+import com.termux.app.fleet.NativeSessionRegistry
 import com.termux.app.fleet.NativeSessionUiState
 import com.termux.app.fleet.ProviderActivity
 import com.termux.app.fleet.ProviderComponent
@@ -64,17 +80,23 @@ import com.termux.app.fleet.AgentFleetComposerContent
 import com.termux.app.fleet.AgentFleetComposerNativeState
 import com.termux.app.fleet.AndroidWorkspaceState
 import com.termux.app.fleet.WorkspaceTerminalBroker
+import com.termux.app.fleet.WorkspaceTerminalBinding
 import com.termux.app.fleet.WorkspacePreset
 import com.termux.app.fleet.WorkspaceReducer
+import com.termux.app.fleet.WorkspaceSplit
+import com.termux.app.fleet.WorkspaceViewMode
+import com.termux.app.fleet.agentFleetWorkspaceTarget
 import com.termux.app.fleet.emptyWorkspaceLayout
 import com.termux.app.fleet.workspacePanes
 import androidx.test.core.app.ApplicationProvider
 import java.util.concurrent.atomic.AtomicInteger
+import java.util.concurrent.atomic.AtomicReference
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.semantics.SemanticsActions
 import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.dp
 import org.junit.Assert.assertEquals
@@ -338,6 +360,244 @@ class AgentFleetComposeTest {
     }
 
     @Test
+    fun foregroundFleetAlertOpensTheExactSessionAndDismisses() {
+        val opened = AtomicInteger()
+        val dismissed = AtomicInteger()
+        compose.setContent {
+            FixtureApp(
+                fleetAlerts = listOf(FleetAlert(
+                    FleetAlertCategory.DeliveryFailures,
+                    "Scheduled continue failed",
+                    "Delivery could not be completed.",
+                    FleetAlertTarget.Session(session.id)
+                )),
+                onOpenSession = { if (it.id == session.id) opened.incrementAndGet() },
+                onDismissFleetAlert = { dismissed.incrementAndGet() }
+            )
+        }
+
+        compose.onNodeWithTag("fleet-alert-banner").assertIsDisplayed()
+        compose.onNodeWithText("Scheduled continue failed").assertIsDisplayed()
+        compose.onNodeWithTag("fleet-alert-open").performClick()
+        assertEquals(1, opened.get())
+        assertEquals(1, dismissed.get())
+    }
+
+    @Test
+    fun foregroundFleetAlertRespectsTheSafeTopInset() {
+        val expectedTop = AtomicInteger()
+        compose.setContent {
+            val density = LocalDensity.current
+            expectedTop.set(WindowInsets.safeDrawing.getTop(density) + with(density) { 16.dp.roundToPx() })
+            FixtureApp(
+                fleetAlerts = listOf(
+                    FleetAlert(
+                        FleetAlertCategory.HostState,
+                        "Host offline",
+                        "Live actions are paused.",
+                        FleetAlertTarget.Host("gaming")
+                    )
+                )
+            )
+        }
+
+        val top = compose.onNodeWithTag("fleet-alert-banner").fetchSemanticsNode().boundsInRoot.top
+        assertTrue("banner top=$top expected>=${expectedTop.get()}", top >= expectedTop.get())
+    }
+
+    @Test
+    fun dismissedPairingAlertRemainsRecoverableFromMore() {
+        val alerts = mutableStateOf(listOf(pairingAlert("pair-1", FleetAlertTarget.PairingReview("pair-1"))))
+        val reviewed = AtomicReference("")
+        val fleetSnapshot = snapshot.copy(pairingRequests = listOf(pairingRequest("pair-1", "Phone one")))
+        compose.setContent {
+            FixtureApp(
+                fleetSnapshot = fleetSnapshot,
+                fleetAlerts = alerts.value,
+                onDismissFleetAlert = { alerts.value = emptyList() },
+                onReviewPairingRequest = reviewed::set
+            )
+        }
+
+        compose.onNodeWithTag("fleet-alert-dismiss").performClick()
+        compose.onNodeWithTag("nav-more").performClick()
+        compose.onNodeWithTag("more-screen")
+            .performScrollToNode(hasTestTag("pairing-request-review-pair-1"))
+        compose.onNodeWithTag("pairing-request-review-pair-1")
+            .assertContentDescriptionEquals("Review exact proposal from Phone one")
+            .performClick()
+
+        compose.runOnIdle { assertEquals("pair-1", reviewed.get()) }
+    }
+
+    @Test
+    fun groupedPairingAlertRoutesToPersistentExactReviewList() {
+        val alerts = mutableStateOf(listOf(pairingAlert("grouped", FleetAlertTarget.Dashboard)))
+        val reviewed = AtomicReference("")
+        val fleetSnapshot = snapshot.copy(
+            pairingRequests = listOf(
+                pairingRequest("pair-1", "Phone one"),
+                pairingRequest("pair-2", "Tablet two")
+            )
+        )
+        compose.setContent {
+            FixtureApp(
+                fleetSnapshot = fleetSnapshot,
+                fleetAlerts = alerts.value,
+                onDismissFleetAlert = { alerts.value = emptyList() },
+                onReviewPairingRequest = reviewed::set
+            )
+        }
+
+        compose.onNodeWithTag("fleet-alert-open").performClick()
+        compose.onNodeWithTag("nav-more").assertIsSelected()
+        compose.onNodeWithTag("awaiting-pairing-reviews-highlight").assertIsDisplayed()
+        compose.onNodeWithTag("more-screen")
+            .performScrollToNode(hasTestTag("pairing-request-review-pair-2"))
+        compose.onNodeWithTag("pairing-request-review-pair-2").performClick()
+
+        compose.runOnIdle { assertEquals("pair-2", reviewed.get()) }
+    }
+
+    @Test
+    fun legacyHostAlertScrollsToAndHighlightsExactPhysicalHost() {
+        val fillers = List(12) { index -> physicalHost("filler-$index", listOf("legacy-filler-$index")) }
+        val target = physicalHost("gaming-pc", listOf("gaming", "gaming_windows"), name = "Gaming PC")
+        val alerts = mutableStateOf(
+            listOf(
+                FleetAlert(
+                    FleetAlertCategory.HostState,
+                    "Gaming PC is offline",
+                    "The host is unavailable.",
+                    FleetAlertTarget.Host("gaming_windows")
+                )
+            )
+        )
+        compose.setContent {
+            FixtureApp(
+                fleetSnapshot = snapshot.copy(physicalHosts = fillers + target),
+                fleetAlerts = alerts.value,
+                onDismissFleetAlert = { alerts.value = emptyList() }
+            )
+        }
+
+        compose.onNodeWithTag("fleet-alert-open").performClick()
+        compose.onNodeWithTag("nav-more").assertIsSelected()
+        compose.onNodeWithTag("fleet-host-gaming-pc").assertIsDisplayed()
+        compose.onNodeWithTag("fleet-host-gaming-pc-highlight").assertIsDisplayed()
+        compose.onNodeWithText("Gaming PC").assertIsDisplayed()
+
+        compose.onNodeWithTag("nav-sessions").performClick()
+        compose.onNodeWithTag("nav-more").performClick()
+        compose.onNodeWithTag("app-updates").assertIsDisplayed()
+        compose.onAllNodes(hasTestTag("fleet-host-gaming-pc")).assertCountEquals(0)
+    }
+
+    @Test
+    fun fleetAlertSettingsExposeSixIndependentForegroundControlsAndPause() {
+        val settings = mutableStateOf(FleetAlertSettings())
+        val pauses = AtomicInteger()
+        compose.setContent {
+            FixtureApp(
+                fleetAlertSettings = settings.value,
+                onFleetAlertSettings = { settings.value = it },
+                onPauseFleetAlerts = { pauses.incrementAndGet() }
+            )
+        }
+        compose.onNodeWithTag("nav-more").performClick()
+        compose.onNodeWithTag("more-screen").performScrollToNode(hasTestTag("fleet-alert-settings"))
+        listOf("hardLimits", "deliveryFailures", "deliverySuccess", "hostState", "versionDrift", "pairing")
+            .forEach { compose.onNodeWithTag("fleet-alert-$it").assertIsDisplayed() }
+        compose.onNodeWithTag("fleet-alert-deliverySuccess")
+            .assertContentDescriptionEquals("Delivery success")
+        compose.onNodeWithTag("fleet-alert-deliverySuccess").performClick()
+        compose.runOnIdle { assertTrue(!settings.value.deliverySuccess) }
+        compose.onNodeWithTag("fleet-alert-pause").performClick()
+        assertEquals(1, pauses.get())
+        compose.onNodeWithTag("more-screen").performScrollToNode(hasTestTag("automatic-session-titles"))
+        compose.onNodeWithTag("automatic-session-titles")
+            .assertContentDescriptionEquals("Automatic coding-session titles")
+        compose.onNodeWithTag("more-screen").performScrollToNode(hasTestTag("native-session-view"))
+        compose.onNodeWithTag("native-session-view")
+            .assertContentDescriptionEquals("Native session view")
+    }
+
+    @Test
+    fun pairingAlertReviewShowsTheExactProposalBeforeDecision() {
+        val rejected = AtomicInteger()
+        compose.setContent {
+            FixtureApp(
+                pairingReviewUi = PairingReviewUiState(
+                    requestId = "pair-1",
+                    review = FleetPairingReview(
+                        "pair-1", "Phone", "Android", "phone.tailnet.ts.net", "100.64.0.10",
+                        "{\n  \"id\": \"phone-1\",\n  \"roles\": [\"client\"]\n}"
+                    )
+                ),
+                onDecidePairingRequest = { id, approve ->
+                    if (id == "pair-1" && !approve) rejected.incrementAndGet()
+                }
+            )
+        }
+
+        compose.onNodeWithTag("pairing-review-proposal").assertTextContains("phone-1", substring = true)
+        compose.onNodeWithTag("pairing-review-reject").performClick()
+        assertEquals(1, rejected.get())
+    }
+
+    @Test
+    fun pairingDecisionIsDisabledWhenExactProposalReviewFailed() {
+        compose.setContent {
+            FixtureApp(
+                pairingReviewUi = PairingReviewUiState(
+                    requestId = "pair-1",
+                    review = FleetPairingReview(
+                        "pair-1", "Phone", "Android", "phone.tailnet.ts.net", "100.64.0.10",
+                        "{\"id\":\"phone-1\"}"
+                    ),
+                    error = "Pairing decision failed. Refresh and review again."
+                )
+            )
+        }
+
+        compose.onAllNodes(hasTestTag("pairing-review-proposal")).assertCountEquals(0)
+        compose.onNodeWithTag("pairing-review-approve").assertIsNotEnabled()
+        compose.onNodeWithTag("pairing-review-reject").assertIsNotEnabled()
+        compose.onNodeWithTag("pairing-review-retry").assertIsDisplayed()
+    }
+
+    @Test
+    fun nativeSuggestionCancellationSerialClearsRetainedPaneWork() {
+        val assistant = ConversationItem(
+            id = "assistant", kind = "message", timestamp = "2026-07-18T00:00:00Z", role = "assistant",
+            title = "", text = "Which rollout should I use?", detail = "", state = "complete", tool = "",
+            attachments = emptyList(), choices = emptyList()
+        )
+        val native = mutableStateOf(
+            NativeSessionUiState(
+                "Fixture", "gaming", "wtmux-main", adapter = "codex", connection = "Live",
+                items = listOf(assistant)
+            )
+        )
+        compose.setContent {
+            NativeStateFixture(
+                native.value,
+                inlineComposer = true,
+                localSuggestionsAvailableOverride = true,
+                localSuggestionDebugFakeOutput = """{"suggestions":["Use the safe rollout"]}"""
+            )
+        }
+        compose.onNodeWithTag("local-suggest-composer").performClick()
+        compose.waitUntil(10_000) {
+            compose.onAllNodes(hasTestTag("local-suggestion-0")).fetchSemanticsNodes().isNotEmpty()
+        }
+        compose.runOnIdle {
+            native.value = native.value.copy(localSuggestionCancellationSerial = 1)
+        }
+        compose.onAllNodes(hasTestTag("local-suggestion-0")).assertCountEquals(0)
+    }
+
+    @Test
     fun sessionListUsesAutomaticTitleWithStableIdentityUnderIt() {
         compose.setContent { FixtureApp() }
         compose.onNodeWithText("Diagnostics").assertIsDisplayed()
@@ -399,6 +659,93 @@ class AgentFleetComposeTest {
     }
 
     @Test
+    fun wideWorkspaceRetainsTheProductionNativeSessionAcrossModeSwitches() {
+        val context = ApplicationProvider.getApplicationContext<android.content.Context>()
+        val initial = emptyWorkspaceLayout()
+        val state = mutableStateOf(
+            AndroidWorkspaceState(WorkspaceReducer.assign(initial, initial.focusedPaneId, session.id))
+        )
+        val broker = WorkspaceTerminalBroker(context)
+        @Suppress("UNCHECKED_CAST")
+        val binding = broker.state(session.id) as androidx.compose.runtime.MutableState<WorkspaceTerminalBinding>
+        binding.value = WorkspaceTerminalBinding(session.id, status = "live", message = "Live")
+        val registry = NativeSessionRegistry<WorkspaceRetainedNativeSession>(context)
+        val target = agentFleetWorkspaceTarget(session)
+
+        compose.setContent {
+            AgentFleetTheme(darkTheme = true) {
+                CompositionLocalProvider(LocalWorkspaceNativeSessionRegistry provides registry) {
+                    DesktopWorkspaceScreen(
+                        snapshot = snapshot,
+                        sessions = snapshot.sessions,
+                        state = state.value,
+                        broker = broker,
+                        onStateChange = { state.value = it },
+                        onMoreSession = { _, _ -> },
+                        onRefresh = {}
+                    )
+                }
+            }
+        }
+
+        compose.waitForIdle()
+        compose.runOnIdle {
+            binding.value = WorkspaceTerminalBinding(session.id, status = "live", message = "Live")
+            assertEquals(1, registry.state().entries)
+            assertEquals(setOf(target), registry.state().activeTargets)
+        }
+        compose.waitForIdle()
+        compose.runOnIdle {
+            state.value = state.value.copy(
+                layout = WorkspaceReducer.setView(
+                    state.value.layout,
+                    state.value.layout.focusedPaneId,
+                    WorkspaceViewMode.Terminal
+                )
+            )
+        }
+        compose.waitForIdle()
+        compose.runOnIdle {
+            assertEquals(
+                WorkspaceViewMode.Terminal,
+                workspacePanes(state.value.layout.root).single().viewMode
+            )
+            assertEquals(1, registry.state().entries)
+            assertTrue(registry.state().activeTargets.isEmpty())
+        }
+        compose.runOnIdle {
+            binding.value = WorkspaceTerminalBinding(session.id, status = "live", message = "Live")
+            state.value = state.value.copy(
+                layout = WorkspaceReducer.setView(
+                    state.value.layout,
+                    state.value.layout.focusedPaneId,
+                    WorkspaceViewMode.Native
+                )
+            )
+        }
+        compose.waitForIdle()
+        compose.runOnIdle {
+            assertEquals(1, registry.state().entries)
+            assertEquals(setOf(target), registry.state().activeTargets)
+        }
+
+        compose.runOnIdle {
+            state.value = state.value.copy(
+                layout = WorkspaceReducer.setView(
+                    state.value.layout,
+                    state.value.layout.focusedPaneId,
+                    WorkspaceViewMode.Terminal
+                )
+            )
+        }
+        compose.waitForIdle()
+        compose.runOnIdle {
+            registry.destroy()
+            broker.close()
+        }
+    }
+
+    @Test
     fun wideWorkspaceUsesOneControlSetAndAChipForEveryPane() {
         val layout = WorkspaceReducer.preset(emptyWorkspaceLayout(), WorkspacePreset.Grid)
         val state = mutableStateOf(AndroidWorkspaceState(layout))
@@ -418,9 +765,13 @@ class AgentFleetComposeTest {
         }
         compose.onAllNodes(hasTestTag("workspace-mode-native")).assertCountEquals(1)
         compose.onAllNodes(hasTestTag("workspace-mode-terminal")).assertCountEquals(1)
+        compose.onNodeWithTag("workspace-mode-native").assertIsSelected()
+        compose.onNodeWithTag("workspace-mode-terminal").assertIsNotSelected()
         compose.onAllNodes(hasTestTag("workspace-more")).assertCountEquals(1)
         workspacePanes(state.value.layout.root).forEach { pane ->
-            compose.onNodeWithTag("workspace-pane-chip-${pane.id}").assertIsDisplayed()
+            compose.onNodeWithTag("workspace-pane-chip-${pane.id}")
+                .assertIsDisplayed()
+                .assertHeightIsAtLeast(48.dp)
         }
         val second = workspacePanes(state.value.layout.root)[1]
         compose.onNodeWithTag("workspace-pane-chip-${second.id}").performClick()
@@ -428,6 +779,46 @@ class AgentFleetComposeTest {
         compose.onNodeWithTag("workspace-more").performScrollTo().performClick()
         compose.onNodeWithText("Close pane").performClick()
         compose.runOnIdle { assertEquals(3, workspacePanes(state.value.layout.root).size) }
+        broker.close()
+    }
+
+    @Test
+    fun wideWorkspaceDividerAndPaneSwapExposeAccessibilityActions() {
+        var layout = WorkspaceReducer.preset(emptyWorkspaceLayout(), WorkspacePreset.TwoColumns)
+        val initial = workspacePanes(layout.root)
+        layout = WorkspaceReducer.assign(layout, initial[0].id, session.id)
+        layout = WorkspaceReducer.assign(layout, initial[1].id, "work-m:pending")
+        val state = mutableStateOf(AndroidWorkspaceState(layout, railCollapsed = true))
+        val broker = WorkspaceTerminalBroker(ApplicationProvider.getApplicationContext())
+        compose.setContent {
+            AgentFleetTheme(darkTheme = true) {
+                DesktopWorkspaceScreen(
+                    snapshot = snapshot,
+                    sessions = snapshot.sessions,
+                    state = state.value,
+                    broker = broker,
+                    onStateChange = { state.value = it },
+                    onMoreSession = { _, _ -> },
+                    onRefresh = {}
+                )
+            }
+        }
+
+        val split = state.value.layout.root as WorkspaceSplit
+        compose.onNodeWithTag("workspace-divider-${split.id}")
+            .assertContentDescriptionEquals("Resize panes left and right")
+            .assertWidthIsAtLeast(48.dp)
+            .performSemanticsAction(SemanticsActions.SetProgress) { it(0.7f) }
+        compose.runOnIdle { assertEquals(0.7f, (state.value.layout.root as WorkspaceSplit).ratio) }
+
+        val panes = workspacePanes(state.value.layout.root)
+        val swap = compose.onNodeWithTag("workspace-pane-chip-${panes[0].id}")
+            .fetchSemanticsNode().config[SemanticsActions.CustomActions]
+            .single { it.label == "Swap with pane 2" }
+        compose.runOnIdle { assertTrue(swap.action()) }
+        compose.runOnIdle {
+            assertEquals(listOf("work-m:pending", session.id), workspacePanes(state.value.layout.root).map { it.sessionId })
+        }
         broker.close()
     }
 
@@ -714,16 +1105,35 @@ class AgentFleetComposeTest {
     @Test
     fun localSuggestionBinderReturnsParsedFakeEngineResultsWithoutAModel() {
         val context = ApplicationProvider.getApplicationContext<android.content.Context>()
-        val latch = CountDownLatch(1)
-        var result: Result<List<String>>? = null
-        val client = LocalSuggestionClient(context, """{"suggestions":["Use the safe default","Show me the tradeoff"]}""")
-        client.generate("bounded fixture prompt") {
-            result = it
-            latch.countDown()
+        fun request(fakeOutput: String, prompt: String): List<String> {
+            val latch = CountDownLatch(1)
+            var result: Result<List<String>>? = null
+            val client = LocalSuggestionClient(context, fakeOutput)
+            client.generate(prompt) {
+                result = it
+                latch.countDown()
+            }
+            org.junit.Assert.assertTrue("fake local model callback timed out", latch.await(10, TimeUnit.SECONDS))
+            client.close()
+            return result?.getOrThrow().orEmpty()
         }
-        org.junit.Assert.assertTrue("fake local model callback timed out", latch.await(10, TimeUnit.SECONDS))
-        assertEquals(listOf("Use the safe default", "Show me the tradeoff"), result?.getOrThrow())
-        client.close()
+
+        assertEquals(
+            listOf("Use the safe default", "Show me the tradeoff"),
+            request(
+                """{"suggestions":["Use the safe default","Show me the tradeoff"]}""",
+                "first bounded fixture prompt"
+            )
+        )
+        // The warm started service reuses its cached binder. A second request must carry its own
+        // debuggable-only fake instead of depending on onBind() being invoked again.
+        assertEquals(
+            listOf("Keep the warm engine"),
+            request(
+                """{"suggestions":["Keep the warm engine"]}""",
+                "second bounded fixture prompt"
+            )
+        )
         LocalSuggestionRuntime.shutdown(context)
     }
 
@@ -899,15 +1309,25 @@ class AgentFleetComposeTest {
 
     @androidx.compose.runtime.Composable
     private fun FixtureApp(
+        fleetSnapshot: FleetSnapshot = snapshot,
         diagnosticsUi: DiagnosticsUiState = DiagnosticsUiState(),
         onListRepository: (FleetSession, String, Boolean, String, (Result<FleetRepositoryPage>) -> Unit) -> Unit = { _, _, _, _, callback -> callback(Result.success(repositoryPage)) },
         onDownloadRepository: (FleetSession, FleetRepositoryEntry, (FleetDownloadState) -> Unit) -> FleetDownloadCancellation = { _, _, _ -> FleetDownloadCancellation() },
-        onExportDiagnostics: (AgentFleetDiagnosticReport) -> Unit = {}
+        onExportDiagnostics: (AgentFleetDiagnosticReport) -> Unit = {},
+        fleetAlerts: List<FleetAlert> = emptyList(),
+        fleetAlertSettings: FleetAlertSettings = FleetAlertSettings(),
+        onOpenSession: (FleetSession) -> Unit = {},
+        onDismissFleetAlert: () -> Unit = {},
+        onFleetAlertSettings: (FleetAlertSettings) -> Unit = {},
+        onPauseFleetAlerts: () -> Unit = {},
+        onReviewPairingRequest: (String) -> Unit = {},
+        pairingReviewUi: PairingReviewUiState? = null,
+        onDecidePairingRequest: (String, Boolean) -> Unit = { _, _ -> }
     ) {
         AgentFleetTheme(darkTheme = true) {
             AgentFleetApp(
-                fleetState = FleetLoadState.Ready(snapshot),
-                recentSessions = snapshot.sessions,
+                fleetState = FleetLoadState.Ready(fleetSnapshot),
+                recentSessions = fleetSnapshot.sessions,
                 pendingPairInvitation = null,
                 onPairInvitationHandled = {},
                 pendingSharedImages = emptyList(),
@@ -919,7 +1339,7 @@ class AgentFleetComposeTest {
                 localModelUi = LocalModelUiState(),
                 onSharedImagesHandled = {},
                 onRefresh = {},
-                onOpenSession = {},
+                onOpenSession = onOpenSession,
                 onOpenSessionWithImages = { _, _ -> },
                 onCreateSession = { _, _, _, _, _, _ -> },
                 onListDirectory = { _, _, _, callback -> callback(Result.success(FleetDirectoryListing("linux", "/home", null, emptyList(), emptyList(), false))) },
@@ -955,7 +1375,15 @@ class AgentFleetComposeTest {
                 onCopyDiagnostics = {},
                 onExportDiagnostics = onExportDiagnostics,
                 onCopyDiagnosticError = {},
-                onDiagnosticErrorHandled = {}
+                onDiagnosticErrorHandled = {},
+                fleetAlerts = fleetAlerts,
+                fleetAlertSettings = fleetAlertSettings,
+                onDismissFleetAlert = onDismissFleetAlert,
+                onFleetAlertSettings = onFleetAlertSettings,
+                onPauseFleetAlerts = onPauseFleetAlerts,
+                onReviewPairingRequest = onReviewPairingRequest,
+                pairingReviewUi = pairingReviewUi,
+                onDecidePairingRequest = onDecidePairingRequest
             )
         }
     }
@@ -963,6 +1391,35 @@ class AgentFleetComposeTest {
     private fun diagnosticReport() = AgentFleetDiagnosticReport(
         "2026-07-15T00:00:00Z", "test", "16", "Emulator", "x86_64", "fixture", "revision-1",
         listOf(AgentFleetDiagnosticCheck("runtime", "Built-in runtime", DiagnosticStatus.Healthy, "Ready")), emptyList()
+    )
+
+    private fun pairingAlert(id: String, target: FleetAlertTarget) = FleetAlert(
+        FleetAlertCategory.Pairing,
+        if (target == FleetAlertTarget.Dashboard) "2 pairing requests need review" else "Pairing request $id",
+        "Review the verified device proposal.",
+        target
+    )
+
+    private fun pairingRequest(id: String, deviceName: String) = FleetPairingRequest(
+        id = id,
+        deviceName = deviceName,
+        platform = "Android",
+        peer = "$id.tailnet.ts.net",
+        requestedAt = "2026-08-09T00:00:00Z",
+        expiresAt = "2026-08-09T00:10:00Z",
+        status = "awaiting-review"
+    )
+
+    private fun physicalHost(id: String, aliases: List<String>, name: String = id) = FleetPhysicalHost(
+        id = id,
+        name = name,
+        platform = "wsl",
+        status = "healthy",
+        lastSeenAt = "2026-08-09T00:00:00Z",
+        errorCode = "",
+        endpointIds = emptyList(),
+        executionTargetIds = listOf("linux", "windows"),
+        legacyHostIds = aliases
     )
 
     companion object {

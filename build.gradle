@@ -1,3 +1,5 @@
+import org.gradle.api.artifacts.dsl.LockMode
+
 buildscript {
     repositories {
         mavenCentral()
@@ -7,6 +9,9 @@ buildscript {
         classpath 'com.android.tools.build:gradle:8.10.1'
         classpath 'org.jetbrains.kotlin:kotlin-gradle-plugin:2.2.21'
         classpath 'org.jetbrains.kotlin.plugin.compose:org.jetbrains.kotlin.plugin.compose.gradle.plugin:2.2.21'
+    }
+    configurations.classpath {
+        resolutionStrategy.activateDependencyLocking()
     }
 }
 
@@ -19,6 +24,22 @@ allprojects {
 
     configurations.configureEach {
         exclude group: "com.google.guava", module: "listenablefuture"
+    }
+
+    dependencyLocking {
+        lockAllConfigurations()
+        lockMode = LockMode.STRICT
+    }
+}
+
+tasks.register("resolveAndLockAll") {
+    description = "Resolve every resolvable project configuration and persist reviewed dependency locks."
+    group = "build setup"
+    dependsOn subprojects.collect { "${it.path}:dependencies" }
+    doFirst {
+        if (!gradle.startParameter.writeDependencyLocks) {
+            throw new GradleException("resolveAndLockAll must be run with --write-locks")
+        }
     }
 }
 

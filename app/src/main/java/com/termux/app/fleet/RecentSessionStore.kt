@@ -14,7 +14,9 @@ class RecentSessionStore(context: Context) {
 
     fun load(): List<FleetSession> = runCatching {
         val array = JSONArray(preferences.getString(KEY, "[]"))
-        (0 until minOf(array.length(), MAX_TABS)).map { index -> decode(array.getJSONObject(index)) }
+        (0 until minOf(array.length(), MAX_TABS))
+            .map { index -> decode(array.getJSONObject(index)) }
+            .distinctBy(FleetSession::id)
     }.getOrDefault(emptyList())
 
     fun remove(sessionId: String) {

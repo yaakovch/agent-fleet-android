@@ -1,11 +1,16 @@
 package com.termux.app.fleet
 
 import android.content.Context
+import java.io.ByteArrayOutputStream
 import java.io.File
+import java.io.FileInputStream
 import java.io.FileOutputStream
+import java.io.RandomAccessFile
 import java.net.URI
 import java.net.URLDecoder
+import java.nio.ByteBuffer
 import java.nio.charset.StandardCharsets
+import java.nio.charset.CodingErrorAction
 import java.security.MessageDigest
 import java.time.Instant
 import org.json.JSONArray
@@ -116,10 +121,14 @@ object FleetConfigurationParser {
         val actual = MessageDigest.getInstance("SHA-256").digest((canonical(payload) + "\n").toByteArray(Charsets.UTF_8))
             .joinToString("") { "%02x".format(it) }
         require(actual == digest) { "Fleet configuration integrity check failed" }
+        val normalizedJson = root.toString(2) + "\n"
+        require(normalizedJson.toByteArray(Charsets.UTF_8).size <= MAX_BUNDLE_BYTES) {
+            "Normalized fleet configuration exceeds 4 MiB"
+        }
         return FleetConfigurationBundle(
             bundleId, fleetId, revision, createdAt, registry.length(), policy, trust,
             contractVersion, controlVersions, conversationVersions, minimumSequence, digest,
-            root.toString(2) + "\n"
+            normalizedJson
         )
     }
 
@@ -217,50 +226,198 @@ class FleetConfigurationStore(context: Context) {
     private val root = File(context.filesDir, "fleet-configuration")
     private val current = File(root, "current.json")
     private val previous = File(root, "previous.json")
+    private val transactionCurrent = File(root, ".transaction-current.json")
+    private val transactionPrevious = File(root, ".transaction-previous.json")
+    private val transactionMarker = File(root, ".transaction.json")
+    private val storeLock = File(root, ".store.lock")
 
-    fun current(): FleetConfigurationBundle? = current.takeIf(File::isFile)?.let {
-        FleetConfigurationParser.parse(it.readText(Charsets.UTF_8))
+    fun current(): FleetConfigurationBundle? = withStoreLock {
+        recoverTransaction()
+        readBundle(current)
     }
 
-    fun previous(): FleetConfigurationBundle? = previous.takeIf(File::isFile)?.let {
-        FleetConfigurationParser.parse(it.readText(Charsets.UTF_8))
+    fun previous(): FleetConfigurationBundle? = withStoreLock {
+        recoverTransaction()
+        readBundle(previous)
     }
 
     fun review(content: String): FleetConfigurationBundle = FleetConfigurationParser.parse(content)
 
     fun activate(content: String): FleetConfigurationBundle {
         val candidate = FleetConfigurationParser.parse(content)
-        val active = current()
-        require(active == null || candidate.configurationRevision >= active.configurationRevision) {
-            "Fleet configuration is older than the last healthy revision"
+        return withStoreLock {
+            recoverTransaction()
+            val active = readBundle(current)
+            require(active == null || candidate.configurationRevision >= active.configurationRevision) {
+                "Fleet configuration is older than the last healthy revision"
+            }
+            if (active != null && candidate.configurationRevision == active.configurationRevision) {
+                require(candidate.digest == active.digest) {
+                    "Fleet configuration revision was reused with different content"
+                }
+                return@withStoreLock active
+            }
+            commitTransaction(candidate.json, active?.json)
+            candidate
         }
-        if (active != null && candidate.configurationRevision == active.configurationRevision) {
-            require(candidate.digest == active.digest) { "Fleet configuration revision was reused with different content" }
-            return active
-        }
-        root.mkdirs()
-        if (active != null) atomicWrite(previous, active.json)
-        atomicWrite(current, candidate.json)
-        return candidate
     }
 
-    fun rollback(): FleetConfigurationBundle {
-        val old = requireNotNull(previous()) { "No previous healthy fleet configuration is available" }
-        val active = requireNotNull(current()) { "No active fleet configuration is available" }
-        atomicWrite(previous, active.json)
-        atomicWrite(current, old.json)
-        return old
+    fun rollback(): FleetConfigurationBundle = withStoreLock {
+        recoverTransaction()
+        val old = requireNotNull(readBundle(previous)) {
+            "No previous healthy fleet configuration is available"
+        }
+        val active = requireNotNull(readBundle(current)) {
+            "No active fleet configuration is available"
+        }
+        commitTransaction(old.json, active.json)
+        old
     }
 
-    fun export(): String = requireNotNull(current()) { "No active fleet configuration is available" }.json
+    fun export(): String = withStoreLock {
+        recoverTransaction()
+        requireNotNull(readBundle(current)) { "No active fleet configuration is available" }.json
+    }
+
+    private fun commitTransaction(currentContent: String, previousContent: String?) {
+        require(currentContent.toByteArray(Charsets.UTF_8).size <= MAX_CONFIGURATION_BYTES)
+        require(previousContent == null || previousContent.toByteArray(Charsets.UTF_8).size <= MAX_CONFIGURATION_BYTES)
+        ensureRoot()
+        atomicWrite(transactionCurrent, currentContent)
+        if (previousContent == null) {
+            check(!transactionPrevious.exists() || transactionPrevious.delete()) {
+                "Unable to prepare fleet configuration transaction"
+            }
+        } else {
+            atomicWrite(transactionPrevious, previousContent)
+        }
+        val marker = JSONObject()
+            .put("version", TRANSACTION_VERSION)
+            .put("currentSha256", sha256(currentContent))
+            .put("hasPrevious", previousContent != null)
+            .put("previousSha256", previousContent?.let(::sha256) ?: "")
+        atomicWrite(transactionMarker, marker.toString() + "\n")
+        recoverTransaction()
+    }
+
+    private fun recoverTransaction() {
+        if (!transactionMarker.isFile) return
+        val marker = JSONObject(readBoundedText(transactionMarker, MAX_TRANSACTION_MARKER_BYTES))
+        require(marker.keys().asSequence().toSet() == setOf(
+            "version", "currentSha256", "hasPrevious", "previousSha256"
+        )) { "Fleet configuration transaction is invalid" }
+        require(marker.getInt("version") == TRANSACTION_VERSION)
+        val currentContent = readBoundedText(transactionCurrent, MAX_CONFIGURATION_BYTES)
+        require(sha256(currentContent) == marker.getString("currentSha256")) {
+            "Fleet configuration transaction current payload is invalid"
+        }
+        FleetConfigurationParser.parse(currentContent)
+        val hasPrevious = marker.getBoolean("hasPrevious")
+        val previousContent = if (hasPrevious) {
+            readBoundedText(transactionPrevious, MAX_CONFIGURATION_BYTES).also {
+                require(sha256(it) == marker.getString("previousSha256")) {
+                    "Fleet configuration transaction previous payload is invalid"
+                }
+                FleetConfigurationParser.parse(it)
+            }
+        } else {
+            require(marker.getString("previousSha256").isEmpty())
+            null
+        }
+
+        ensureRoot()
+        if (previousContent == null) {
+            check(!previous.exists() || previous.delete()) {
+                "Unable to recover fleet configuration transaction"
+            }
+        } else {
+            atomicWrite(previous, previousContent)
+        }
+        atomicWrite(current, currentContent)
+        check(transactionMarker.delete()) { "Unable to complete fleet configuration transaction" }
+        syncRoot()
+        transactionCurrent.delete()
+        transactionPrevious.delete()
+    }
+
+    private fun readBundle(file: File): FleetConfigurationBundle? =
+        file.takeIf(File::isFile)?.let {
+            FleetConfigurationParser.parse(readBoundedText(it, MAX_CONFIGURATION_BYTES))
+        }
+
+    private fun readBoundedText(file: File, maximumBytes: Int): String {
+        require(file.isFile) { "Fleet configuration payload is missing" }
+        val declaredLength = file.length()
+        require(declaredLength in 0..maximumBytes.toLong()) {
+            "Fleet configuration payload exceeds its size limit"
+        }
+        val output = ByteArrayOutputStream(declaredLength.toInt().coerceAtMost(READ_BUFFER_BYTES))
+        FileInputStream(file).use { input ->
+            val buffer = ByteArray(READ_BUFFER_BYTES)
+            var total = 0
+            while (true) {
+                val count = input.read(buffer)
+                if (count < 0) break
+                total += count
+                require(total <= maximumBytes) {
+                    "Fleet configuration payload exceeds its size limit"
+                }
+                output.write(buffer, 0, count)
+            }
+        }
+        return StandardCharsets.UTF_8.newDecoder()
+            .onMalformedInput(CodingErrorAction.REPORT)
+            .onUnmappableCharacter(CodingErrorAction.REPORT)
+            .decode(ByteBuffer.wrap(output.toByteArray()))
+            .toString()
+    }
+
+    private inline fun <T> withStoreLock(action: () -> T): T = synchronized(PROCESS_LOCK) {
+        ensureRoot()
+        RandomAccessFile(storeLock, "rw").channel.use { channel ->
+            channel.lock().use {
+                action()
+            }
+        }
+    }
+
+    private fun ensureRoot() {
+        check((root.isDirectory || root.mkdirs()) && root.isDirectory) {
+            "Unable to prepare fleet configuration storage"
+        }
+    }
 
     private fun atomicWrite(destination: File, content: String) {
-        destination.parentFile?.mkdirs()
-        val temporary = File(destination.parentFile, ".${destination.name}.${android.os.Process.myPid()}.tmp")
-        FileOutputStream(temporary).use {
-            it.write(content.toByteArray(Charsets.UTF_8))
-            it.fd.sync()
+        ensureRoot()
+        val temporary = File(
+            destination.parentFile,
+            ".${destination.name}.${android.os.Process.myPid()}.${System.nanoTime()}.tmp"
+        )
+        try {
+            FileOutputStream(temporary).use {
+                it.write(content.toByteArray(Charsets.UTF_8))
+                it.fd.sync()
+            }
+            atomicRenameCompat(temporary, destination)
+            syncRoot()
+        } finally {
+            temporary.delete()
         }
-        check(temporary.renameTo(destination)) { "Unable to activate fleet configuration" }
+    }
+
+    private fun syncRoot() {
+        fsyncDirectoryCompat(root)
+    }
+
+    private fun sha256(value: String): String = MessageDigest.getInstance("SHA-256")
+        .digest(value.toByteArray(Charsets.UTF_8))
+        .joinToString("") { "%02x".format(it) }
+
+    private companion object {
+        const val TRANSACTION_VERSION = 1
+        const val MAX_CONFIGURATION_BYTES = 4 * 1024 * 1024
+        const val MAX_TRANSACTION_MARKER_BYTES = 16 * 1024
+        const val READ_BUFFER_BYTES = 16 * 1024
+        val PROCESS_LOCK = Any()
     }
 }

@@ -31,3 +31,33 @@ internal fun Process.destroyForciblyCompat() {
         destroy()
     }
 }
+
+internal fun Process.closePipesCompat() {
+    runCatching { outputStream.close() }
+    runCatching { inputStream.close() }
+    runCatching { errorStream.close() }
+}
+
+internal fun Process.terminateAndReapCompat(
+    gracefulWaitMillis: Long = 200,
+    forcedWaitSeconds: Long = 2
+) {
+    var interrupted = false
+    fun waitForExit(value: Long, unit: TimeUnit): Boolean = try {
+        waitForCompat(value, unit)
+    } catch (_: InterruptedException) {
+        interrupted = true
+        false
+    }
+
+    runCatching { destroy() }
+    if (isAliveCompat() && gracefulWaitMillis > 0) {
+        waitForExit(gracefulWaitMillis, TimeUnit.MILLISECONDS)
+    }
+    if (isAliveCompat()) runCatching { destroyForciblyCompat() }
+    closePipesCompat()
+    if (isAliveCompat() && forcedWaitSeconds > 0) {
+        waitForExit(forcedWaitSeconds, TimeUnit.SECONDS)
+    }
+    if (interrupted) Thread.currentThread().interrupt()
+}

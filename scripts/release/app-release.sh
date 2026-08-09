@@ -20,15 +20,25 @@ version_code="$AGENT_FLEET_RELEASE_VERSION_CODE"
 git_commit="$(git -C "$repo" rev-parse HEAD)"
 stamp="$(date -u +%Y%m%dT%H%M%SZ)"
 report_dir="$repo/build/reports/agent-fleet/release/$stamp-$version_name"
-mkdir -p "$report_dir"
+(umask 077; mkdir -p "$report_dir")
 stages="$report_dir/stages.tsv"
 : >"$stages"
+state_root="${XDG_STATE_HOME:-$HOME/.local/state}"
+sequence_reservation="${AGENT_FLEET_SEQUENCE_RESERVATION:-$state_root/agent-fleet/android-releases/sequence-reservations/$stamp-$version_name.json}"
+publication_transaction="${AGENT_FLEET_PUBLICATION_RECEIPT:-$(
+  python3 "$repo/scripts/release/publication_receipt.py" default-path "$version_name"
+)}"
+publication_status="$report_dir/publication-status.json"
 loopback_args=()
 
 say() { printf '[release] %s\n' "$*"; }
 
 write_report() {
   local outcome="$1" release_dir="$repo/dist/$version_name"
+  if [[ -e "$publication_transaction" || -L "$publication_transaction" ]]; then
+    python3 "$repo/scripts/release/publication_receipt.py" redact \
+      "$publication_transaction" "$publication_status" || true
+  fi
   python3 - "$report_dir/release-report.json" "$stages" "$outcome" "$version_name" "$version_code" "$git_commit" "$hold" "$release_dir" <<'PY'
 import hashlib, json, pathlib, sys
 output, stages_path, outcome, version_name, version_code, commit, hold, release_dir = sys.argv[1:]
@@ -64,15 +74,16 @@ PY
   say "report: $report_dir/release-report.json"
 }
 
-run_stage() {
+run_stage_deferred() {
   local name="$1" started elapsed status
   shift
   say "$name"
   started="$SECONDS"
-  set +e
-  "$@"
-  status=$?
-  set -e
+  if "$@"; then
+    status=0
+  else
+    status=$?
+  fi
   elapsed=$((SECONDS - started))
   if [[ "$status" -eq 0 ]]; then
     printf '%s\t%s\tpassed\n' "$name" "$elapsed" >>"$stages"
@@ -80,38 +91,65 @@ run_stage() {
     return 0
   fi
   printf '%s\t%s\tfailed\n' "$name" "$elapsed" >>"$stages"
-  write_report failed
-  exit "$status"
+  return "$status"
 }
 
-release_preflight() {
-  agent_fleet_release_load_config
-  agent_fleet_release_load_credentials
-  agent_fleet_release_check_keystore "$repo"
-  agent_fleet_release_check_git "$repo"
-  agent_fleet_release_find_sdk
-  if [[ "$AGENT_FLEET_PUBLISH_PRIMARY" == local:* ]]; then
-    loopback_args=(--loopback-fallback)
+run_stage() {
+  local status
+  set +e
+  run_stage_deferred "$@"
+  status=$?
+  set -e
+  if [[ "$status" -ne 0 ]]; then
+    write_report failed
+    exit "$status"
+  fi
+}
+
+check_release_sequence() {
+  local -a reservation_args=()
+  if [[ -e "$sequence_reservation" ]]; then
+    reservation_args=(--reservation "$sequence_reservation")
+  else
+    reservation_args=(--reservation-out "$sequence_reservation")
   fi
   "$repo/scripts/release/check-release-sequence.py" "$version_code" \
     "$AGENT_FLEET_RELEASE_BASE_URL/manifest.json" "$AGENT_FLEET_RUNTIME_MANIFEST_URL" \
+    "${reservation_args[@]}" \
     "${loopback_args[@]}"
 }
 
+release_preflight() {
+  agent_fleet_release_load_config || return
+  agent_fleet_release_load_credentials || return
+  agent_fleet_release_check_keystore "$repo" || return
+  agent_fleet_release_check_git "$repo" || return
+  agent_fleet_release_find_sdk || return
+  if [[ "$AGENT_FLEET_PUBLISH_PRIMARY" == local:* ]]; then
+    loopback_args=(--loopback-fallback)
+  fi
+  check_release_sequence
+}
+
 run_stage preflight release_preflight
+export -n AGENT_FLEET_STORE_PASSWORD AGENT_FLEET_KEY_PASSWORD 2>/dev/null || true
 if [[ "$preflight_only" == "1" ]]; then
   write_report passed
   exit 0
 fi
 
-run_stage full-api36 env AGENT_FLEET_EMULATOR_BACKEND=windows \
+run_stage full-api36 env -u AGENT_FLEET_STORE_PASSWORD -u AGENT_FLEET_KEY_PASSWORD \
+  AGENT_FLEET_EMULATOR_BACKEND=windows \
   bash "$repo/scripts/debug/android-check.sh" full
-run_stage release-lint "$repo/scripts/debug/android-gradle.sh" :app:lintRelease \
+run_stage release-lint env -u AGENT_FLEET_STORE_PASSWORD -u AGENT_FLEET_KEY_PASSWORD \
+  "$repo/scripts/debug/android-gradle.sh" :app:lintRelease \
   --daemon --no-build-cache --parallel --console=plain
-run_stage signed-build "$repo/scripts/release/build-signed-release.sh" \
+run_stage signed-build env -u AGENT_FLEET_STORE_PASSWORD -u AGENT_FLEET_KEY_PASSWORD \
+  "$repo/scripts/release/build-signed-release.sh" \
   "$version_name" "$version_code" "$AGENT_FLEET_RELEASE_BASE_URL"
 release_dir="$repo/dist/$version_name"
-run_stage release-verification "$repo/scripts/release/verify-release.sh" "$release_dir"
+run_stage release-verification env -u AGENT_FLEET_STORE_PASSWORD -u AGENT_FLEET_KEY_PASSWORD \
+  "$repo/scripts/release/verify-release.sh" "$release_dir"
 
 if [[ "$hold" == "1" ]]; then
   printf 'publication\t0\theld\n' >>"$stages"
@@ -120,11 +158,45 @@ if [[ "$hold" == "1" ]]; then
   exit 0
 fi
 
-run_stage publication env \
+run_stage sequence-recheck check_release_sequence
+run_stage publication env -u AGENT_FLEET_STORE_PASSWORD -u AGENT_FLEET_KEY_PASSWORD \
   AGENT_FLEET_PUBLISH_PRIMARY="${AGENT_FLEET_PUBLISH_PRIMARY:-}" \
   AGENT_FLEET_PUBLISH_FALLBACK="${AGENT_FLEET_PUBLISH_FALLBACK:-}" \
-  "$repo/scripts/release/publish-release.sh" "$release_dir"
-run_stage served-verification "$repo/scripts/release/verify-served-release.py" \
+  AGENT_FLEET_RELEASE_BASE_URL="$AGENT_FLEET_RELEASE_BASE_URL" \
+  AGENT_FLEET_RUNTIME_MANIFEST_URL="$AGENT_FLEET_RUNTIME_MANIFEST_URL" \
+  "$repo/scripts/release/publish-release.sh" "$release_dir" "$publication_transaction" \
+  --sequence-reservation "$sequence_reservation" "${loopback_args[@]}"
+set +e
+run_stage_deferred served-verification "$repo/scripts/release/verify-served-release.py" \
   "$release_dir" "$AGENT_FLEET_RELEASE_BASE_URL" "${loopback_args[@]}"
+served_status=$?
+set -e
+if [[ "$served_status" -ne 0 ]]; then
+  set +e
+  run_stage_deferred publication-rollback env \
+    AGENT_FLEET_PUBLISH_PRIMARY="${AGENT_FLEET_PUBLISH_PRIMARY:-}" \
+    AGENT_FLEET_PUBLISH_FALLBACK="${AGENT_FLEET_PUBLISH_FALLBACK:-}" \
+    "$repo/scripts/release/publish-release.sh" --rollback "$publication_transaction"
+  rollback_status=$?
+  set -e
+  if [[ "$rollback_status" -ne 0 ]]; then
+    say "served verification and publication rollback both failed"
+    write_report failed
+    exit 75
+  fi
+  set +e
+  run_stage_deferred restored-served-verification \
+    "$repo/scripts/release/verify-served-release.py" --restored-from-receipt \
+    "$publication_transaction" "$AGENT_FLEET_RELEASE_BASE_URL" "${loopback_args[@]}"
+  restored_status=$?
+  set -e
+  write_report failed
+  if [[ "$restored_status" -ne 0 ]]; then
+    say "previous target was switched back but its externally served bytes could not be verified"
+    exit 75
+  fi
+  say "served verification failed; exact previous publication restored and externally verified"
+  exit "$served_status"
+fi
 write_report passed
 say "published and verified $version_name ($version_code)"

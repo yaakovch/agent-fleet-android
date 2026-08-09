@@ -6,9 +6,11 @@ import android.content.ContextWrapper;
 import android.content.res.Configuration;
 import android.graphics.Point;
 import android.graphics.Rect;
+import android.os.Build;
 import android.util.TypedValue;
 import android.view.View;
 import android.view.ViewGroup;
+import android.view.WindowManager;
 
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
@@ -181,15 +183,25 @@ public class ViewUtils {
      * @return Returns the display size as {@link Point}.
      */
     public static Point getDisplaySize( @NonNull Context context, boolean activitySize) {
-        // android.view.WindowManager.getDefaultDisplay() and Display.getSize() are deprecated in
-        // API 30 and give wrong values in API 30 for activitySize=false in multi-window
-        androidx.window.WindowManager windowManager = new androidx.window.WindowManager(context);
-        androidx.window.WindowMetrics windowMetrics;
+        Activity activity = getActivity(context);
+        if (activity == null)
+            throw new IllegalArgumentException("An Activity context is required to read display metrics");
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            WindowManager windowManager = activity.getSystemService(WindowManager.class);
+            android.view.WindowMetrics windowMetrics = activitySize
+                ? windowManager.getCurrentWindowMetrics()
+                : windowManager.getMaximumWindowMetrics();
+            return new Point(windowMetrics.getBounds().width(), windowMetrics.getBounds().height());
+        }
+
+        // The legacy display APIs are required only below API 30. getRealSize() represents the
+        // maximum display while getSize() retains multi-window activity bounds.
+        Point size = new Point();
         if (activitySize)
-            windowMetrics = windowManager.getCurrentWindowMetrics();
+            activity.getWindowManager().getDefaultDisplay().getSize(size);
         else
-            windowMetrics = windowManager.getMaximumWindowMetrics();
-        return new Point(windowMetrics.getBounds().width(), windowMetrics.getBounds().height());
+            activity.getWindowManager().getDefaultDisplay().getRealSize(size);
+        return size;
     }
 
     /** Convert {@link Rect} to {@link String}. */

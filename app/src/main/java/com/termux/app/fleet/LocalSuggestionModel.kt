@@ -67,10 +67,107 @@ object LocalSuggestionPreferences {
 }
 
 object LocalSuggestionRuntime {
+    private const val RECREATION_HANDOFF_MILLIS = 1_500L
+    private val main = Handler(Looper.getMainLooper())
+    private val foregroundLifecycle = LocalSuggestionForegroundLifecycle(
+        scheduler = LocalSuggestionHandoffScheduler { delayMillis, action ->
+            val runnable = Runnable(action)
+            main.postDelayed(runnable, delayMillis)
+            LocalSuggestionScheduledTask { main.removeCallbacks(runnable) }
+        },
+        handoffDelayMillis = RECREATION_HANDOFF_MILLIS
+    )
+
+    @JvmStatic
+    fun onSurfaceStarted(owner: Any) {
+        foregroundLifecycle.start(owner)
+    }
+
+    @JvmStatic
+    fun onSurfaceStopped(context: Context, owner: Any) {
+        val app = context.applicationContext
+        foregroundLifecycle.stop(owner) { shutdown(app) }
+    }
+
     fun shutdown(context: Context) {
+        foregroundLifecycle.cancelPendingShutdown()
         val intent = Intent(context, LocalSuggestionService::class.java).setAction(ACTION_SHUTDOWN)
-        runCatching { context.startService(intent) }
+        runCatching {
+            context.sendBroadcast(Intent(ACTION_SHUTDOWN).setPackage(context.packageName))
+        }
         runCatching { context.stopService(intent) }
+    }
+}
+
+internal class LocalSuggestionForegroundOwners {
+    private val owners = java.util.IdentityHashMap<Any, Unit>()
+
+    @Synchronized
+    fun start(owner: Any) {
+        owners[owner] = Unit
+    }
+
+    /** Returns true only when this stop removed the final foreground owner. */
+    @Synchronized
+    fun stop(owner: Any): Boolean = owners.remove(owner) != null && owners.isEmpty()
+
+    @Synchronized
+    fun count(): Int = owners.size
+}
+
+internal fun interface LocalSuggestionScheduledTask {
+    fun cancel()
+}
+
+internal fun interface LocalSuggestionHandoffScheduler {
+    fun schedule(delayMillis: Long, action: () -> Unit): LocalSuggestionScheduledTask
+}
+
+/** Delays the last-owner shutdown long enough for an activity recreation to transfer ownership. */
+internal class LocalSuggestionForegroundLifecycle(
+    private val scheduler: LocalSuggestionHandoffScheduler,
+    private val handoffDelayMillis: Long
+) {
+    private val owners = LocalSuggestionForegroundOwners()
+    private var generation = 0L
+    private var pendingShutdown: LocalSuggestionScheduledTask? = null
+
+    init {
+        require(handoffDelayMillis in 1L..30_000L)
+    }
+
+    @Synchronized
+    fun start(owner: Any) {
+        generation = Math.addExact(generation, 1L)
+        pendingShutdown?.cancel()
+        pendingShutdown = null
+        owners.start(owner)
+    }
+
+    @Synchronized
+    fun stop(owner: Any, shutdown: () -> Unit) {
+        if (!owners.stop(owner)) return
+        generation = Math.addExact(generation, 1L)
+        val ticket = generation
+        pendingShutdown?.cancel()
+        pendingShutdown = scheduler.schedule(handoffDelayMillis) {
+            val action = synchronized(this) {
+                if (ticket != generation || owners.count() != 0) {
+                    null
+                } else {
+                    pendingShutdown = null
+                    shutdown
+                }
+            }
+            action?.invoke()
+        }
+    }
+
+    @Synchronized
+    fun cancelPendingShutdown() {
+        generation = Math.addExact(generation, 1L)
+        pendingShutdown?.cancel()
+        pendingShutdown = null
     }
 }
 

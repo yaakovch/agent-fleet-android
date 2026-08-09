@@ -5,9 +5,12 @@ on:
     types:
       - published
 
+permissions:
+  contents: read
+
 jobs:
   trigger-termux-library-builds:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - name: Set vars
         run: echo "TERMUX_LIB_VERSION=${GITHUB_REF/refs\/tags\/v/}" >> $GITHUB_ENV # Do not include "v" prefix

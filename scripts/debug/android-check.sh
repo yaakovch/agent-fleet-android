@@ -198,6 +198,14 @@ test_apk="$(find app/build/outputs/apk/androidTest/debug -type f -name '*.apk' -
 test_apk_windows="$(wslpath -w "$test_apk")"
 adb_run -s "$serial" install -r -t "$test_apk_windows" >>"$log" 2>&1
 
+# A retained headless AVD can keep Quick Settings or the notification shade
+# expanded between runs. Compose semantics remain reachable underneath it, but
+# UiAutomation screenshots then capture System UI instead of the test window.
+# Collapse panels only after the API/ABI/qemu checks above have proved this is
+# the protected emulator.
+adb_run -s "$serial" shell cmd statusbar collapse >>"$log" 2>&1 || \
+  fail "emulator system panels could not be collapsed"
+
 instrument_args=(-w -r)
 if [[ "$mode" == "update-goldens" ]]; then
   instrument_args+=(-e class com.termux.app.AgentFleetGoldenTest -e agentFleetUpdateGoldens true)

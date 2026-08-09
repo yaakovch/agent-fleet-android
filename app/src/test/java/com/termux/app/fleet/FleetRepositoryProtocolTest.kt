@@ -34,6 +34,14 @@ class FleetRepositoryProtocolTest {
     }
 
     @Test
+    fun rejectsDuplicateEntryPathsEvenWhenMetadataDiffers() {
+        val duplicate = fixture()
+        val entries = duplicate.getJSONArray("entries")
+        entries.put(JSONObject(entries.getJSONObject(0).toString()).put("name", "conflicting-name"))
+        assertThrows(IllegalArgumentException::class.java) { FleetRepositoryProtocol.parsePage(duplicate) }
+    }
+
+    @Test
     fun rejectsTraversal() {
         val traversal = fixture().also { it.put("relativePath", "../secret") }
         assertThrows(IllegalArgumentException::class.java) { FleetRepositoryProtocol.parsePage(traversal) }
@@ -45,5 +53,17 @@ class FleetRepositoryProtocolTest {
         assertFalse(cancellation.isCancelledForUi())
         cancellation.cancel()
         assertTrue(cancellation.isCancelledForUi())
+    }
+
+    @Test
+    fun onlyMonotonicStableBoundedDownloadProgressRefreshesActivity() {
+        val maximum = 2L * 1024 * 1024 * 1024
+        assertTrue(safeDownloadProgress(0, 100, -1, -1, maximum))
+        assertTrue(safeDownloadProgress(1, 100, 0, 100, maximum))
+        assertFalse(safeDownloadProgress(1, 100, 1, 100, maximum))
+        assertFalse(safeDownloadProgress(0, 100, 1, 100, maximum))
+        assertFalse(safeDownloadProgress(2, 101, 1, 100, maximum))
+        assertFalse(safeDownloadProgress(2, maximum + 1, 1, 100, maximum))
+        assertFalse(safeDownloadProgress(-1, 100, 1, 100, maximum))
     }
 }

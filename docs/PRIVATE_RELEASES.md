@@ -17,6 +17,14 @@ The source file is not used again or deleted automatically. Override the
 default signing/config paths only with `AGENT_FLEET_SIGNING_DIR`,
 `AGENT_FLEET_STORE_PASSWORD_FILE`, or `AGENT_FLEET_RELEASE_CONFIG`.
 
+The public production signer fingerprint is independently pinned in
+`app/release-signing-certificate-sha256.txt`. The controller must also keep a
+separate mode-`0600` backup at `signing/certificate-sha256.txt`. Preflight
+requires that protected repository pin, local backup pin, keystore certificate,
+and both signed APK certificates all match. Signing passwords are passed only
+to `keytool` or `apksigner`; Gradle, lint, emulator, verification, and
+publication children receive an environment with those variables removed.
+
 ## Default rollout policy
 
 After a permanent-ID Android release passes its documented JVM, API 36,
@@ -24,7 +32,12 @@ lint, signing, certificate, embedded-runtime, identity, and checksum gates,
 publish that verified artifact to the `fleet/latest` in-app update lane as part
 of the same release task. A separate publication approval is not required.
 Retain the previous release for rollback and verify the HTTPS-served manifest
-and APK bytes after switching `latest`. Stop before publication only when the
+and APK bytes after switching `latest`. Publication first stages a complete
+version directory, refuses to replace an existing version with different
+bytes, and switches `latest` with a same-filesystem rename. If served-byte
+verification fails, the orchestrator restores the exact target recorded before
+the compare-and-switch. The same receipt also makes an uncertain remote SSH
+switch response safely rollback-capable. Stop before publication only when the
 user explicitly requests a hold, a required gate is incomplete, or publication
 would target a different application ID or release lane.
 
@@ -36,6 +49,10 @@ would target a different application ID or release lane.
    `scripts/release/backup-runtime-signing-key.sh /media/backup-a /media/backup-b`.
    The APK contains only its public key. Runtime hotfixes use
    `scripts/release/build-runtime-hotfix.sh` and never use the APK keystore.
+   That command currently builds and verifies candidates only. Production
+   runtime-hotfix publication is blocked until its publisher performs
+   server-side signed-envelope reproof and burns a claim in the same base-level
+   sequence authority described below.
    From version code 1035 onward, use the same monotonic number space for APK
    version codes and runtime sequences; the runtime sequence must be at least
    its declared minimum app version code.
@@ -51,13 +68,18 @@ would target a different application ID or release lane.
    `embedded-runtime-v1.json`, and pass both source and packaged-APK registry
    verification. The app installs that data archive separately from runtime
    code and repairs stale migration bindings without clearing phone data.
-4. Change `app/version.properties` to a version code greater than both the
-   published APK code and runtime sequence. Complete the focused regression,
-   commit every tracked release change, push it, and ensure the branch is clean
-   and synchronized with its upstream.
+4. Change `app/version.properties` to a version code greater than the published
+   APK code, signed runtime sequence, immutable deployed bootstrap floor `1096`,
+   and any publisher high-water claim. Complete the focused regression, commit
+   every tracked release change, push it, and ensure the branch is clean and
+   synchronized with its upstream.
 5. Run `scripts/release/app-release.sh`. It performs the sequence and credential
    preflight, protected Windows-AVD full suite, release lint, one signed build,
-   artifact verification, publication, and HTTPS served-byte verification.
+   artifact verification, a second live app/runtime sequence check immediately
+   before publication, transactional publication, and HTTPS served-byte
+   verification without following redirects. A failed served check restores
+   the captured previous `latest` target while retaining the rejected immutable
+   version directory for investigation.
    Use `--hold` to stop after verification or `--preflight-only` to check a
    prepared next version without building. Stage timings are stored under
    `build/reports/agent-fleet/release/`.
@@ -66,9 +88,34 @@ would target a different application ID or release lane.
    builder requires arguments that exactly match `app/version.properties` and
    refuses invalid credentials, dirty source, or an unpushed commit before
    Gradle starts. It keeps the Windows Gradle child noninteractive with a plain
-   console and redirected stdin.
-7. For a remote primary use `user@gaming-desktop:/srv/agent-fleet`; optionally
-   configure `AGENT_FLEET_PUBLISH_FALLBACK=user@work-m:/srv/agent-fleet`.
+   console and redirected stdin. Direct forward publication is intentionally
+   unavailable until `verify-release.sh` has created
+   `candidate-proof-v1.json` and a signed sequence reservation has been created
+   and reproved:
+
+   ```bash
+   scripts/release/check-release-sequence.py VERSION_CODE \
+     HTTPS_BASE_URL/manifest.json HTTPS_RUNTIME_MANIFEST_URL \
+     --reservation-out /secure/state/sequence-reservation-v1.json
+   scripts/release/publish-release.sh RELEASE_DIRECTORY [TRANSACTION_FILE] \
+     --sequence-reservation /secure/state/sequence-reservation-v1.json
+   ```
+
+   Restore the captured target with
+   `publish-release.sh --rollback TRANSACTION_FILE`. Omitting
+   `TRANSACTION_FILE` uses
+   `$XDG_STATE_HOME/agent-fleet/android-releases/VERSION.json`, or
+   `~/.local/state/agent-fleet/android-releases/VERSION.json`. This mode-`0600`
+   user-owned receipt is authoritative and must stay outside disposable repo
+   build output. The release report contains only a redacted status copy.
+   Receipts bind the publisher channel through a destination digest and never
+   contain the destination or credentials.
+7. For a remote primary use `user@gaming-desktop:/srv/agent-fleet`. A configured
+   fallback is never selected automatically: distinct stores cannot safely
+   reserve one app/runtime sequence. After primary failure, recover and audit
+   its state, then explicitly configure the fallback as the sole destination
+   only if it uses the same sequencer/shared filesystem. Independent roots are
+   not a supported high-availability pair.
    The local path is the filesystem root seen by the HTTP backend after any
    reverse-proxy mount prefix is removed. For the current Tailscale Serve
    `/agent-fleet` proxy, publish to
@@ -85,6 +132,43 @@ would target a different application ID or release lane.
    artifact origins in a strict `client-policy-v1` file. Pass it to
    `wtmux-pairing prepare-artifacts --client-policy FILE`; pairing installs it
    on Android. Update sources are no longer entered manually in the app.
+
+## Transaction and sequence layout
+
+The publication base is the common parent of `fleet/` and `runtime/`. One
+bounded directory-descriptor lock covers both lanes. The current app pointer is
+written as `fleet/latest -> activations/<32-hex-id> -> ../releases/VERSION`;
+existing `fleet/latest -> releases/VERSION` pointers remain readable for
+migration and rollback. Staging uses the same locally generated 128-bit ID and
+is accepted only at `fleet/releases/.staging-VERSION-ID`.
+
+Before switching `latest`, the store independently rehashes the exact proved
+app tree, verifies the current pinned Ed25519 runtime envelope, and creates the
+immutable claim `sequence-claims/SEQUENCE.json` with `O_EXCL`. Its canonical
+record binds the component, numeric sequence, reservation token, version,
+candidate manifest hash, source commit, candidate-proof hash, and reservation
+hash. `sequence-high-water-v1.json` binds the newest sequence, component, token,
+and claim hash. Claims are never deleted or reclaimed: a failure or rollback
+after claiming permanently burns that number. A missing high-water bootstraps
+from the current verified app, signed runtime sequence, and immutable deployed
+floor `1096`. This floor records already-issued production history; it is not
+an evergreen alias for the current app version. An orphan claim left by a crash
+prevents a different retry from claiming the same sequence.
+
+The Android app forward-publication path is enabled and performs this claim
+under the base lock. There is deliberately no runtime claim command in this
+repository yet. Do not publish output from `build-runtime-hotfix.sh` until the
+runtime publisher can independently verify the signed envelope at the store
+and use this exact shared claim/high-water namespace.
+
+Remote SSH and SCP are batch-only with bounded connect, keepalive, command, and
+transfer deadlines. Served verification accepts only canonical credential-free
+standard-port HTTPS at the configured origin/path, follows no redirects, limits
+the manifest to 32 KiB, requires exactly two APKs of at most 300 MiB each, and
+uses one total deadline. If candidate verification fails after switching, the
+orchestrator rolls back and externally verifies the exact recorded previous
+manifest and both APKs (or the recorded absence). Rollback or restore-
+verification uncertainty exits with reserved status `75`.
 
 For a development phone already running Agent Fleet, install a preview only with
 `scripts/release/install-device-update.sh ADB_SERIAL APK`. The script uses Android's

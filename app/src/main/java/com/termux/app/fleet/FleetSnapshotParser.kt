@@ -39,7 +39,7 @@ object FleetSnapshotParser {
                 ))
                 host.requiredString("transport", 16)
                 host.requiredString("errorCode", 64, allowEmpty = true)
-                host.requiredString("wtmuxVersion", 64, allowEmpty = true)
+                val wtmuxVersion = host.requiredString("wtmuxVersion", 64, allowEmpty = true)
                 host.requiredString("agentVersion", 64, allowEmpty = true)
                 host.requiredInt("protocolVersion", 1, 1)
                 host.requiredString("timeZone", 64, allowEmpty = true)
@@ -49,7 +49,8 @@ object FleetSnapshotParser {
                     status = host.requiredString("status", 32),
                     platform = host.requiredString("platform", 32),
                     lastSeenAt = host.optionalString("lastSeenAt", 40),
-                    capabilities = host.requiredArray("capabilities", 32).mapStrings(64).toSet()
+                    capabilities = host.requiredArray("capabilities", 32).mapStrings(64).toSet(),
+                    wtmuxVersion = wtmuxVersion
                 )
             },
             sessions = root.requiredArray("sessions", 500).mapObjects { session ->
@@ -102,37 +103,53 @@ object FleetSnapshotParser {
                 schedule.requiredString("createdAt", 40, allowEmpty = true)
                 schedule.requiredString("updatedAt", 40, allowEmpty = true)
                 schedule.optionalString("completedAt", 40)
-                schedule.requiredString("outcomeCode", 64, allowEmpty = true)
+                val outcomeCode = schedule.requiredString("outcomeCode", 64, allowEmpty = true)
                 FleetSchedule(
                     id = schedule.requiredString("id", 160),
                     hostId = schedule.requiredString("hostId", 160),
                     sessionId = schedule.requiredString("sessionId", 320),
                     deliverAt = schedule.requiredString("deliverAt", 40),
-                    status = schedule.requiredString("status", 32)
+                    status = schedule.requiredString("status", 32),
+                    outcomeCode = outcomeCode,
+                    detail = humanizeFleetCode(outcomeCode)
                 )
             },
             attention = root.requiredArray("attention", 500).mapObjects { attention ->
                 attention.requireExactFields(setOf(
                     "id", "hostId", "kind", "sessionId", "agent", "resetAt", "state", "detectedAt", "updatedAt"
                 ))
-                require(attention.requiredString("kind", 32) == "hard-limit")
+                val kind = attention.requiredString("kind", 32)
+                require(kind == "hard-limit")
                 attention.optionalString("detectedAt", 40)
                 attention.optionalString("updatedAt", 40)
+                val hostId = attention.requiredString("hostId", 160)
+                val agent = attention.requiredString("agent", 32).also {
+                    require(it in setOf("codex", "claude", "unknown")) { "Invalid attention agent" }
+                }
+                val resetAt = attention.optionalString("resetAt", 40)
                 FleetAttention(
                     id = attention.requiredString("id", 160),
-                    hostId = attention.requiredString("hostId", 160),
+                    hostId = hostId,
                     sessionId = attention.requiredString("sessionId", 320),
-                    agent = attention.requiredString("agent", 32),
-                    resetAt = attention.optionalString("resetAt", 40),
-                    state = attention.requiredString("state", 32)
+                    agent = agent,
+                    resetAt = resetAt,
+                    state = attention.requiredString("state", 32),
+                    kind = kind,
+                    title = "${fleetAgentLabel(agent)} usage limit detected",
+                    detail = buildString {
+                        append(hostId)
+                        if (resetAt != null) append(" · resets ").append(resetAt)
+                    }
                 )
+            }.also { parsedAttention ->
+                require(parsedAttention.map { it.id }.toSet().size == parsedAttention.size) { "Duplicate attention id" }
             }.filter { it.state in setOf("detected", "offering", "offered") },
             limits = root.optionalArray("limits", 100).mapObjects { limit ->
                 limit.requireExactFields(setOf(
                     "id", "hostId", "provider", "profileAlias", "status", "primary", "secondary", "updatedAt"
                 ))
                 FleetLimit(
-                    id = limit.requiredString("id", 160),
+                    id = limit.requiredString("id", 320),
                     hostId = limit.requiredString("hostId", 160),
                     provider = limit.requiredString("provider", 32),
                     profileAlias = limit.requiredString("profileAlias", 64),
@@ -141,32 +158,47 @@ object FleetSnapshotParser {
                     secondary = limit.optionalWindow("secondary"),
                     updatedAt = limit.requiredString("updatedAt", 40)
                 )
+            },
+            pairingRequests = root.optionalArray("pairingRequests", 256).mapObjects { pairing ->
+                pairing.requireExactFields(setOf("id", "deviceName", "platform", "peer", "requestedAt", "expiresAt", "status"))
+                FleetPairingRequest(
+                    id = pairing.requiredString("id", 160),
+                    deviceName = pairing.requiredString("deviceName", 128),
+                    platform = pairing.requiredString("platform", 32),
+                    peer = pairing.requiredString("peer", 253),
+                    requestedAt = pairing.requiredString("requestedAt", 40),
+                    expiresAt = pairing.requiredString("expiresAt", 40),
+                    status = pairing.requiredString("status", 32).also {
+                        require(it in setOf("awaiting-review", "approved", "rejected")) { "Invalid pairing status" }
+                    }
+                )
             }
         ).let { parsedSnapshot ->
             val snapshot = if (hasIdentityGraph) parseIdentityGraph(root, parsedSnapshot) else parsedSnapshot
-            root.optionalArray("presets", 100).mapObjects { preset ->
+            val hostIds = snapshot.hosts.map { it.id }.toSet()
+            val presetIds = root.optionalArray("presets", 100).mapObjects { preset ->
                 preset.requireExactFields(setOf("id", "name", "hostId", "project", "backend", "tool", "profileAlias"))
-                preset.requiredString("id", 160)
+                val id = preset.requiredString("id", 160)
                 preset.requiredString("name", 128)
-                preset.requiredString("hostId", 160)
+                preset.requiredString("hostId", 160).also {
+                    require(it in hostIds) { "Preset references an unknown host" }
+                }
                 preset.requiredString("project", 128)
                 require(preset.requiredString("backend", 16) in setOf("linux", "windows"))
                 require(preset.requiredString("tool", 16) in setOf("shell", "codex", "claude", "copilot"))
                 preset.requiredString("profileAlias", 64, allowEmpty = true)
+                id
             }
-            root.optionalArray("pairingRequests", 256).mapObjects { pairing ->
-                pairing.requireExactFields(setOf("id", "deviceName", "platform", "peer", "requestedAt", "expiresAt", "status"))
-                pairing.requiredString("id", 160)
-                pairing.requiredString("deviceName", 128)
-                pairing.requiredString("platform", 32)
-                pairing.requiredString("peer", 253)
-                pairing.requiredString("requestedAt", 40)
-                pairing.requiredString("expiresAt", 40)
-                require(pairing.requiredString("status", 32) in setOf("awaiting-review", "approved", "rejected"))
-            }
-            val hostIds = snapshot.hosts.map { it.id }.toSet()
+            require(presetIds.toSet().size == presetIds.size) { "Duplicate preset id" }
+            require(hostIds.size == snapshot.hosts.size) { "Duplicate host id" }
             require(snapshot.sessions.all { it.hostId in hostIds }) { "Session references an unknown host" }
             require(snapshot.sessions.map { it.id }.toSet().size == snapshot.sessions.size) { "Duplicate session id" }
+            require(snapshot.schedules.map { it.id }.toSet().size == snapshot.schedules.size) { "Duplicate schedule id" }
+            require(snapshot.attention.map { it.id }.toSet().size == snapshot.attention.size) { "Duplicate attention id" }
+            require(snapshot.pairingRequests.map { it.id }.toSet().size == snapshot.pairingRequests.size) {
+                "Duplicate pairing request id"
+            }
+            require(snapshot.limits.map { it.id }.toSet().size == snapshot.limits.size) { "Duplicate limit id" }
             require(snapshot.limits.all { it.hostId in hostIds }) { "Limit profile references an unknown host" }
             snapshot
         }
@@ -202,6 +234,9 @@ object FleetSnapshotParser {
         requireUnique(physicalHosts.flatMap(FleetPhysicalHost::legacyHostIds))
         val physicalIds = physicalHosts.map(FleetPhysicalHost::id).toSet()
         val legacyAliases = physicalHosts.flatMap(FleetPhysicalHost::legacyHostIds).toSet()
+        require(physicalHosts.none { owner ->
+            owner.legacyHostIds.any { alias -> alias in physicalIds && alias != owner.id }
+        }) { "Physical host id collides with another host legacy alias" }
         require(snapshot.hosts.all { it.id in legacyAliases }) { "Legacy host is missing from the identity graph" }
 
         val endpoints = root.requiredArray("endpoints", 512).mapObjects { endpoint ->
@@ -286,6 +321,17 @@ object FleetSnapshotParser {
             endpoints = endpoints,
             executionTargets = targets
         )
+    }
+
+    private fun humanizeFleetCode(value: String): String {
+        val words = value.replace('_', ' ')
+        return if (words.isEmpty()) "" else words[0].uppercaseChar() + words.substring(1)
+    }
+
+    private fun fleetAgentLabel(agent: String): String = when (agent) {
+        "codex" -> "Codex"
+        "claude" -> "Claude"
+        else -> "Coding agent"
     }
 
     private fun requireUnique(values: List<String>) {

@@ -9,6 +9,9 @@ internal data class ModelControlRefreshDecision(
     val ticket: ModelControlRequestTicket? = null
 )
 
+internal fun modelControlPollDelayMillis(hasPendingChange: Boolean): Long =
+    if (hasPendingChange) 3_000L else 30_000L
+
 internal class ModelControlRequestGate {
     private var nextId = 1L
     private var activeId: Long? = null

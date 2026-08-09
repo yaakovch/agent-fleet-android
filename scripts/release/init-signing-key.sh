@@ -25,17 +25,20 @@ if [[ -z "${AGENT_FLEET_STORE_PASSWORD:-}" ]]; then
 fi
 [[ ${#AGENT_FLEET_STORE_PASSWORD} -ge 16 ]] || { echo "password must be at least 16 characters" >&2; exit 1; }
 
-keytool -genkeypair -noprompt \
+env AGENT_FLEET_STORE_PASSWORD="$AGENT_FLEET_STORE_PASSWORD" keytool -genkeypair -noprompt \
   -keystore "$keystore" \
-  -storepass "$AGENT_FLEET_STORE_PASSWORD" \
-  -keypass "$AGENT_FLEET_STORE_PASSWORD" \
+  -storepass:env AGENT_FLEET_STORE_PASSWORD \
+  -keypass:env AGENT_FLEET_STORE_PASSWORD \
   -alias "$alias_name" \
   -keyalg RSA -keysize 4096 -validity 9125 \
   -dname "CN=Agent Fleet Private Release, OU=Private Distribution, O=Agent Fleet"
 
-fingerprint="$(keytool -list -v -keystore "$keystore" -storepass "$AGENT_FLEET_STORE_PASSWORD" -alias "$alias_name" | awk -F': ' '/SHA256:/{gsub(":", "", $2); print tolower($2); exit}')"
+fingerprint="$(env AGENT_FLEET_STORE_PASSWORD="$AGENT_FLEET_STORE_PASSWORD" \
+  keytool -list -v -keystore "$keystore" -storepass:env AGENT_FLEET_STORE_PASSWORD \
+  -alias "$alias_name" | awk -F': ' '/SHA256:/{gsub(":", "", $2); print tolower($2); exit}')"
 [[ "$fingerprint" =~ ^[0-9a-f]{64}$ ]] || { echo "could not read certificate fingerprint" >&2; exit 1; }
 printf '%s\n' "$fingerprint" >"$signing_dir/certificate-sha256.txt"
+chmod 600 "$signing_dir/certificate-sha256.txt"
 
 for destination in "$1" "$2"; do
   cp -p "$keystore" "$destination/agent-fleet-release.jks"

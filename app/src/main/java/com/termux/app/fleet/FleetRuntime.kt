@@ -8,10 +8,10 @@ import com.termux.app.TermuxActivity
 import com.termux.app.TermuxService
 import com.termux.shared.termux.TermuxConstants.TERMUX_APP.TERMUX_SERVICE
 import java.io.ByteArrayOutputStream
-import java.io.BufferedReader
 import java.io.BufferedWriter
 import java.io.File
-import java.io.InputStreamReader
+import java.time.Instant
+import java.io.IOException
 import java.io.OutputStreamWriter
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -103,6 +103,17 @@ internal fun doctorHostWithStaleRetry(
     }
 }
 
+internal fun safeDownloadProgress(
+    received: Long,
+    total: Long,
+    previousReceived: Long,
+    previousTotal: Long,
+    maximumTotal: Long
+): Boolean = total in 0..maximumTotal &&
+    received in 0..total &&
+    received > previousReceived &&
+    (previousTotal < 0 || total == previousTotal)
+
 class FleetRuntime(private val context: Context) {
     private data class BridgeOptionSupport(
         val identity: String,
@@ -112,7 +123,7 @@ class FleetRuntime(private val context: Context) {
 
     private data class RepositoryBridge(
         val process: Process,
-        val reader: BufferedReader,
+        val reader: BoundedUtf8LineReader,
         val writer: BufferedWriter
     )
 
@@ -498,6 +509,7 @@ class FleetRuntime(private val context: Context) {
         val wtmux = executable("wtmux") ?: throw FleetUnavailableException("wtmux is not installed.")
         val bash = executable("bash") ?: throw FleetUnavailableException("Bash is missing from the terminal runtime.")
         val downloads = createAgentFleetDownloadDirectory(context)
+        var activeProcess: Process? = null
         return try {
             onProgress(FleetDownloadState(entry.name, entry.relativePath, "running", 0, entry.size, message = "Starting download…"))
             val process = ProcessBuilder(
@@ -505,44 +517,79 @@ class FleetRuntime(private val context: Context) {
                 "--host", session.hostId, "--session", session.internalName, "--path", entry.relativePath,
                 "--output-dir", downloads.absolutePath, "--yes", "--json", "--json-progress"
             ).directory(userHome).apply { configureEnvironment(environment()) }.start()
+            activeProcess = process
             cancellation.bind(process)
             val output = ByteArrayOutputStream()
             val outputExceeded = AtomicBoolean(false)
+            val progressExceeded = AtomicBoolean(false)
+            val lastActivity = java.util.concurrent.atomic.AtomicLong(System.nanoTime())
             val errors = StringBuilder()
             val stdoutReader = thread(name = "fleet-download-output", isDaemon = true) {
-                process.inputStream.use { input ->
-                    val chunk = ByteArray(8 * 1024)
-                    while (true) {
-                        val count = input.read(chunk)
-                        if (count < 0) break
-                        val remaining = MAX_OUTPUT_BYTES - output.size()
-                        if (remaining > 0) output.write(chunk, 0, minOf(count, remaining))
-                        if (count > remaining) outputExceeded.set(true)
+                try {
+                    process.inputStream.use { input ->
+                        val chunk = ByteArray(8 * 1024)
+                        while (true) {
+                            val count = input.read(chunk)
+                            if (count < 0) break
+                            val remaining = MAX_OUTPUT_BYTES - output.size()
+                            if (remaining > 0) output.write(chunk, 0, minOf(count, remaining))
+                            if (count > remaining) {
+                                outputExceeded.set(true)
+                                process.destroyForciblyCompat()
+                                break
+                            }
+                        }
                     }
+                } catch (_: IOException) {
+                    // Cancellation closes the process pipe to unblock this reader.
                 }
             }
             val stderrReader = thread(name = "fleet-download-progress", isDaemon = true) {
-                process.errorStream.bufferedReader(Charsets.UTF_8).useLines { lines ->
-                    lines.forEach { line ->
-                        val progress = runCatching { JSONObject(line) }.getOrNull()
-                        val received = progress?.optLong("received", -1) ?: -1
-                        val total = progress?.optLong("total", -1) ?: -1
-                        if (progress?.optString("type") == "progress" && received in 0..total && total in 0..MAX_FILE_BYTES) {
-                            val percent = if (total == 0L) 100 else (received * 100 / total).toInt()
-                            onProgress(FleetDownloadState(entry.name, entry.relativePath, "running", received, total, message = "Downloading · $percent%"))
-                        } else if (errors.length < MAX_ERROR_BYTES) {
-                            errors.append(line).append('\n')
+                var lastReceived = -1L
+                var lastTotal = -1L
+                try {
+                    BoundedUtf8LineReader(process.errorStream, MAX_PROGRESS_LINE_BYTES).use { lines ->
+                        while (true) {
+                            val line = lines.readLine() ?: break
+                            val progress = runCatching { JSONObject(line) }.getOrNull()
+                            val received = progress?.optLong("received", -1) ?: -1
+                            val total = progress?.optLong("total", -1) ?: -1
+                            if (
+                                progress?.optString("type") == "progress" &&
+                                safeDownloadProgress(received, total, lastReceived, lastTotal, MAX_FILE_BYTES)
+                            ) {
+                                lastReceived = received
+                                lastTotal = total
+                                lastActivity.set(System.nanoTime())
+                                val percent = if (total == 0L) 100 else (received * 100 / total).toInt()
+                                onProgress(FleetDownloadState(entry.name, entry.relativePath, "running", received, total, message = "Downloading · $percent%"))
+                            } else if (errors.length < MAX_ERROR_BYTES) {
+                                errors.append(line.take(MAX_ERROR_BYTES - errors.length))
+                                if (errors.length < MAX_ERROR_BYTES) errors.append('\n')
+                            }
                         }
                     }
+                } catch (_: BoundedLineException) {
+                    progressExceeded.set(true)
+                    process.destroyForciblyCompat()
+                } catch (_: IOException) {
+                    // Cancellation closes the process pipe to unblock this reader.
                 }
             }
-            val exitCode = process.waitFor()
-            stdoutReader.join(1_000)
-            stderrReader.join(1_000)
+            val exitCode = waitForDownloadProcess(
+                process,
+                cancellation,
+                lastActivity
+            ) { outputExceeded.get() || progressExceeded.get() }
+            stdoutReader.join(2_000)
+            stderrReader.join(2_000)
             if (cancellation.isCancelled()) {
                 return FleetDownloadState(entry.name, entry.relativePath, "cancelled", 0, entry.size, message = "Download cancelled")
             }
-            if (exitCode != 0 || outputExceeded.get()) {
+            if (stdoutReader.isAlive || stderrReader.isAlive) {
+                throw FleetUnavailableException("Download output did not close. Retry the download.", "invalid_response")
+            }
+            if (exitCode != 0 || outputExceeded.get() || progressExceeded.get()) {
                 throw FleetUnavailableException(safeError(errors.toString().ifBlank { "Download failed." }))
             }
             val result = JSONObject(String(output.toByteArray(), Charsets.UTF_8).lineSequence().last { it.isNotBlank() })
@@ -560,7 +607,48 @@ class FleetRuntime(private val context: Context) {
                 published.location, "Downloaded to Android Downloads"
             )
         } finally {
+            activeProcess?.let { process ->
+                cancellation.unbind(process)
+                if (process.isAliveCompat()) process.terminateAndReapCompat()
+                else process.closePipesCompat()
+            }
             cleanupAgentFleetDownloadDirectory(context, downloads)
+        }
+    }
+
+    private fun waitForDownloadProcess(
+        process: Process,
+        cancellation: FleetDownloadCancellation,
+        lastActivity: java.util.concurrent.atomic.AtomicLong,
+        protocolFailed: () -> Boolean
+    ): Int {
+        val started = System.nanoTime()
+        val totalBudget = TimeUnit.HOURS.toNanos(MAX_DOWNLOAD_HOURS)
+        val idleBudget = TimeUnit.SECONDS.toNanos(MAX_DOWNLOAD_IDLE_SECONDS)
+        try {
+            while (true) {
+                if (protocolFailed()) {
+                    process.terminateAndReapCompat()
+                    return -1
+                }
+                if (cancellation.isCancelled()) {
+                    process.terminateAndReapCompat()
+                    return -1
+                }
+                val now = System.nanoTime()
+                if (now - started >= totalBudget || now - lastActivity.get() >= idleBudget) {
+                    process.terminateAndReapCompat()
+                    throw FleetUnavailableException(
+                        "Download timed out after making no safe progress. Retry the download.",
+                        "timeout"
+                    )
+                }
+                if (process.waitForCompat(1, TimeUnit.SECONDS)) return process.exitValue()
+            }
+        } catch (interrupted: InterruptedException) {
+            process.terminateAndReapCompat()
+            Thread.currentThread().interrupt()
+            throw FleetUnavailableException("Download was interrupted. Retry the download.", "cancelled")
         }
     }
 
@@ -663,6 +751,46 @@ class FleetRuntime(private val context: Context) {
             .put("idempotencyKey", UUID.randomUUID().toString())
     )
 
+    fun reviewPairing(snapshot: FleetSnapshot, requestId: String): FleetPairingReviewResult {
+        require(snapshot.pairingRequests.any { it.id == requestId && it.status == "awaiting-review" }) {
+            "Pairing request is no longer awaiting review."
+        }
+        val result = request(
+            "pairing.review",
+            JSONObject()
+                .put("pairingRequestId", requestId)
+                .put("expectedRevision", snapshot.revision)
+                .put("idempotencyKey", UUID.randomUUID().toString())
+        )
+        val updated = result.optJSONObject("snapshot")
+            ?.let { FleetSnapshotParser.parse(it.toString()) }
+            ?: throw FleetUnavailableException("Pairing review response did not include a snapshot.", "invalid_response")
+        val review = parsePairingReview(
+            result.optJSONObject("pairingRequest")
+                ?: throw FleetUnavailableException("Pairing review response did not include a proposal.", "invalid_response"),
+            requestId
+        )
+        val current = updated.pairingRequests.firstOrNull { it.id == requestId && it.status == "awaiting-review" }
+            ?: throw FleetUnavailableException("Pairing request is no longer awaiting review.", "stale_revision")
+        require(current.deviceName == review.deviceName && current.platform == review.platform && current.peer == review.peer) {
+            "Pairing review identity changed."
+        }
+        return FleetPairingReviewResult(updated, review)
+    }
+
+    fun decidePairing(snapshot: FleetSnapshot, requestId: String, approve: Boolean): FleetSnapshot {
+        require(snapshot.pairingRequests.any { it.id == requestId && it.status == "awaiting-review" }) {
+            "Pairing request is no longer awaiting review."
+        }
+        return mutate(
+            if (approve) "pairing.approve" else "pairing.reject",
+            JSONObject()
+                .put("pairingRequestId", requestId)
+                .put("expectedRevision", snapshot.revision)
+                .put("idempotencyKey", UUID.randomUUID().toString())
+        )
+    }
+
     fun attachCommand(session: FleetSession): String = listOf(
         "wtmux", "--noninteractive", "--host", session.hostId,
         "--project", session.project, "--session", session.internalName
@@ -695,32 +823,37 @@ class FleetRuntime(private val context: Context) {
             .redirectErrorStream(true)
             .apply { configureEnvironment(environment()) }
             .start()
-        ClientSupervisorSettings.recordOneShotControlStart()
-        val requestId = UUID.randomUUID().toString()
-        val request = JSONObject()
-            .put("protocolVersion", 1)
-            .put("type", "request")
-            .put("requestId", requestId)
-            .put("method", method)
-            .put("timestamp", isoUtc(System.currentTimeMillis()))
-            .put("params", params)
-        ControlContract.requireValidRequest(request)
-        process.outputStream.bufferedWriter(Charsets.UTF_8).use { writer ->
-            writer.write(request.toString())
-            writer.newLine()
-            writer.flush()
-        }
-
-        val readerExecutor = Executors.newSingleThreadExecutor()
+        var readerExecutor: java.util.concurrent.ExecutorService? = null
         try {
-            val responseFuture = readerExecutor.submit<String> {
-                BufferedReader(InputStreamReader(process.inputStream, Charsets.UTF_8)).useLines { lines ->
-                    lines.take(2_000).firstOrNull { line ->
-                        line.length <= MAX_OUTPUT_BYTES && runCatching {
+            ClientSupervisorSettings.recordOneShotControlStart()
+            val requestId = UUID.randomUUID().toString()
+            val request = JSONObject()
+                .put("protocolVersion", 1)
+                .put("type", "request")
+                .put("requestId", requestId)
+                .put("method", method)
+                .put("timestamp", isoUtc(System.currentTimeMillis()))
+                .put("params", params)
+            ControlContract.requireValidRequest(request)
+            process.outputStream.bufferedWriter(Charsets.UTF_8).use { writer ->
+                writer.write(request.toString())
+                writer.newLine()
+                writer.flush()
+            }
+
+            val executor = Executors.newSingleThreadExecutor()
+            readerExecutor = executor
+            val responseFuture = executor.submit<String> {
+                BoundedUtf8LineReader(process.inputStream, MAX_OUTPUT_BYTES).use { lines ->
+                    repeat(2_000) {
+                        val line = lines.readLine()
+                            ?: throw FleetUnavailableException("Fleet bridge closed without a response.")
+                        if (runCatching {
                             val frame = JSONObject(line)
                             frame.optString("type") == "response" && frame.optString("requestId") == requestId
-                        }.getOrDefault(false)
-                    } ?: throw FleetUnavailableException("Fleet bridge closed without a response.")
+                        }.getOrDefault(false)) return@submit line
+                    }
+                    throw FleetUnavailableException("Fleet bridge response exceeded the safety limit.")
                 }
             }
             val response = try {
@@ -740,8 +873,13 @@ class FleetRuntime(private val context: Context) {
                 ?.also(ControlResultContract::requireValidResult)
                 ?: throw FleetUnavailableException("Fleet action response did not include a result.")
         } finally {
-            process.destroy()
-            readerExecutor.shutdownNow()
+            terminateAndReap(process)
+            readerExecutor?.shutdownNow()
+            try {
+                readerExecutor?.awaitTermination(1, TimeUnit.SECONDS)
+            } catch (_: InterruptedException) {
+                Thread.currentThread().interrupt()
+            }
         }
     }
 
@@ -769,11 +907,9 @@ class FleetRuntime(private val context: Context) {
             repeat(2_000) {
                 val line = channel.reader.readLine()
                     ?: throw FleetUnavailableException("Repository connection closed without a response.", "bridge_disconnected")
-                if (line.length <= MAX_OUTPUT_BYTES) {
-                    val frame = runCatching { JSONObject(line) }.getOrNull()
-                    if (frame?.optString("type") == "response" && frame.optString("requestId") == requestId) {
-                        return@submit frame
-                    }
+                val frame = runCatching { JSONObject(line) }.getOrNull()
+                if (frame?.optString("type") == "response" && frame.optString("requestId") == requestId) {
+                    return@submit frame
                 }
             }
             throw FleetUnavailableException("Repository response exceeded the safety limit.", "invalid_response")
@@ -809,7 +945,7 @@ class FleetRuntime(private val context: Context) {
             .start()
         RepositoryBridge(
             process,
-            BufferedReader(InputStreamReader(process.inputStream, Charsets.UTF_8)),
+            BoundedUtf8LineReader(process.inputStream, MAX_OUTPUT_BYTES),
             BufferedWriter(OutputStreamWriter(process.outputStream, Charsets.UTF_8))
         )
     }
@@ -823,6 +959,11 @@ class FleetRuntime(private val context: Context) {
         runCatching { channel.writer.close() }
         runCatching { channel.reader.close() }
         if (channel.process.isAliveCompat()) runCatching { channel.process.destroyForciblyCompat() }
+        if (channel.process.isAliveCompat()) runCatching { channel.process.waitForCompat(2, TimeUnit.SECONDS) }
+    }
+
+    private fun terminateAndReap(process: Process) {
+        process.terminateAndReapCompat()
     }
 
     private fun parseDirectoryListing(value: JSONObject): FleetDirectoryListing {
@@ -882,6 +1023,58 @@ class FleetRuntime(private val context: Context) {
         )
     }
 
+    internal fun parsePairingReview(value: JSONObject, expectedRequestId: String): FleetPairingReview {
+        value.requireFields(setOf(
+            "id", "invitationId", "deviceId", "deviceName", "platform", "peer", "peerIp",
+            "requestedAt", "expiresAt", "reviewedAt", "status", "publicationRef", "proposal"
+        ))
+        val requestId = value.requireProtocolId("id").also { require(it == expectedRequestId) }
+        value.requireProtocolId("invitationId")
+        val deviceId = value.requireProtocolId("deviceId")
+        val deviceName = value.requireSafeString("deviceName", 128)
+        val platform = value.requireSafeString("platform", 32, allowEmpty = true)
+        val peer = value.requireSafeString("peer", 253, allowEmpty = true)
+        val peerIp = value.requireSafeString("peerIp", 45, allowEmpty = true)
+        Instant.parse(value.requireSafeString("requestedAt", 40))
+        Instant.parse(value.requireSafeString("expiresAt", 40))
+        require(value.isNull("reviewedAt")) { "Pairing request was already reviewed." }
+        require(value.getString("status") == "awaiting-review")
+        require(value.isNull("publicationRef"))
+        val proposal = value.requireObject("proposal")
+        proposal.requireFields(setOf(
+            "schemaVersion", "id", "name", "roles", "platform", "linuxUsername", "tailscaleNode",
+            "projectsRoot", "transport", "wslDistro", "fallback", "hostCommand"
+        ))
+        val schemaVersion = proposal.get("schemaVersion")
+        require((schemaVersion is Int || schemaVersion is Long) && (schemaVersion as Number).toLong() == 1L)
+        val proposalId = proposal.requireProtocolId("id")
+        val proposalName = proposal.requireSafeString("name", 128, allowEmpty = true)
+        val roles = proposal.getJSONArray("roles")
+        require(roles.length() in 1..2)
+        val roleValues = List(roles.length()) { roles.getString(it) }
+        require(roleValues.distinct().size == roleValues.size && roleValues.all { it in setOf("host", "client") })
+        val proposalPlatform = proposal.requireSafeString("platform", 32, allowEmpty = true)
+        proposal.requireSafeString("linuxUsername", 64, allowEmpty = true)
+        val proposalTailscaleNode = proposal.requireSafeString("tailscaleNode", 253, allowEmpty = true)
+        proposal.requireSafeString("projectsRoot", 2_048, allowEmpty = true)
+        proposal.requireSafeString("transport", 32, allowEmpty = true)
+        proposal.requireSafeString("wslDistro", 128, allowEmpty = true)
+        proposal.requireSafeString("hostCommand", 4_096, allowEmpty = true)
+        proposal.requireObject("fallback").also { fallback ->
+            fallback.requireFields(setOf("sshHost", "ip"))
+            fallback.requireSafeString("sshHost", 253, allowEmpty = true)
+            fallback.requireSafeString("ip", 45, allowEmpty = true)
+        }
+        require(proposalId == deviceId && proposalName == deviceName && proposalPlatform == platform) {
+            "Pairing proposal identity does not match its verified review envelope."
+        }
+        require(
+            proposalTailscaleNode.isEmpty() ||
+                proposalTailscaleNode.trimEnd('.').equals(peer.trimEnd('.'), ignoreCase = true)
+        ) { "Pairing proposal Tailscale identity does not match its verified peer." }
+        return FleetPairingReview(requestId, deviceName, platform, peer, peerIp, proposal.toString(2))
+    }
+
     private fun parseModelSelection(value: JSONObject): FleetModelSelection {
         value.requireFields(setOf("modelId", "modelLabel", "effortId", "effortLabel"))
         return FleetModelSelection(
@@ -918,6 +1111,9 @@ class FleetRuntime(private val context: Context) {
                 effort.requireFields(setOf("id", "label"))
                 FleetModelEffortOption(effort.requireEffortId("id"), effort.requireSafeString("label", 80))
             }
+            require(parsedEfforts.map(FleetModelEffortOption::id).toSet().size == parsedEfforts.size) {
+                "Model catalog contains a duplicate effort id."
+            }
             val defaultEffort = item.requireEffortId("defaultEffort")
             require(parsedEfforts.any { it.id == defaultEffort })
             FleetModelOption(
@@ -925,6 +1121,9 @@ class FleetRuntime(private val context: Context) {
                 item.requireSafeString("description", 240, allowEmpty = true), item.getBoolean("isDefault"),
                 parsedEfforts, defaultEffort
             )
+        }
+        require(parsed.map(FleetModelOption::id).toSet().size == parsed.size) {
+            "Model catalog contains a duplicate model id."
         }
         return parsed to value.getBoolean("customAllowed")
     }
@@ -937,7 +1136,15 @@ class FleetRuntime(private val context: Context) {
     }
 
     private fun JSONObject.requireSafeString(name: String, maximum: Int, allowEmpty: Boolean = false): String =
-        getString(name).also { require(it.length <= maximum && (allowEmpty || it.isNotBlank()) && it.none(Char::isISOControl)) }
+        getString(name).also {
+            require(
+                it.length <= maximum && (allowEmpty || it.isNotBlank()) && it.none(Char::isISOControl) &&
+                    it.none(::isBidiControl)
+            )
+        }
+
+    private fun isBidiControl(value: Char): Boolean = value == '\u061C' || value == '\u200E' || value == '\u200F' ||
+        value in '\u202A'..'\u202E' || value in '\u2066'..'\u2069'
 
     private fun JSONObject.requireModelId(name: String): String = requireSafeString(name, 160).also {
         require(it.matches(Regex("[A-Za-z0-9][A-Za-z0-9._:/@+\\-]{0,159}")))
@@ -945,6 +1152,10 @@ class FleetRuntime(private val context: Context) {
 
     private fun JSONObject.requireEffortId(name: String): String = requireSafeString(name, 64).also {
         require(it.matches(Regex("[A-Za-z0-9][A-Za-z0-9._+\\-]{0,63}")))
+    }
+
+    private fun JSONObject.requireProtocolId(name: String): String = requireSafeString(name, 160).also {
+        require(it.matches(Regex("[A-Za-z0-9._:-]+")))
     }
 
     private fun String.safeDirectoryLabel(maximum: Int): String = also {
@@ -1041,10 +1252,13 @@ class FleetRuntime(private val context: Context) {
     companion object {
         private const val MAX_OUTPUT_BYTES = 256 * 1024
         private const val MAX_ERROR_BYTES = 4 * 1024
+        private const val MAX_PROGRESS_LINE_BYTES = 64 * 1024
         private const val MAX_BRIDGE_PROBE_BYTES = 64 * 1024
         private const val BRIDGE_PROBE_TIMEOUT_SECONDS = 3L
         private const val REPOSITORY_REQUEST_TIMEOUT_SECONDS = 20L
         private const val MAX_FILE_BYTES = 2L * 1024 * 1024 * 1024
+        private const val MAX_DOWNLOAD_IDLE_SECONDS = 120L
+        private const val MAX_DOWNLOAD_HOURS = 4L
     }
 }
 

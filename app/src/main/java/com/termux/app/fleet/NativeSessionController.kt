@@ -12,7 +12,6 @@ import androidx.compose.ui.platform.ViewCompositionStrategy
 import com.termux.app.AgentFleetTheme
 import org.json.JSONObject
 import org.json.JSONArray
-import java.io.ByteArrayOutputStream
 import java.io.File
 import java.util.UUID
 import java.util.concurrent.TimeUnit
@@ -25,15 +24,21 @@ interface NativeSessionHost {
     fun sendAgentFleetControlC(): Boolean
     fun sendAgentFleetKey(key: String): Boolean
     fun pickAgentFleetImages()
+    fun pickAgentFleetCamera()
     fun setAgentFleetNativeView(nativeAvailable: Boolean, nativeView: Boolean, automaticTerminal: Boolean, aiComposer: Boolean)
     fun closeAgentFleetSessionTab()
 }
+
+internal fun nativeSessionCompositionStrategy(retainAcrossDetach: Boolean): ViewCompositionStrategy =
+    if (retainAcrossDetach) ViewCompositionStrategy.DisposeOnViewTreeLifecycleDestroyed
+    else ViewCompositionStrategy.DisposeOnDetachedFromWindow
 
 class NativeSessionController @JvmOverloads constructor(
     private val activity: NativeSessionHost,
     private val composeView: ComposeView,
     private val showChrome: Boolean = true,
-    private val terminalChromeView: ComposeView? = null
+    private val terminalChromeView: ComposeView? = null,
+    private val retainCompositionAcrossDetach: Boolean = false
 ) {
     private companion object {
         const val HISTORY_PAGE_SIZE = 20
@@ -47,7 +52,7 @@ class NativeSessionController @JvmOverloads constructor(
     private val prefix = File(appRoot, "files/usr")
     private val home = File(appRoot, "files/home")
     private val fleetRuntime = FleetRuntime(activity.nativeContext.applicationContext)
-    private val uiState = mutableStateOf(NativeSessionUiState("Session", "", ""))
+    private val uiState = mutableStateOf(NativeSessionUiState("Session", "", "", surfaceActive = false))
     @Volatile private var fleetSnapshot: FleetSnapshot? = null
     @Volatile private var visible = false
     @Volatile private var generation = 0
@@ -58,6 +63,7 @@ class NativeSessionController @JvmOverloads constructor(
     private var composerTarget = ""
     private val streamLaunchGate = ConversationStreamLaunchGate()
     @Volatile private var streamProcess: Process? = null
+    private val oneShotProcesses = NativeOneShotProcessOwner()
     @Volatile private var retryBlocked = false
     private var retryIndex = 0
     private var lastFallbackText = ""
@@ -67,12 +73,17 @@ class NativeSessionController @JvmOverloads constructor(
     private val modelPoll = object : Runnable {
         override fun run() {
             if (visible && enabled && !localSession) refreshModelControl(includeCatalog = false, showLoading = false)
-            if (visible) main.postDelayed(this, 10_000)
+            if (visible) {
+                main.postDelayed(
+                    this,
+                    modelControlPollDelayMillis(uiState.value.modelControl?.pending != null)
+                )
+            }
         }
     }
 
     init {
-        composeView.setViewCompositionStrategy(ViewCompositionStrategy.DisposeOnDetachedFromWindow)
+        composeView.setViewCompositionStrategy(nativeSessionCompositionStrategy(retainCompositionAcrossDetach))
         composeView.setContent {
             AgentFleetTheme {
                 NativeSessionScreen(
@@ -94,6 +105,7 @@ class NativeSessionController @JvmOverloads constructor(
                     onDismissAttention = ::dismissAttention,
                     onComposerText = ::sendComposerText,
                     onAttach = activity::pickAgentFleetImages,
+                    onCamera = activity::pickAgentFleetCamera,
                     inlineComposer = activity.nativeInlineComposer,
                     showChrome = showChrome,
                     // TermuxActivity's fitsSystemWindows root already positions this
@@ -106,7 +118,7 @@ class NativeSessionController @JvmOverloads constructor(
                 )
             }
         }
-        terminalChromeView?.setViewCompositionStrategy(ViewCompositionStrategy.DisposeOnDetachedFromWindow)
+        terminalChromeView?.setViewCompositionStrategy(nativeSessionCompositionStrategy(retainCompositionAcrossDetach))
         terminalChromeView?.setContent {
             AgentFleetTheme {
                 AgentFleetTerminalSessionChrome(
@@ -140,7 +152,11 @@ class NativeSessionController @JvmOverloads constructor(
         localSession = intent?.getBooleanExtra(AgentFleetContract.EXTRA_LOCAL_SESSION, false) == true
         workspaceSessionId = intent?.getStringExtra(AgentFleetContract.EXTRA_WORKSPACE_SESSION_ID).orEmpty()
         val project = intent?.getStringExtra(AgentFleetContract.EXTRA_PROJECT).orEmpty()
-        composerTarget = listOf(host, project, if (localSession) "local" else session).joinToString(":")
+        composerTarget = agentFleetComposerTarget(
+            host,
+            project,
+            if (localSession) "local" else session
+        )
         enabled = intent?.getBooleanExtra(AgentFleetContract.EXTRA_NATIVE_SESSION, false) == true &&
             NativeSessionSettings.isEnabled(activity.nativeContext) && (localSession || (host.isNotBlank() && session.isNotBlank()))
         uiState.value = NativeSessionUiState(
@@ -150,7 +166,8 @@ class NativeSessionController @JvmOverloads constructor(
             adapter = if (localSession) "shell" else "connecting",
             sourceMode = if (localSession) "shell" else "ai",
             connection = if (localSession) "Live" else "Connecting…",
-            cwd = if (localSession) home.absolutePath else ""
+            cwd = if (localSession) home.absolutePath else "",
+            surfaceActive = visible
         )
         updateComposerState()
         val requestedSurface = intent?.getStringExtra(AgentFleetContract.EXTRA_INITIAL_SURFACE)
@@ -173,6 +190,8 @@ class NativeSessionController @JvmOverloads constructor(
 
     fun onStart() {
         visible = true
+        uiState.value = uiState.value.copy(surfaceActive = true)
+        updateComposerState()
         if (enabled) observeFleet()
         if (shouldRunStream() && streamProcess == null) startStream()
         main.removeCallbacks(modelPoll)
@@ -183,9 +202,29 @@ class NativeSessionController @JvmOverloads constructor(
         if (enabled) applyViewMode(uiState.value.viewMode)
     }
 
+    fun setSuggestionFocus(focused: Boolean) {
+        val current = uiState.value
+        if (current.suggestionFocused == focused) return
+        uiState.value = current.copy(
+            suggestionFocused = focused,
+            localSuggestionCancellationSerial = localSuggestionCancellationSerialForFocusChange(
+                current.localSuggestionCancellationSerial,
+                current.suggestionFocused,
+                focused
+            )
+        )
+    }
+
     fun onStop() {
         visible = false
-        LocalSuggestionRuntime.shutdown(activity.nativeContext.applicationContext)
+        uiState.value = uiState.value.copy(
+            localSuggestionCancellationSerial = Math.addExact(
+                uiState.value.localSuggestionCancellationSerial,
+                1L
+            ),
+            surfaceActive = false
+        )
+        updateComposerState()
         FleetSnapshotStore.removeObserver(this)
         generation++
         main.removeCallbacksAndMessages(null)
@@ -200,6 +239,10 @@ class NativeSessionController @JvmOverloads constructor(
         main.removeCallbacksAndMessages(null)
         stopProcess()
         modelRequestGate.reset()
+        if (retainCompositionAcrossDetach) {
+            composeView.disposeComposition()
+            terminalChromeView?.disposeComposition()
+        }
     }
 
     fun onTerminalScreenChanged(alternateScreen: Boolean) {
@@ -300,15 +343,17 @@ class NativeSessionController @JvmOverloads constructor(
         val pendingAction = activePendingAction(uiState.value.items)
         val pendingQuestion = pendingAction?.takeIf { it.kind == "question" }?.id.orEmpty()
         val native = enabled && uiState.value.viewMode == NativeViewMode.Native
-        AgentFleetComposer.updateNativeState(
-            composerTarget,
-            uiState.value.interactionMode,
-            pendingQuestion,
-            native,
-            uiState.value.items,
-            uiState.value.revision,
-            uiState.value.liveEventSerial
-        )
+        if (!activity.nativeInlineComposer) {
+            AgentFleetComposer.updateNativeState(
+                composerTarget,
+                uiState.value.interactionMode,
+                pendingQuestion,
+                visible && native,
+                uiState.value.items,
+                uiState.value.revision,
+                uiState.value.liveEventSerial
+            )
+        }
         activity.setAgentFleetNativeView(
             enabled,
             native,
@@ -318,7 +363,15 @@ class NativeSessionController @JvmOverloads constructor(
     }
 
     private fun applyViewMode(mode: NativeViewMode, persist: Boolean = false) {
-        uiState.value = uiState.value.copy(viewMode = mode)
+        val current = uiState.value
+        uiState.value = current.copy(
+            viewMode = mode,
+            localSuggestionCancellationSerial = localSuggestionCancellationSerialForModeChange(
+                current.localSuggestionCancellationSerial,
+                current.viewMode,
+                mode
+            )
+        )
         if (persist && workspaceSessionId.isNotBlank() && mode != NativeViewMode.AutomaticTerminal) {
             DrawerSessionStore(activity.nativeContext.applicationContext).setSurface(
                 workspaceSessionId,
@@ -338,6 +391,8 @@ class NativeSessionController @JvmOverloads constructor(
     fun isManagedSession(): Boolean = enabled
 
     fun isNativeViewVisible(): Boolean = enabled && uiState.value.viewMode == NativeViewMode.Native
+
+    internal fun suggestionFocusedForTest(): Boolean = uiState.value.suggestionFocused
 
     private fun shouldRunStream(): Boolean = shouldRunConversationStream(
         visible, enabled, localSession, uiState.value.viewMode
@@ -370,7 +425,9 @@ class NativeSessionController @JvmOverloads constructor(
             attentionBusy = if (sameAttention) uiState.value.attentionBusy else false,
             attentionError = if (sameAttention) uiState.value.attentionError else null
         )
-        refreshModelControl(includeCatalog = false, showLoading = false)
+        if (uiState.value.modelControl == null) {
+            refreshModelControl(includeCatalog = false, showLoading = false)
+        }
     }
 
     private fun currentFleetSession(): FleetSession? = fleetSnapshot?.sessions?.firstOrNull {
@@ -403,6 +460,7 @@ class NativeSessionController @JvmOverloads constructor(
                     uiState.value = uiState.value.copy(
                         modelControl = merged, modelControlLoading = false, modelControlError = null
                     )
+                    rescheduleModelPoll()
                 }.onFailure { error ->
                     if (showLoading) uiState.value = uiState.value.copy(
                         modelControlLoading = false,
@@ -438,6 +496,7 @@ class NativeSessionController @JvmOverloads constructor(
                         modelControlLoading = false,
                         modelControlError = null
                     )
+                    rescheduleModelPoll()
                     main.postDelayed({ refreshModelControl(includeCatalog = false, showLoading = false) }, 1_000)
                 }.onFailure { error ->
                     uiState.value = uiState.value.copy(
@@ -467,6 +526,7 @@ class NativeSessionController @JvmOverloads constructor(
                         modelControlLoading = false,
                         modelControlError = null
                     )
+                    rescheduleModelPoll()
                 }.onFailure { error ->
                     uiState.value = uiState.value.copy(
                         modelControlLoading = false,
@@ -481,6 +541,16 @@ class NativeSessionController @JvmOverloads constructor(
     private fun closeSession() {
         FleetSnapshotStore.removeObserver(this)
         activity.closeAgentFleetSessionTab()
+    }
+
+    private fun rescheduleModelPoll() {
+        main.removeCallbacks(modelPoll)
+        if (visible) {
+            main.postDelayed(
+                modelPoll,
+                modelControlPollDelayMillis(uiState.value.modelControl?.pending != null)
+            )
+        }
     }
 
     private fun killSession() {
@@ -611,6 +681,7 @@ class NativeSessionController @JvmOverloads constructor(
         uiState.value = uiState.value.copy(connection = if (retryIndex == 0) "Connecting…" else "Reconnecting…", error = null)
         thread(name = "native-session-stream", isDaemon = true) {
             var process: Process? = null
+            var stderrReader: Thread? = null
             try {
                 val launchedProcess = environment(
                     ProcessBuilder(conversationCommand("stream", listOf("--limit", HISTORY_PAGE_SIZE.toString())))
@@ -623,20 +694,15 @@ class NativeSessionController @JvmOverloads constructor(
                     streamProcess = launchedProcess
                 }
                 if (!accepted) {
-                    launchedProcess.destroyForciblyCompat()
+                    launchedProcess.terminateAndReapCompat()
                     return@thread
                 }
-                thread(name = "native-session-stderr", isDaemon = true) {
+                stderrReader = thread(name = "native-session-stderr", isDaemon = true) {
                     drainErrorStream(launchedProcess)
                 }
-                launchedProcess.inputStream.bufferedReader().use { reader ->
+                BoundedUtf8LineReader(launchedProcess.inputStream, 256 * 1024).use { reader ->
                     while (token == generation) {
                         val line = reader.readLine() ?: break
-                        if (line.length > 256 * 1024) {
-                            postError(token, "The host sent an oversized conversation frame.")
-                            launchedProcess.destroyForciblyCompat()
-                            break
-                        }
                         val frame = runCatching { ConversationStreamParser.parseFrame(line) }.getOrNull()
                         if (frame == null) {
                             val message = if (line.contains("\"protocolVersion\":1")) {
@@ -654,9 +720,24 @@ class NativeSessionController @JvmOverloads constructor(
                 }
                 launchedProcess.waitFor()
                 if (token == generation) main.post { streamEnded(token) }
+            } catch (_: BoundedLineException) {
+                process?.destroyForciblyCompat()
+                if (token == generation) postError(token, "The host sent an oversized conversation frame.")
             } catch (_: Exception) {
+                process?.destroyForciblyCompat()
                 if (token == generation) postError(token, "The native conversation stream is unavailable.")
             } finally {
+                process?.let { launchedProcess ->
+                    if (launchedProcess.isAliveCompat()) launchedProcess.terminateAndReapCompat()
+                    else launchedProcess.closePipesCompat()
+                }
+                stderrReader?.let { reader ->
+                    try {
+                        reader.join(1_000)
+                    } catch (_: InterruptedException) {
+                        Thread.currentThread().interrupt()
+                    }
+                }
                 streamLaunchGate.finish(launchTicket) {
                     if (streamProcess === process) streamProcess = null
                 }
@@ -707,14 +788,14 @@ class NativeSessionController @JvmOverloads constructor(
     }
 
     private fun stopProcess() {
+        oneShotProcesses.cancelAll()
         var process: Process? = null
         streamLaunchGate.cancel {
             process = streamProcess
             streamProcess = null
         }
         val stoppedProcess = process
-        stoppedProcess?.destroy()
-        if (stoppedProcess?.isAliveCompat() == true) stoppedProcess.destroyForciblyCompat()
+        stoppedProcess?.terminateAndReapCompat(gracefulWaitMillis = 100, forcedWaitSeconds = 1)
     }
 
     private fun applyFrame(frame: ConversationFrame) {
@@ -1018,53 +1099,44 @@ class NativeSessionController @JvmOverloads constructor(
         main.postDelayed(::refreshDirectories, 800)
     }
 
-    private data class ActionResult(val exitCode: Int, val stdout: String, val stderr: String, val timedOut: Boolean)
+    private data class ActionResult(
+        val exitCode: Int,
+        val stdout: String,
+        val stderr: String,
+        val timedOut: Boolean,
+        val outputTooLarge: Boolean
+    )
 
     private fun actionError(result: ActionResult, fallback: String): String {
         val structured = result.stdout.lineSequence().filter { it.isNotBlank() }.mapNotNull { line ->
             runCatching { JSONObject(line).optJSONObject("error")?.optString("message") }.getOrNull()
         }.lastOrNull { !it.isNullOrBlank() }
         val value = structured ?: result.stderr.lineSequence().firstOrNull { it.isNotBlank() }
-            ?: if (result.timedOut) "The host did not confirm the action before it timed out." else fallback
+            ?: when {
+                result.outputTooLarge -> "The host returned too much data for this action."
+                result.timedOut -> "The host did not confirm the action before it timed out."
+                else -> fallback
+            }
         return value.filterNot { it.isISOControl() }.take(360).ifBlank { fallback }
     }
 
     private fun runOneShot(command: List<String>, timeoutSeconds: Long = 12, onResult: (ActionResult) -> Unit) {
         val token = generation
+        val ticket = oneShotProcesses.begin(timeoutSeconds, TimeUnit.SECONDS)
         thread(name = "native-session-action", isDaemon = true) {
             val output = runCatching {
                 val process = environment(ProcessBuilder(command)).redirectErrorStream(false).start()
-                val errorBuffer = ByteArrayOutputStream()
-                val errorReader = thread(name = "native-session-action-stderr", isDaemon = true) {
-                    process.errorStream.use { input ->
-                        val chunk = ByteArray(4 * 1024)
-                        while (errorBuffer.size() <= 64 * 1024) {
-                            val count = input.read(chunk)
-                            if (count < 0) break
-                            errorBuffer.write(chunk, 0, count)
-                        }
-                    }
-                }
-                val buffer = ByteArrayOutputStream()
-                process.inputStream.use { input ->
-                    val chunk = ByteArray(8 * 1024)
-                    while (buffer.size() <= 512 * 1024) {
-                        val count = input.read(chunk)
-                        if (count < 0) break
-                        buffer.write(chunk, 0, count)
-                    }
-                }
-                val finished = process.waitForCompat(timeoutSeconds, TimeUnit.SECONDS)
-                if (!finished) process.destroyForciblyCompat()
-                if (!finished) process.waitForCompat(2, TimeUnit.SECONDS)
-                errorReader.join(1_000)
+                val result = oneShotProcesses.collect(ticket, process)
+                val outputTooLarge = result.stdoutTruncated || result.stderrTruncated
+                val discardOutput = result.cancelled || result.timedOut || outputTooLarge
                 ActionResult(
-                    if (finished) process.exitValue() else -1,
-                    buffer.toString(Charsets.UTF_8.name()),
-                    errorBuffer.toString(Charsets.UTF_8.name()),
-                    !finished
+                    exitCode = if (outputTooLarge) -1 else result.exitCode,
+                    stdout = if (discardOutput) "" else result.stdout,
+                    stderr = if (discardOutput) "" else result.stderr,
+                    timedOut = result.timedOut,
+                    outputTooLarge = outputTooLarge
                 )
-            }.getOrElse { ActionResult(-1, "", it.message.orEmpty(), false) }
+            }.getOrElse { ActionResult(-1, "", "", timedOut = false, outputTooLarge = false) }
             main.post { if (token == generation) onResult(output) }
         }
     }
@@ -1073,11 +1145,9 @@ class NativeSessionController @JvmOverloads constructor(
         runCatching {
             process.errorStream.use { input ->
                 val chunk = ByteArray(4 * 1024)
-                var total = 0
-                while (total < 64 * 1024) {
+                while (true) {
                     val count = input.read(chunk)
                     if (count < 0) break
-                    total += count
                 }
             }
         }

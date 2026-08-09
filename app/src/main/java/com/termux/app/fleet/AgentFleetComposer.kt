@@ -46,13 +46,21 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.termux.app.TermuxActivity
 import java.io.File
+import java.util.concurrent.atomic.AtomicBoolean
 
 object AgentFleetComposer {
-    private val attachments = mutableStateListOf<String>()
-    private var uploading by mutableStateOf(false)
-    private var uploadError by mutableStateOf<String?>(null)
     private var currentTarget = ""
     private var nativeState by mutableStateOf(AgentFleetComposerNativeState())
+    private val targetStates = linkedMapOf<String, ComposerTargetState>()
+    private val targetRoutes = mutableMapOf<String, ComposerTargetRoute>()
+    private val uploadOwner = AgentFleetComposerUploadOwner()
+    private val externalImageRequests = AgentFleetExternalImageRequestOwner()
+
+    private class ComposerTargetState {
+        val attachments = mutableStateListOf<String>()
+        var uploading by mutableStateOf(false)
+        var uploadError by mutableStateOf<String?>(null)
+    }
 
     @JvmStatic
     fun updateNativeState(
@@ -75,26 +83,26 @@ object AgentFleetComposer {
         )
     }
 
+    internal fun nativeStateForTest(): AgentFleetComposerNativeState = nativeState
+
     @JvmStatic
     fun bind(activity: TermuxActivity, view: ComposeView, enabled: Boolean) {
         if (!enabled) {
+            clearCurrentTarget()
             view.visibility = View.GONE
             activity.terminalToolbarViewPager.visibility = if (activity.preferences.shouldShowTerminalToolbar()) View.VISIBLE else View.GONE
             return
         }
-        val target = listOf(
+        val route = ComposerTargetRoute(
             activity.intent.getStringExtra(AgentFleetContract.EXTRA_HOST_ID).orEmpty(),
             activity.intent.getStringExtra(AgentFleetContract.EXTRA_PROJECT).orEmpty(),
             activity.intent.getStringExtra(AgentFleetContract.EXTRA_INTERNAL_SESSION).orEmpty()
-        ).joinToString(":")
-        if (target != currentTarget) {
-            currentTarget = target
-            attachments.clear()
-            uploadError = null
-        }
+        )
+        val target = agentFleetComposerTarget(route.host, route.project, route.session)
+        val targetState = activateTarget(target, route)
         activity.intent.getStringArrayListExtra(AgentFleetContract.EXTRA_SHARED_IMAGES)?.takeIf { it.isNotEmpty() }?.let { values ->
             activity.intent.removeExtra(AgentFleetContract.EXTRA_SHARED_IMAGES)
-            view.post { handleImageUris(activity, values.map(Uri::parse)) }
+            view.post { handleImageUris(activity, target, values.map(Uri::parse)) }
         }
         activity.terminalToolbarViewPager.visibility = View.GONE
         view.visibility = View.VISIBLE
@@ -104,15 +112,16 @@ object AgentFleetComposer {
                 AgentFleetComposerContent(
                     target = target,
                     nativeState = nativeState,
-                    attachments = attachments,
-                    uploading = uploading,
-                    uploadError = uploadError,
+                    attachments = targetState.attachments,
+                    uploading = targetState.uploading,
+                    uploadError = targetState.uploadError,
                     onShowPendingQuestion = activity::showAgentFleetPendingQuestion,
                     onAttach = activity::pickAgentFleetImages,
-                    onRemoveAttachment = attachments::remove,
+                    onCamera = activity::pickAgentFleetCamera,
+                    onRemoveAttachment = targetState.attachments::remove,
                     onComposerText = { text, appendEnter ->
                         activity.sendAgentFleetComposerText(text, appendEnter).also { sent ->
-                            if (sent) attachments.clear()
+                            if (sent) targetState.attachments.clear()
                         }
                     }
                 )
@@ -121,31 +130,66 @@ object AgentFleetComposer {
     }
 
     @JvmStatic
-    fun handleImageResult(activity: TermuxActivity, data: Intent) {
+    fun handleImageResult(
+        activity: TermuxActivity,
+        data: Intent,
+        request: AgentFleetExternalImageRequest?
+    ) {
         val uris = buildList {
             data.data?.let(::add)
             data.clipData?.let { clip ->
                 repeat(clip.itemCount) { index -> add(clip.getItemAt(index).uri) }
             }
         }
-        handleImageUris(activity, uris)
+        externalImageRequests.consume(request)?.let { target ->
+            handleImageUris(activity, target, uris)
+        }
     }
 
     @JvmStatic
-    fun handleCapturedImage(activity: TermuxActivity, uri: Uri) {
-        handleImageUris(activity, listOf(uri))
+    fun handleCapturedImage(
+        activity: TermuxActivity,
+        uri: Uri,
+        sourcePath: String,
+        request: AgentFleetExternalImageRequest?
+    ) {
+        externalImageRequests.consume(request)?.let { target ->
+            handleImageUris(activity, target, listOf(uri), sourcePath)
+        } ?: deleteOwnedCameraSource(activity, sourcePath)
+    }
+
+    @JvmStatic
+    @Synchronized
+    fun beginExternalImageRequest(camera: Boolean): AgentFleetExternalImageRequest? {
+        val target = currentTarget
+        if (target.isBlank()) return null
+        return externalImageRequests.begin(target, camera)
+    }
+
+    @JvmStatic
+    fun restoreExternalImageRequest(request: AgentFleetExternalImageRequest?): Boolean =
+        externalImageRequests.restore(request)
+
+    @JvmStatic
+    fun cancelExternalImageRequest(request: AgentFleetExternalImageRequest?) {
+        externalImageRequests.cancel(request)
     }
 
     fun uploadWorkspaceImages(
         context: Context,
         sourceUris: List<Uri>,
         session: FleetSession,
-        onComplete: (Result<List<String>>) -> Unit
+        maxCount: Int,
+        cancellation: AgentFleetUploadCancellation,
+        onComplete: (AgentFleetWorkspaceImageUploadResult) -> Unit
     ) {
         val main = Handler(Looper.getMainLooper())
         Thread({
-            val result = runCatching {
-                sourceUris.distinct().take(MAX_ATTACHMENTS).map { uri ->
+            val result = agentFleetUploadSequentially(
+                sourceUris.distinct(),
+                maxCount.coerceIn(0, MAX_ATTACHMENTS),
+                shouldContinue = cancellation::isActive
+            ) { uri ->
                     val local = copyImage(context, uri)
                     try {
                         sendImage(context, local, session.hostId, session.project, session.internalName)
@@ -153,47 +197,119 @@ object AgentFleetComposer {
                         local.delete()
                     }
                 }
+            main.post {
+                onComplete(
+                    AgentFleetWorkspaceImageUploadResult(
+                        uploadedPaths = result.completed,
+                        error = result.error,
+                        cancelled = result.cancelled
+                    )
+                )
             }
-            main.post { onComplete(result) }
         }, "agent-fleet-workspace-image-upload").start()
     }
 
-    private fun handleImageUris(activity: TermuxActivity, sourceUris: List<Uri>) {
-        val uris = sourceUris.distinct().take((MAX_ATTACHMENTS - attachments.size).coerceAtLeast(0))
-        if (uris.isEmpty()) return
-        val host = activity.intent.getStringExtra(AgentFleetContract.EXTRA_HOST_ID).orEmpty()
-        val project = activity.intent.getStringExtra(AgentFleetContract.EXTRA_PROJECT).orEmpty()
-        val session = activity.intent.getStringExtra(AgentFleetContract.EXTRA_INTERNAL_SESSION).orEmpty()
-        if (host.isBlank() || project.isBlank() || session.isBlank()) {
-            uploadError = "This terminal tab is missing its fleet image target."
+    private fun handleImageUris(
+        activity: TermuxActivity,
+        target: String,
+        sourceUris: List<Uri>,
+        ownedCameraSource: String? = null
+    ) {
+        val state = stateFor(target)
+        val uris = sourceUris.distinct().take((MAX_ATTACHMENTS - state.attachments.size).coerceAtLeast(0))
+        if (uris.isEmpty()) {
+            ownedCameraSource?.let { deleteOwnedCameraSource(activity, it) }
             return
         }
-        uploading = true
-        uploadError = null
+        val route = synchronized(this) { targetRoutes[target] }
+        if (route == null || route.host.isBlank() || route.project.isBlank() || route.session.isBlank()) {
+            state.uploadError = "This terminal tab is missing its fleet image target."
+            ownedCameraSource?.let { deleteOwnedCameraSource(activity, it) }
+            return
+        }
+        val ticket = uploadOwner.begin(target)
+        state.uploading = true
+        state.uploadError = null
         Thread({
             val uploaded = mutableListOf<String>()
             var failure: String? = null
-            for (uri in uris) {
-                val localResult = runCatching { copyImage(activity, uri) }
-                if (localResult.isFailure) {
-                    failure = localResult.exceptionOrNull()?.message ?: "Image import failed."
-                    break
+            try {
+                for (uri in uris) {
+                    val localResult = runCatching { copyImage(activity, uri) }
+                    if (localResult.isFailure) {
+                        failure = localResult.exceptionOrNull()?.message ?: "Image import failed."
+                        break
+                    }
+                    val local = localResult.getOrThrow()
+                    val remote = try {
+                        runCatching {
+                            sendImage(activity, local, route.host, route.project, route.session)
+                        }.getOrElse { error ->
+                            failure = error.message ?: "Image upload failed. Refresh the session and retry."
+                            null
+                        }
+                    } finally {
+                        local.delete()
+                    }
+                    if (remote == null) break
+                    uploaded += remote
                 }
-                val local = localResult.getOrThrow()
-                val remote = runCatching { sendImage(activity, local, host, project, session) }.getOrElse { error ->
-                    failure = error.message ?: "Image upload failed. Refresh the session and retry."
-                    null
-                }
-                if (remote == null) break
-                local.delete()
-                uploaded += remote
+            } finally {
+                ownedCameraSource?.let { deleteOwnedCameraSource(activity, it) }
             }
             activity.runOnUiThread {
-                attachments += uploaded
-                uploadError = failure
-                uploading = false
+                if (uploadOwner.finish(ticket)) {
+                    state.attachments += uploaded
+                    state.uploadError = failure
+                    state.uploading = false
+                }
             }
         }, "agent-fleet-image-upload").start()
+    }
+
+    @Synchronized
+    private fun stateFor(target: String): ComposerTargetState {
+        targetStates.remove(target)?.let { existing ->
+            targetStates[target] = existing
+            return existing
+        }
+        while (targetStates.size >= MAX_TARGET_STATES) {
+            val removableTarget = agentFleetComposerTargetToEvict(
+                targetStates.map { (key, value) ->
+                    AgentFleetComposerRetentionState(
+                        target = key,
+                        uploading = value.uploading,
+                        hasAttachments = value.attachments.isNotEmpty()
+                    )
+                },
+                protectedTargets = externalImageRequests.activeTargets() + currentTarget
+            ) ?: break
+            targetStates.remove(removableTarget)
+            targetRoutes.remove(removableTarget)
+            uploadOwner.invalidate(removableTarget)
+        }
+        return ComposerTargetState().also { targetStates[target] = it }
+    }
+
+    @Synchronized
+    private fun activateTarget(target: String, route: ComposerTargetRoute): ComposerTargetState {
+        currentTarget = target
+        targetRoutes[target] = route
+        return stateFor(target)
+    }
+
+    @Synchronized
+    private fun clearCurrentTarget() {
+        currentTarget = ""
+        externalImageRequests.invalidateAll()
+    }
+
+    private fun deleteOwnedCameraSource(context: Context, sourcePath: String) {
+        runCatching {
+            val root = File(context.cacheDir, "agent-fleet-camera").canonicalFile
+            val source = File(sourcePath).canonicalFile
+            if (source.parentFile == root && source.name.endsWith(".jpg")) source.delete()
+        }
     }
 
     internal fun copyImage(activity: Context, uri: Uri): File {
@@ -240,7 +356,7 @@ object AgentFleetComposer {
                 throw failure
             }
             lastOutput = output
-            if (output.exitCode == 0) return parseAgentFleetImagePath(output.stdout)
+            if (output.exitCode == 0) return parseSuccessfulAgentFleetImageOutput(output)
             if (!shouldRetryAgentFleetImageUpload(output, attempt)) {
                 throw AgentFleetImageException(agentFleetImageUploadFailure(output.stderr, output.exitCode))
             }
@@ -266,6 +382,192 @@ internal data class AgentFleetComposerNativeState(
     val liveEventSerial: Long = 0
 )
 
+internal data class AgentFleetComposerUploadTicket(val target: String, val generation: Long)
+
+private data class ComposerTargetRoute(val host: String, val project: String, val session: String)
+
+data class AgentFleetWorkspaceImageUploadResult(
+    val uploadedPaths: List<String>,
+    val error: Throwable?,
+    val cancelled: Boolean
+)
+
+data class AgentFleetExternalImageRequest(
+    val target: String,
+    val camera: Boolean,
+    val generation: Long
+)
+
+internal class AgentFleetExternalImageRequestOwner {
+    private var nextGeneration = 0L
+    private var pickerRequest: AgentFleetExternalImageRequest? = null
+    private var cameraRequest: AgentFleetExternalImageRequest? = null
+
+    @Synchronized
+    fun begin(target: String, camera: Boolean): AgentFleetExternalImageRequest? {
+        require(target.isNotBlank())
+        if (current(camera) != null) return null
+        val request = AgentFleetExternalImageRequest(
+            target = target,
+            camera = camera,
+            generation = Math.addExact(nextGeneration, 1L)
+        )
+        nextGeneration = request.generation
+        if (camera) cameraRequest = request else pickerRequest = request
+        return request
+    }
+
+    @Synchronized
+    fun restore(request: AgentFleetExternalImageRequest?): Boolean {
+        if (request == null || request.target.isBlank() || request.generation <= 0L) return false
+        val active = current(request.camera)
+        if (active != null) return active == request
+        replace(request.camera, request)
+        nextGeneration = maxOf(nextGeneration, request.generation)
+        return true
+    }
+
+    @Synchronized
+    fun cancel(request: AgentFleetExternalImageRequest?): Boolean {
+        if (request == null || current(request.camera) != request) return false
+        replace(request.camera, null)
+        return true
+    }
+
+    @Synchronized
+    fun consume(request: AgentFleetExternalImageRequest?): String? {
+        if (!cancel(request)) return null
+        return request?.target
+    }
+
+    @Synchronized
+    fun activeTargets(): Set<String> =
+        listOfNotNull(pickerRequest?.target, cameraRequest?.target).toSet()
+
+    @Synchronized
+    fun invalidateAll() {
+        pickerRequest = null
+        cameraRequest = null
+    }
+
+    @Synchronized
+    internal fun activeRequestCountForTest(): Int =
+        listOfNotNull(pickerRequest, cameraRequest).size
+
+    private fun current(camera: Boolean): AgentFleetExternalImageRequest? =
+        if (camera) cameraRequest else pickerRequest
+
+    private fun replace(camera: Boolean, request: AgentFleetExternalImageRequest?) {
+        if (camera) cameraRequest = request else pickerRequest = request
+    }
+}
+
+internal data class AgentFleetPartialUploadResult<T>(
+    val completed: List<T>,
+    val error: Throwable?,
+    val cancelled: Boolean
+)
+
+class AgentFleetUploadCancellation {
+    private val active = AtomicBoolean(true)
+
+    fun cancel() {
+        active.set(false)
+    }
+
+    fun isActive(): Boolean = active.get()
+}
+
+internal fun <S, T> agentFleetUploadSequentially(
+    sources: List<S>,
+    maxCount: Int,
+    shouldContinue: () -> Boolean = { true },
+    upload: (S) -> T
+): AgentFleetPartialUploadResult<T> {
+    val completed = mutableListOf<T>()
+    var failure: Throwable? = null
+    var cancelled = false
+    for (source in sources.take(maxCount.coerceAtLeast(0))) {
+        if (!shouldContinue()) {
+            cancelled = true
+            break
+        }
+        try {
+            completed += upload(source)
+        } catch (error: Exception) {
+            failure = error
+            break
+        }
+    }
+    if (!shouldContinue()) cancelled = true
+    return AgentFleetPartialUploadResult(completed, failure, cancelled)
+}
+
+internal data class AgentFleetComposerRetentionState(
+    val target: String,
+    val uploading: Boolean,
+    val hasAttachments: Boolean
+)
+
+internal fun agentFleetComposerTargetToEvict(
+    states: List<AgentFleetComposerRetentionState>,
+    protectedTargets: Set<String>
+): String? {
+    val candidates = states.asSequence().filter {
+        !it.uploading && it.target !in protectedTargets
+    }
+    return candidates.firstOrNull { !it.hasAttachments }?.target
+        ?: states.firstOrNull {
+            !it.uploading && it.target !in protectedTargets
+        }?.target
+}
+
+private fun agentFleetTargetKey(vararg fields: String): String =
+    fields.joinToString(separator = "") { "${it.length}:$it" }
+
+internal fun agentFleetComposerTarget(host: String, project: String, session: String): String =
+    agentFleetTargetKey(host, project, session)
+
+internal fun agentFleetWorkspaceTarget(session: FleetSession): String = agentFleetTargetKey(
+    session.id,
+    session.hostId,
+    session.physicalHostId,
+    session.executionTargetId,
+    session.backend,
+    session.project,
+    session.internalName,
+    session.tool
+)
+
+internal class AgentFleetComposerUploadOwner {
+    private var nextGeneration = 0L
+    private val activeGenerations = mutableMapOf<String, Long>()
+
+    @Synchronized
+    fun begin(target: String): AgentFleetComposerUploadTicket {
+        require(target.isNotBlank())
+        val generation = Math.addExact(nextGeneration, 1L)
+        nextGeneration = generation
+        activeGenerations[target] = generation
+        return AgentFleetComposerUploadTicket(target, generation)
+    }
+
+    @Synchronized
+    fun finish(ticket: AgentFleetComposerUploadTicket): Boolean {
+        if (activeGenerations[ticket.target] != ticket.generation) return false
+        activeGenerations.remove(ticket.target)
+        return true
+    }
+
+    @Synchronized
+    fun invalidate(target: String) {
+        activeGenerations.remove(target)
+    }
+
+    @Synchronized
+    internal fun activeUploadCountForTest(): Int = activeGenerations.size
+}
+
 @Composable
 internal fun AgentFleetComposerContent(
     target: String,
@@ -275,6 +577,7 @@ internal fun AgentFleetComposerContent(
     uploadError: String?,
     onShowPendingQuestion: () -> Unit,
     onAttach: () -> Unit,
+    onCamera: () -> Unit = {},
     onRemoveAttachment: (String) -> Unit,
     onComposerText: (String, Boolean) -> Boolean,
     localSuggestionsAvailableOverride: Boolean? = null,
@@ -319,7 +622,7 @@ internal fun AgentFleetComposerContent(
         observedSuggestionKey = automaticKey
         if (start) localSuggestions.request(nativeState.items, automaticTarget, automatic = true)
     }
-    LaunchedEffect(attachments) { if (attachments.isNotEmpty()) localSuggestions.clear() }
+    LaunchedEffect(attachments.toList()) { if (attachments.isNotEmpty()) localSuggestions.clear() }
     Surface(color = MaterialTheme.colorScheme.surface) {
         Column(
             modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 5.dp),
@@ -378,6 +681,12 @@ internal fun AgentFleetComposerContent(
                         contentPadding = DenseButtonPadding
                     ) { Text(if (uploading) "Wait…" else "Attach", fontSize = density.nativeMetadataSp.sp) }
                     TextButton(
+                        onClick = onCamera,
+                        enabled = !uploading && attachments.size < MAX_ATTACHMENTS,
+                        modifier = Modifier.fillMaxWidth().testTag("agent-fleet-composer-camera"),
+                        contentPadding = DenseButtonPadding
+                    ) { Text("Camera", fontSize = density.nativeMetadataSp.sp) }
+                    TextButton(
                         onClick = {
                             if (onComposerText(composed, false)) {
                                 text = ""
@@ -433,6 +742,7 @@ internal fun AgentFleetComposerContent(
 
 private const val MAX_MESSAGE_CHARS = 32_768
 private const val MAX_ATTACHMENTS = 8
+private const val MAX_TARGET_STATES = 32
 private val DenseButtonPadding = PaddingValues(horizontal = 8.dp, vertical = 6.dp)
 private val ComposerColors = darkColorScheme(
     primary = Color(0xFFAFC6FF),
@@ -450,3 +760,6 @@ internal fun buildAgentFleetComposerText(text: String, attachments: List<String>
 }.trimEnd()
 
 internal fun agentFleetPrimaryActionLabel(hasContent: Boolean): String = if (hasContent) "Send" else "Enter"
+
+internal fun agentFleetWorkspaceImageCapacity(existingCount: Int): Int =
+    (MAX_ATTACHMENTS - existingCount.coerceAtLeast(0)).coerceAtLeast(0)

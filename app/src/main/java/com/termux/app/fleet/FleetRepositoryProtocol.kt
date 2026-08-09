@@ -12,26 +12,30 @@ object FleetRepositoryProtocol {
         val entries = value.getJSONArray("entries")
         require(entries.length() <= 250) { "Repository response exceeded its safety limit." }
         val relativePath = value.getString("relativePath").also { require(validPath(it, true)) }
+        val parsedEntries = List(entries.length()) { index ->
+            val item = entries.getJSONObject(index)
+            require(keys(item) == setOf("name", "relativePath", "kind", "size", "modifiedAt", "hidden", "isLink"))
+            val kind = item.getString("kind").also { require(it in setOf("directory", "file")) }
+            val size = if (item.isNull("size")) null else item.getLong("size").also { require(it in 0..MAX_FILE_BYTES) }
+            require((kind == "directory") == (size == null)) { "Repository entry size does not match its kind." }
+            FleetRepositoryEntry(
+                name = safeText(item.getString("name"), 255),
+                relativePath = item.getString("relativePath").also { require(validPath(it, false)) },
+                kind = kind,
+                size = size,
+                modifiedAt = safeText(item.getString("modifiedAt"), 40),
+                hidden = item.getBoolean("hidden"),
+                isLink = item.getBoolean("isLink")
+            )
+        }
+        require(parsedEntries.map(FleetRepositoryEntry::relativePath).toSet().size == parsedEntries.size) {
+            "Repository response contains a duplicate path."
+        }
         return FleetRepositoryPage(
             rootName = safeText(value.getString("rootName"), 255),
             relativePath = relativePath,
             parentPath = if (value.isNull("parentPath")) null else value.getString("parentPath").also { require(validPath(it, true)) },
-            entries = List(entries.length()) { index ->
-                val item = entries.getJSONObject(index)
-                require(keys(item) == setOf("name", "relativePath", "kind", "size", "modifiedAt", "hidden", "isLink"))
-                val kind = item.getString("kind").also { require(it in setOf("directory", "file")) }
-                val size = if (item.isNull("size")) null else item.getLong("size").also { require(it in 0..MAX_FILE_BYTES) }
-                require((kind == "directory") == (size == null)) { "Repository entry size does not match its kind." }
-                FleetRepositoryEntry(
-                    name = safeText(item.getString("name"), 255),
-                    relativePath = item.getString("relativePath").also { require(validPath(it, false)) },
-                    kind = kind,
-                    size = size,
-                    modifiedAt = safeText(item.getString("modifiedAt"), 40),
-                    hidden = item.getBoolean("hidden"),
-                    isLink = item.getBoolean("isLink")
-                )
-            },
+            entries = parsedEntries,
             nextCursor = if (value.isNull("nextCursor")) null else value.getString("nextCursor").also { require(validCursor(it)) },
             truncated = value.getBoolean("truncated")
         )

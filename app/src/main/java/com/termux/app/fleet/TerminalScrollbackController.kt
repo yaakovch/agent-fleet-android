@@ -220,10 +220,15 @@ class TerminalScrollbackController(context: Context) {
         val stdoutThread = drain(process.inputStream, stdout, MAX_STDOUT, stdoutExceeded, "terminal-scrollback-stdout")
         val stderrThread = drain(process.errorStream, stderr, MAX_STDERR, stderrExceeded, "terminal-scrollback-stderr")
         val finished = process.waitForCompat(20, TimeUnit.SECONDS)
-        if (!finished) process.destroyForciblyCompat()
-        stdoutThread.join(1_000)
-        stderrThread.join(1_000)
+        if (!finished) process.terminateAndReapCompat()
+        stdoutThread.join(2_000)
+        stderrThread.join(2_000)
         if (!finished) error("Pane scrollback request timed out.")
+        if (stdoutThread.isAlive || stderrThread.isAlive) {
+            process.closePipesCompat()
+            error("Pane scrollback response did not close.")
+        }
+        process.closePipesCompat()
         if (stdoutExceeded.get()) error("Pane scrollback response was too large.")
         if (process.exitValue() != 0) {
             if (stderrExceeded.get()) error("Pane scrollback failed with excessive output.")

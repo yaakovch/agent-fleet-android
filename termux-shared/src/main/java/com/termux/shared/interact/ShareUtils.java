@@ -10,11 +10,12 @@ import android.content.Intent;
 import android.net.Uri;
 import android.os.Environment;
 
+import androidx.appcompat.app.AlertDialog;
 import androidx.appcompat.app.AppCompatActivity;
 
 import com.termux.shared.R;
 import com.termux.shared.data.DataUtils;
-import com.termux.shared.data.IntentUtils;
+import com.termux.shared.data.ExternalUrlPolicy;
 import com.termux.shared.file.FileUtils;
 import com.termux.shared.logger.Logger;
 import com.termux.shared.models.errors.Error;
@@ -45,7 +46,7 @@ public class ShareUtils {
         try {
             context.startActivity(chooserIntent);
         } catch (Exception e) {
-            Logger.logStackTraceWithMessage(LOG_TAG, "Failed to open system chooser for:\n" + IntentUtils.getIntentString(chooserIntent), e);
+            Logger.logStackTraceWithMessage(LOG_TAG, "Failed to open system chooser", e);
         }
     }
 
@@ -163,15 +164,37 @@ public class ShareUtils {
      */
     public static void openURL(final Context context, final String url) {
         if (context == null || url == null || url.isEmpty()) return;
-        Uri uri = Uri.parse(url);
-        Intent intent = new Intent(Intent.ACTION_VIEW, uri);
+        ExternalUrlPolicy.Decision decision = ExternalUrlPolicy.classify(url);
+        if (decision.action == ExternalUrlPolicy.Action.BLOCK) {
+            Logger.logWarn(LOG_TAG, "Blocked an unsafe external URL");
+            return;
+        }
+        if (decision.action == ExternalUrlPolicy.Action.CONFIRM) {
+            if (!(context instanceof Activity)) {
+                Logger.logWarn(LOG_TAG, "Blocked a non-web URL without an activity confirmation surface");
+                return;
+            }
+            new AlertDialog.Builder(context)
+                .setTitle(R.string.title_confirm_external_url)
+                .setMessage(context.getString(R.string.msg_confirm_external_url, decision.scheme))
+                .setPositiveButton(R.string.action_open_external_url, (dialog, which) -> openValidatedURL(context, url))
+                .setNegativeButton(android.R.string.cancel, null)
+                .show();
+            return;
+        }
+        openValidatedURL(context, url);
+    }
+
+    private static void openValidatedURL(final Context context, final String url) {
+        Intent intent = new Intent(Intent.ACTION_VIEW, Uri.parse(url));
+        if (!(context instanceof Activity)) intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
         try {
             context.startActivity(intent);
         } catch (ActivityNotFoundException e) {
             // If no activity found to handle intent, show system chooser
             openSystemAppChooser(context, intent, context.getString(R.string.title_open_url_with));
         } catch (Exception e) {
-            Logger.logStackTraceWithMessage(LOG_TAG, "Failed to open url \"" + url + "\"", e);
+            Logger.logStackTraceWithMessage(LOG_TAG, "Failed to open an external URL", e);
         }
     }
 
