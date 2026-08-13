@@ -1840,3 +1840,28 @@ protected suite passed 57/59; only the same pre-existing
 `native-plan-question` and `native-structured-work` goldens differed in
 `20260813T120544Z-full`. No physical device was accessed and no APK was
 published.
+
+## 63. Complete Legacy tmux Palette Guard Parity
+
+1. Embed exact wtmux source `0fb24ca` with the complete inherited 256-color
+   guard at component sequences `64/58/31`, using Android's canonical portable
+   Termux runtime target and prefix.
+2. Raise the Android embedded-runtime floor so the former partial `63/57/30`
+   baseline is rejected, while retaining the shared registry, package lock,
+   SBOM, and trusted-key identities.
+3. Run the focused embedded verifier and the repository's emulator-first full
+   gate. Do not access the physical S23FE and do not publish an APK.
+
+Gate: Android and Windows carry protocol-equivalent complete guards, and an
+Android package cannot reactivate the earlier per-pane 16-color runtime.
+
+Acceptance record (2026-08-13): Android embeds exact wtmux source `0fb24ca`
+at sequences `64/58/31`, contracts `1.10.0/20`, and deterministic portable
+Termux bundle SHA-256
+`0b83b34bb13c416b76f2a52a07d5571466008b14a2d1ed57d73d80506873ff67`.
+The verifier and all 66 release/runtime tests passed; the complete local
+JVM/lint/debug/release package gate passed. The focused protected packaged-
+runtime test passed in `20260813T173514Z-focused`. The full protected API 36
+suite passed 57/59 in `20260813T173257Z-full`; only the same pre-existing
+`native-plan-question` and `native-structured-work` goldens differed. No
+physical device was accessed and no APK was published.

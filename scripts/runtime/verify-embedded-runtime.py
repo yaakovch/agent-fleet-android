@@ -53,9 +53,9 @@ DEBIAN_DEPENDENCY = re.compile(
 )
 DEBIAN_ARCHITECTURE = re.compile(r"^!?[a-z0-9][a-z0-9_-]{0,63}$")
 TERMINAL_REPLY_SAFETY_MINIMUMS = {
-    "clientRuntime": 61,
-    "hostRuntime": 55,
-    "providerAdapters": 28,
+    "clientRuntime": 64,
+    "hostRuntime": 58,
+    "providerAdapters": 31,
 }
 TERMINAL_REPLY_SAFETY_FILES = {
     "lib/tmux_safety.py",
