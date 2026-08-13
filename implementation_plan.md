@@ -1785,3 +1785,58 @@ the universal SHA-256 is
 Signed release set 1097 selects it with host runtime 47 and retains 1095 as
 the immediate rollback. Automated validation did not access the physical
 phone; its replace-in-place update remains manual.
+
+## 61. Verified Endpoint Registry Baseline Parity
+
+1. Replace the embedded schema-v1 registry with the byte-identical identity-v2
+   bundle prepared for Windows Agent Fleet.
+2. Require every packaged registry record to use identity schema v2 and every
+   host record to expose at least one verified transport matching its declared
+   Tailnet or direct network.
+3. Keep client-only records valid without inventing host trust, and retain
+   unverified fallback endpoints only when a verified preferred host endpoint
+   exists.
+4. Run the focused verifier regression and the protected API 36 packaged
+   registry instrumentation class. Do not access the physical S23FE and do not
+   publish an APK as part of this source correction.
+
+Gate: Android and Windows embed the same deterministic registry bytes, the
+runtime verifier rejects the former schema-v1 archive, and startup cannot
+restore an endpoint registry that the enforcing transport will immediately
+reject.
+
+Acceptance record (2026-08-13): Android embeds the same registry SHA-256
+`9630fc62f69faaea0724cb040464877c155feb11f3dadf9bb76158025fee7ae2`
+as Windows. The focused verifier regression, all 66 release/runtime Python
+tests, all JVM tests, debug lint, and debug/release package builds passed. The
+protected API 36 `AgentFleetEmbeddedRegistryTest` passed in report
+`build/reports/agent-fleet/emulator/20260813T103912Z-focused`. An additional
+full protected emulator run passed 57 of 59 tests; only the pre-existing
+`native-plan-question` and `native-structured-work` screenshot goldens failed,
+outside this registry-only change. No physical S23FE was accessed and no APK
+was published.
+
+## 62. Terminal Reply Safety Baseline Persistence Parity
+
+1. Embed the same monotonic terminal-safe wtmux source as Windows, using the
+   canonical Termux target prefix and platform-specific deterministic archive.
+2. Make Android's embedded-runtime verifier reject component sequences below
+   `61/55/28` and reject archives missing the helper, policy module, or tmux
+   integration required to guard a resident 3.6a server.
+3. Cover the packaging floor in release-quality tests, verify the exact asset,
+   and run the protected API 36 packaged-runtime regression without accessing
+   the physical S23FE or publishing an APK.
+
+Gate: an Android build cannot reintroduce the old pre-safety embedded baseline,
+and its packaged runtime remains protocol-equivalent to the Windows repair.
+
+Acceptance record (2026-08-13): Android embeds exact wtmux source `51f8865`
+at sequences `63/57/30`, contracts `1.10.0/20`, and Termux bundle SHA-256
+`46f1292abef78bdd4a44261240e328f7fc2f6a848a8d52fffcba1e48642a8dfb`.
+All 66 release/runtime Python tests and the full local JVM/lint/debug/release
+package gate passed. The protected packaged-runtime regression passed in
+`build/reports/agent-fleet/emulator/20260813T120335Z-focused`. The complete
+protected suite passed 57/59; only the same pre-existing
+`native-plan-question` and `native-structured-work` goldens differed in
+`20260813T120544Z-full`. No physical device was accessed and no APK was
+published.

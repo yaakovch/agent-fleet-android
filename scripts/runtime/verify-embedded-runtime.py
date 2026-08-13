@@ -52,6 +52,72 @@ DEBIAN_DEPENDENCY = re.compile(
     r"(?: <([A-Za-z0-9_!+.-]{1,128})>)?$"
 )
 DEBIAN_ARCHITECTURE = re.compile(r"^!?[a-z0-9][a-z0-9_-]{0,63}$")
+TERMINAL_REPLY_SAFETY_MINIMUMS = {
+    "clientRuntime": 61,
+    "hostRuntime": 55,
+    "providerAdapters": 28,
+}
+TERMINAL_REPLY_SAFETY_FILES = {
+    "lib/tmux_safety.py",
+    "lib/tmux_state.sh",
+    "scripts/wtmux-tmux-safety",
+}
+
+
+def validate_terminal_reply_safe_runtime(components: object, names: object) -> dict:
+    if not isinstance(components, dict) or any(
+        not isinstance(components.get(name), dict)
+        or type(components[name].get("sequence")) is not int
+        or components[name]["sequence"] < minimum
+        for name, minimum in TERMINAL_REPLY_SAFETY_MINIMUMS.items()
+    ):
+        raise ValueError("embedded runtime predates managed terminal-reply safety")
+    if not TERMINAL_REPLY_SAFETY_FILES <= set(names):
+        raise ValueError("embedded runtime omits managed terminal-reply safety")
+    return components
+
+
+def validate_connectable_registry_record(value: object) -> dict:
+    if (
+        not isinstance(value, dict)
+        or value.get("schemaVersion") != 2
+        or not isinstance(value.get("roles"), list)
+    ):
+        raise ValueError("embedded machine registry records must use identity schema v2")
+    if "host" not in value["roles"]:
+        return value
+    endpoints = value.get("endpoints")
+    if not isinstance(endpoints, list):
+        raise ValueError(
+            f"embedded host registry record has no endpoints: {value.get('id', 'unknown')}"
+        )
+    expected_network = {
+        "tailscale": "tailnet",
+        "ssh": "direct",
+    }.get(value.get("transport"))
+    connectable = any(
+        expected_network is not None
+        and isinstance(endpoint, dict)
+        and endpoint.get("identityState") == "verified"
+        and endpoint.get("network") == expected_network
+        and (expected_network != "tailnet" or bool(endpoint.get("tailscaleNodeId")))
+        and (
+            (
+                expected_network == "tailnet"
+                and endpoint.get("sshEngine") == "tailscale-cli"
+            )
+            or (
+                endpoint.get("sshEngine") == "openssh"
+                and bool(endpoint.get("sshHostKeySha256"))
+            )
+        )
+        for endpoint in endpoints
+    )
+    if not connectable:
+        raise ValueError(
+            f"embedded host registry record has no verified transport: {value.get('id', 'unknown')}"
+        )
+    return value
 
 
 def compare_debian_versions(left: str, right: str) -> int:
@@ -597,6 +663,7 @@ def verify(root: Path) -> dict:
                 raise ValueError(f"runtime member verification failed: {item['path']}")
         if expected != set(names):
             raise ValueError("runtime archive contents do not match its manifest")
+        validate_terminal_reply_safe_runtime(manifest["components"], names)
         entries = {item["path"]: item for item in manifest["files"]}
         if (
             entries.get("runtime.spdx.json", {}).get("sha256") != runtime_value["sbomSha256"]
@@ -648,6 +715,17 @@ def verify(root: Path) -> dict:
             payload = archive.extractfile(item["path"]).read()
             if len(payload) != item["size"] or hashlib.sha256(payload).hexdigest() != item["sha256"]:
                 raise ValueError(f"embedded registry member verification failed: {item['id']}")
+            try:
+                record = json.loads(payload)
+            except (UnicodeError, json.JSONDecodeError) as error:
+                raise ValueError(
+                    f"embedded machine registry record is not valid JSON: {item['id']}"
+                ) from error
+            if record.get("id") != item["id"]:
+                raise ValueError(
+                    f"embedded machine registry record ID does not match its manifest: {item['id']}"
+                )
+            validate_connectable_registry_record(record)
         if set(names) != expected_registry_members:
             raise ValueError("embedded registry contents do not match its manifest")
 

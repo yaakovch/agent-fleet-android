@@ -30,6 +30,123 @@ runtime = load_module(
 )
 
 
+class EmbeddedRuntimeRegistryTest(unittest.TestCase):
+    def test_packaged_runtime_cannot_regress_tmux_terminal_reply_safety(self):
+        safe_files = {
+            "lib/tmux_safety.py",
+            "lib/tmux_state.sh",
+            "scripts/wtmux-tmux-safety",
+        }
+        with self.assertRaisesRegex(ValueError, "predates managed terminal-reply safety"):
+            runtime.validate_terminal_reply_safe_runtime(
+                {
+                    "clientRuntime": {"sequence": 57},
+                    "hostRuntime": {"sequence": 51},
+                    "providerAdapters": {"sequence": 24},
+                },
+                safe_files,
+            )
+        with self.assertRaisesRegex(ValueError, "omits managed terminal-reply safety"):
+            runtime.validate_terminal_reply_safe_runtime(
+                {
+                    "clientRuntime": {"sequence": 61},
+                    "hostRuntime": {"sequence": 55},
+                    "providerAdapters": {"sequence": 28},
+                },
+                {"lib/tmux_state.sh"},
+            )
+        self.assertEqual(
+            61,
+            runtime.validate_terminal_reply_safe_runtime(
+                {
+                    "clientRuntime": {"sequence": 61},
+                    "hostRuntime": {"sequence": 55},
+                    "providerAdapters": {"sequence": 28},
+                },
+                safe_files,
+            )["clientRuntime"]["sequence"],
+        )
+
+    def test_packaged_hosts_require_identity_v2_and_verified_transport(self):
+        with self.assertRaisesRegex(ValueError, "identity schema v2"):
+            runtime.validate_connectable_registry_record(
+                {
+                    "schemaVersion": 1,
+                    "id": "legacy-host",
+                    "roles": ["host"],
+                    "transport": "tailscale",
+                }
+            )
+        with self.assertRaisesRegex(ValueError, "no verified transport"):
+            runtime.validate_connectable_registry_record(
+                {
+                    "schemaVersion": 2,
+                    "id": "unverified-host",
+                    "roles": ["host"],
+                    "transport": "tailscale",
+                    "endpoints": [
+                        {
+                            "network": "tailnet",
+                            "sshEngine": "openssh",
+                            "identityState": "unverified",
+                            "sshHostKeySha256": "",
+                            "tailscaleNodeId": "",
+                        }
+                    ],
+                }
+            )
+        self.assertEqual(
+            "verified-host",
+            runtime.validate_connectable_registry_record(
+                {
+                    "schemaVersion": 2,
+                    "id": "verified-host",
+                    "roles": ["host"],
+                    "transport": "tailscale",
+                    "endpoints": [
+                        {
+                            "network": "tailnet",
+                            "sshEngine": "openssh",
+                            "identityState": "verified",
+                            "sshHostKeySha256": "SHA256:example",
+                            "tailscaleNodeId": "node-example",
+                        }
+                    ],
+                }
+            )["id"],
+        )
+        with self.assertRaisesRegex(ValueError, "no verified transport"):
+            runtime.validate_connectable_registry_record(
+                {
+                    "schemaVersion": 2,
+                    "id": "invalid-direct-tailscale-cli",
+                    "roles": ["host"],
+                    "transport": "ssh",
+                    "endpoints": [
+                        {
+                            "network": "direct",
+                            "sshEngine": "tailscale-cli",
+                            "identityState": "verified",
+                            "sshHostKeySha256": "",
+                            "tailscaleNodeId": "",
+                        }
+                    ],
+                }
+            )
+        self.assertEqual(
+            "client-only",
+            runtime.validate_connectable_registry_record(
+                {
+                    "schemaVersion": 2,
+                    "id": "client-only",
+                    "roles": ["client"],
+                    "transport": "ssh",
+                    "endpoints": [],
+                }
+            )["id"],
+        )
+
+
 class RepositoryPolicyTest(unittest.TestCase):
     def test_action_references_require_immutable_commits(self):
         self.assertIsNone(policy.action_reference_error("actions/checkout@" + "a" * 40))
