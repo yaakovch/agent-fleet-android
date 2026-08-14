@@ -1865,3 +1865,28 @@ runtime test passed in `20260813T173514Z-focused`. The full protected API 36
 suite passed 57/59 in `20260813T173257Z-full`; only the same pre-existing
 `native-plan-question` and `native-structured-work` goldens differed. No
 physical device was accessed and no APK was published.
+
+## 64. Non-login tmux 3.7 Cutover Parity
+
+1. Embed exact wtmux source `f54239d` at component sequences `65/59/32`,
+   contracts `1.10.0/20`, and Android's canonical Termux target prefix.
+2. Raise the Android embedded-runtime floor so packages cannot reactivate the
+   earlier runtime that allowed a GUI-launched non-login shell to select the
+   system tmux 3.6a binary.
+3. Verify the deterministic asset, run the focused packaged-runtime test, and
+   complete the protected API 36 emulator-first gate. Do not access the
+   physical S23FE or publish an APK.
+
+Gate: Android and Windows carry the same path-selection correction and v3
+palette policy, while retaining their platform-specific runtime prefixes.
+
+Acceptance record (2026-08-14): Android embeds exact wtmux source `f54239d`
+at sequences `65/59/32`, contracts `1.10.0/20`, and deterministic Termux
+bundle SHA-256
+`b1ef200f888ad379d07761397ce64e7bfe4da6f0334dadeef7f74ac7f69fd59c`.
+The focused verifier and protected packaged-runtime test passed in
+`20260814T163137Z-focused`; all 66 release/runtime tests and the complete local
+JVM/lint/package gate passed. The one full protected API 36 suite ran 59 tests
+and passed 57 in `20260814T164119Z-full`; only the pre-existing
+`native-plan-question` and `native-structured-work` screenshot goldens
+differed. No physical device was accessed and no APK was published.
