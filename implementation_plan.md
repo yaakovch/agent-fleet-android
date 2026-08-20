@@ -1890,3 +1890,18 @@ JVM/lint/package gate passed. The one full protected API 36 suite ran 59 tests
 and passed 57 in `20260814T164119Z-full`; only the pre-existing
 `native-plan-question` and `native-structured-work` screenshot goldens
 differed. No physical device was accessed and no APK was published.
+
+## 65. Delayed OSC 10/11 Reply Hardening Parity
+
+1. Embed exact wtmux source `4a077ad` at component sequences `66/60/33`,
+   contracts `1.10.0/20`, and Android's canonical universal Termux runtime
+   target and prefix.
+2. Raise the Android embedded-runtime floor so an APK cannot reactivate the
+   earlier tmux 3.7b baseline with a zero terminal reply-assembly timeout.
+3. Verify the deterministic asset, all release/runtime tests, the complete
+   local JVM/lint/package gate, and the protected API 36 packaged-runtime test.
+   Run the protected full emulator suite once and record its known screenshot
+   baseline differences. Do not access the physical S23FE or publish an APK.
+
+Gate: Android and Windows carry protocol-equivalent 500 ms reply hardening,
+while retaining their platform-specific runtime prefixes and package assets.
