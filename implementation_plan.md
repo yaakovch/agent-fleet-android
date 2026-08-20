@@ -1905,3 +1905,14 @@ differed. No physical device was accessed and no APK was published.
 
 Gate: Android and Windows carry protocol-equivalent 500 ms reply hardening,
 while retaining their platform-specific runtime prefixes and package assets.
+
+Acceptance record (2026-08-20): Android commit `5a777686` embeds exact wtmux
+source `4a077ad` at sequences `66/60/33`, contracts `1.10.0/20`, and universal
+Termux bundle SHA-256
+`d234914b894627b06cef036f477bcef660679076683d0ccb7dba9538e1c06b37`.
+The focused verifier and all 16 runtime-quality regressions passed. Protected
+packaged-runtime report `20260820T104309Z-focused` passed with `OK (1 test)`.
+All 66 release/runtime tests, rollback rehearsal, JVM/lint/package gate, and
+the exactly-once protected full suite passed; the latter recorded `OK (59
+tests)` and `INSTRUMENTATION_CODE: -1` in `20260820T105733Z-full`. The physical
+S23FE was not accessed and no APK was installed or published.
