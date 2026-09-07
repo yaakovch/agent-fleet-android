@@ -100,6 +100,12 @@ object FleetSnapshotStore {
             active = observers.isNotEmpty()
             context = contextReference?.get() ?: return
         }
+        if (active && FleetRuntimePreparation.active) {
+            if (latestSnapshot() == null) publishState(FleetLoadState.Loading)
+            main.removeCallbacks(refreshRunnable)
+            main.postDelayed(refreshRunnable, REFRESH_INTERVAL_MS)
+            return
+        }
         if (!active || !refreshing.compareAndSet(false, true)) return
         if (showLoading && state !is FleetLoadState.Ready) publishState(FleetLoadState.Loading)
         executor.execute {
@@ -142,7 +148,7 @@ object FleetSnapshotStore {
             }
             refreshing.set(false)
             main.post {
-                publishState(result)
+                if (!FleetRuntimePreparation.active) publishState(result)
                 synchronized(this) {
                     if (observers.values.any { it.continuous }) {
                         main.removeCallbacks(refreshRunnable)

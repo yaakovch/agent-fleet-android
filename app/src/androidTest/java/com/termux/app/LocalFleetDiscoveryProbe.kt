@@ -25,7 +25,7 @@ import com.termux.view.TerminalView
 import org.json.JSONObject
 
 /** Real packaged bridge/agent with a deterministic, private tmux inventory adapter. */
-internal class LocalFleetDiscoveryProbe(private val context: Context) : AutoCloseable {
+internal class LocalFleetDiscoveryProbe(private val context: Context, private val legacyAdvertisement: Boolean = false) : AutoCloseable {
     private val runtime = AgentFleetEmbeddedRegistryTest().prepareRuntime(context)
     private val home = File(context.filesDir, "home")
     private val prefix = File(context.filesDir, "usr")
@@ -39,6 +39,18 @@ internal class LocalFleetDiscoveryProbe(private val context: Context) : AutoClos
     private var sshUser = ""
 
     init {
+        if (legacyAdvertisement) {
+            File(directory, "legacy-agent").apply {
+                writeText("""#!${File(prefix, "bin/python3").absolutePath}
+import runpy, sys
+sys.dont_write_bytecode = True
+agent = runpy.run_path('${File(runtime, "current/scripts/wtmux-agent").absolutePath}')
+agent['main'].__globals__['CONTRACT_PACKAGE_VERSION'] = '1.5.0'
+raise SystemExit(agent['main']())
+""")
+                check(setExecutable(true, true))
+            }
+        }
         // The Android image is a client and intentionally has no tmux server.
         // Exercise its packaged protocol against synthetic host inventory;
         // actual tmux behavior is covered by the core host/runtime suite.
@@ -229,6 +241,7 @@ LogLevel ERROR
             environment()["PATH"] = "${File(home, ".local/bin")}:${File(prefix, "bin")}"
             environment()["WTMUX_TMUX_BIN"] = tmux
             environment()["WTMUX_STATE_DIR"] = File(directory, "state").absolutePath
+            if (legacyAdvertisement) environment()["WTMUX_BRIDGE_AGENT_PATH"] = File(directory, "legacy-agent").absolutePath
             enableTermuxExec(environment(), prefix)
         }
 

@@ -31,7 +31,13 @@ object TransportContract {
             "Host runtime missing", "Repair the host runtime", "review"
         ),
         "HOST_RUNTIME_INCOMPATIBLE" to TransportRecovery(
-            "Host runtime incompatible", "Update or roll back", "rollback"
+            "Host protocols need attention", "Run Diagnostics or Repair host", "review"
+        ),
+        "HOST_RESPONSE_INVALID" to TransportRecovery(
+            "Host returned an invalid response", "Retrying automatically; open Diagnostics if this continues", "retry"
+        ),
+        "HOST_RUNTIME_UNAVAILABLE" to TransportRecovery(
+            "Host service is not ready", "Retrying automatically; open Diagnostics if this continues", "retry"
         ),
         "TMUX_UNAVAILABLE" to TransportRecovery(
             "tmux unavailable", "Repair the host session service", "review"

@@ -22,6 +22,7 @@ import androidx.compose.ui.test.assertTextContains
 import androidx.compose.ui.test.assertWidthIsAtLeast
 import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.junit4.createComposeRule
+import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
@@ -113,6 +114,43 @@ class AgentFleetComposeTest {
     @get:Rule val compose = createComposeRule()
 
     @Test
+    fun discoveredHostRequiresReviewAndPairsAndRepairsExactlyOnce() {
+        val pairs = AtomicInteger()
+        val repairs = AtomicInteger()
+        val changes = AtomicInteger()
+        val service = object : com.termux.app.fleet.FleetHostSetup {
+            override fun discover() = listOf(com.termux.app.fleet.TailnetHost(
+                "node-new", "New host", "new.tailnet.ts.net", "linux", true, ""))
+            override fun review(nodeId: String, username: String): com.termux.app.fleet.TailnetHostReview {
+                assertEquals("node-new", nodeId)
+                assertEquals("tester", username)
+                return com.termux.app.fleet.TailnetHostReview("a".repeat(32), "New host", "new.tailnet.ts.net", username, false, true)
+            }
+            override fun pair(reviewId: String): String { assertEquals("a".repeat(32), reviewId); pairs.incrementAndGet(); return "new-linux" }
+            override fun repair(hostId: String) { assertEquals("new-linux", hostId); repairs.incrementAndGet() }
+        }
+        compose.setContent { AgentFleetTheme(darkTheme = true) {
+            HostSetupDialog(onDismiss = {}, onChanged = { changes.incrementAndGet() }, setup = service)
+        } }
+        compose.waitUntil(20_000) { compose.onAllNodesWithTag("host-setup-select-node-new").fetchSemanticsNodes().isNotEmpty() }
+        compose.onNodeWithTag("host-setup-select-node-new").performScrollTo().performClick()
+        compose.onNodeWithTag("host-setup-username").performTextInput("tester")
+        compose.onNodeWithTag("host-setup-review").performScrollTo().performClick()
+        compose.waitUntil(20_000) { compose.onAllNodesWithTag("host-setup-pair").fetchSemanticsNodes().isNotEmpty() }
+        assertEquals(0, pairs.get())
+        compose.onNodeWithText("tester@new.tailnet.ts.net").assertIsDisplayed()
+        discoveryScreenshot("tailnet-host-review")
+        compose.onNodeWithTag("host-setup-pair").performScrollTo().performClick()
+        compose.waitUntil(20_000) { pairs.get() == 1 && changes.get() == 1 }
+        compose.onNodeWithTag("host-setup-repair-confirm").performScrollTo().performClick()
+        compose.waitUntil(20_000) { repairs.get() == 1 && changes.get() == 2 }
+        compose.onNodeWithText("Host runtime repaired; reconnecting").assertIsDisplayed()
+        discoveryScreenshot("tailnet-host-repaired")
+        assertEquals(1, pairs.get())
+        assertEquals(1, repairs.get())
+    }
+
+    @Test
     fun configurationFailureOffersRepairWithoutRequiringPairing() {
         val state = mutableStateOf(com.termux.app.fleet.FleetLoadState.Unavailable(
             "Saved fleet information needs repair. Your trusted hosts are retained.", "REGISTRY_INVALID"
@@ -139,7 +177,7 @@ class AgentFleetComposeTest {
 
     @Test
     fun cachedHostRecoversThroughThePackagedBridgeAndEnablesItsSession() {
-        LocalFleetDiscoveryProbe(ApplicationProvider.getApplicationContext()).use { probe ->
+        LocalFleetDiscoveryProbe(ApplicationProvider.getApplicationContext(), legacyAdvertisement = true).use { probe ->
             val live = probe.snapshot()
             assertEquals(1, live.sessions.size)
             val state = mutableStateOf(com.termux.app.fleet.staleFleetSnapshot(live, "NETWORK_UNREACHABLE"))

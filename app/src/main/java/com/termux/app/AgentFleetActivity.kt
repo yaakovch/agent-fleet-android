@@ -2732,6 +2732,12 @@ private fun MoreScreen(
     var confirmMeteredModelDownload by rememberSaveable { mutableStateOf(false) }
     val snapshot = (fleetState as? FleetLoadState.Ready)?.snapshot
     val pendingSchedules = snapshot?.schedules?.count { it.status == "pending" } ?: 0
+    var showHostSetup by rememberSaveable { mutableStateOf(false) }
+    if (showHostSetup) HostSetupDialog(
+        onDismiss = { showHostSetup = false },
+        onChanged = { FleetSnapshotStore.refresh(reconnect = true) },
+        knownHosts = snapshot?.hosts.orEmpty()
+    )
     val awaitingPairingRequests = snapshot?.pairingRequests.orEmpty().filter { it.status == "awaiting-review" }
     val healthyHosts = snapshot?.physicalHosts?.count { it.status == "healthy" } ?: 0
     val hostCount = snapshot?.physicalHosts?.size ?: 0
@@ -2766,6 +2772,11 @@ private fun MoreScreen(
     ) {
         item { Text("More", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold) }
         item { AppUpdateCard(updateState, updateManifestUrl, onCheckUpdate, onInstallUpdate) }
+        item {
+            Button(onClick = { showHostSetup = true }, modifier = Modifier.fillMaxWidth().testTag("find-repair-hosts")) {
+                Text("Find and repair hosts")
+            }
+        }
         item {
             Card(
                 modifier = Modifier.testTag("window-layout-settings"),

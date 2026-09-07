@@ -665,6 +665,31 @@ def verify(root: Path) -> dict:
         ):
             raise ValueError("runtime archive SBOM, license, or contracts are missing")
 
+    host_repair = json.loads((root / "host-repair-runtime-v1.json").read_text(encoding="utf-8"))
+    if (set(host_repair) != {"schemaVersion", "file", "sha256", "size"}
+        or host_repair["schemaVersion"] != 1
+        or host_repair["file"] != f"wtmux-host-repair-{descriptor['wtmuxCommit'][:7]}.tar"):
+        raise ValueError("host repair runtime descriptor is invalid")
+    host_artifact = checked_file(root, {key: host_repair[key] for key in ("file", "sha256", "size")}, 32 * 1024 * 1024)
+    with tarfile.open(host_artifact, "r:") as archive:
+        members = archive.getmembers()
+        names = [item.name for item in members]
+        if len(names) != len(set(names)) or any(not item.isfile() for item in members):
+            raise ValueError("host repair runtime contains unsafe members")
+        host_manifest = json.load(archive.extractfile("runtime-manifest.json"))
+        if (host_manifest.get("formatVersion") != 2 or host_manifest.get("version") != descriptor["baselineVersion"]
+            or host_manifest.get("source") != manifest["source"] or host_manifest.get("components") != descriptor["components"]
+            or host_manifest.get("target") != {"platform": "linux", "architecture": "universal", "prefix": "~/.local"}):
+            raise ValueError("host repair runtime does not match the app's source and components")
+        expected = {"runtime-manifest.json"}
+        for item in host_manifest["files"]:
+            expected.add(item["path"])
+            payload = archive.extractfile(item["path"]).read()
+            if len(payload) != item["size"] or hashlib.sha256(payload).hexdigest() != item["sha256"]:
+                raise ValueError("host repair runtime member failed verification")
+        if expected != set(names) or "scripts/wtmux-connect" not in expected:
+            raise ValueError("host repair runtime inventory is invalid")
+
     registry_value = descriptor["registry"]
     if set(registry_value) != {"file", "sha256", "size"}:
         raise ValueError("embedded registry descriptor fields are invalid")
@@ -962,6 +987,7 @@ def verify(root: Path) -> dict:
             raise ValueError("trusted runtime key ID does not match its public key")
     expected_source_files = {
         "embedded-runtime-v1.json", descriptor["runtime"]["file"], descriptor["registry"]["file"],
+        "host-repair-runtime-v1.json", host_repair["file"],
         descriptor["packageLock"]["file"],
         descriptor["sbom"]["file"], *(item["file"] for item in keys),
     }

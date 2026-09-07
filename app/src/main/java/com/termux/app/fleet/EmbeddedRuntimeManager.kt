@@ -1124,6 +1124,30 @@ class EmbeddedRuntimeManager(private val context: Context) {
         context.assets.open("agent-fleet/embedded-runtime-v1.json").bufferedReader().use { it.readText() }
     )
 
+    internal fun hostSetup(arguments: List<String>): String {
+        check(arguments.firstOrNull() in setOf("discover", "review", "pair", "repair"))
+        admittedRuntimeExecutionTarget(runtimeLinks()["current"].orEmpty(), ::isInstalledRuntimeVerified)
+        val tool = File(runtimeRoot, "current/scripts/wtmux-connect")
+        require(tool.isFile) { "Update or repair the built-in runtime to use host setup" }
+        val result = runProcess(listOf(File(binDir, "python3").absolutePath, tool.absolutePath) + arguments,
+            timeoutSeconds = 150, maxOutput = 1024 * 1024)
+        if (result.exitCode != 0) {
+            val detail = runCatching { JSONObject(result.output).getString("error") }.getOrNull()
+            throw IllegalStateException(detail?.take(256) ?: "Host setup could not finish. Check Tailscale SSH access and retry.")
+        }
+        check(!result.truncated) { "Host setup returned too much information" }
+        return result.output
+    }
+
+    internal fun hostRepairArtifact(): Pair<File, String> {
+        val value = JSONObject(context.assets.open("agent-fleet/host-repair-runtime-v1.json").bufferedReader().use { it.readText() })
+        require(value.keys().asSequence().toSet() == setOf("schemaVersion", "file", "sha256", "size") && value.getInt("schemaVersion") == 1)
+        val name = value.getString("file").also { require(it.matches(Regex("wtmux-host-repair-[a-f0-9]{7}\\.tar"))) }
+        val sha256 = value.getString("sha256").also { require(INSTALLED_RUNTIME_SHA256.matches(it)) }
+        val size = value.getLong("size").also { require(it in 1..32L * 1024 * 1024) }
+        return copyVerifiedAsset("agent-fleet/$name", File(staging, name), sha256, size) to sha256
+    }
+
     fun packages(descriptor: EmbeddedRuntimeDescriptor = descriptor()): List<LockedTermuxPackage> {
         val bytes = context.assets.open("agent-fleet/${descriptor.packageLock.file}").use { it.readBytes() }
         require(bytes.size.toLong() == descriptor.packageLock.size && bytes.sha256() == descriptor.packageLock.sha256) {
@@ -1132,7 +1156,9 @@ class EmbeddedRuntimeManager(private val context: Context) {
         return EmbeddedRuntimeMetadataParser.packages(bytes.toString(Charsets.UTF_8))
     }
 
-    fun inspect(): EmbeddedRuntimeStatus {
+    fun inspect(): EmbeddedRuntimeStatus = synchronized(FleetRuntimePreparation.lock) { inspectLocked() }
+
+    private fun inspectLocked(): EmbeddedRuntimeStatus {
         migrateLegacyRuntimeRoot()
         val descriptor = descriptor()
         val locked = packages(descriptor)
@@ -1277,7 +1303,10 @@ class EmbeddedRuntimeManager(private val context: Context) {
     }
 
     @Synchronized
-    fun repair(preserveCurrent: Boolean = false, progress: (String) -> Unit = {}): EmbeddedRuntimeStatus {
+    fun repair(preserveCurrent: Boolean = false, progress: (String) -> Unit = {}): EmbeddedRuntimeStatus =
+        FleetRuntimePreparation.mutate { repairLocked(preserveCurrent, progress) }
+
+    private fun repairLocked(preserveCurrent: Boolean, progress: (String) -> Unit): EmbeddedRuntimeStatus {
         val descriptor = descriptor()
         val previousCurrent = inspect().current
         require(supportsEmbeddedRuntime(Build.SUPPORTED_ABIS.firstOrNull(), descriptor.supportedAbis)) {
@@ -1330,7 +1359,9 @@ class EmbeddedRuntimeManager(private val context: Context) {
     }
 
     @Synchronized
-    fun rollback(): EmbeddedRuntimeStatus {
+    fun rollback(): EmbeddedRuntimeStatus = FleetRuntimePreparation.mutate { rollbackLocked() }
+
+    private fun rollbackLocked(): EmbeddedRuntimeStatus {
         val links = runtimeLinks()
         val current = links["current"].orEmpty()
         val previous = links["previous"].orEmpty()
@@ -1358,7 +1389,9 @@ class EmbeddedRuntimeManager(private val context: Context) {
     }
 
     @Synchronized
-    fun restoreBaseline(): EmbeddedRuntimeStatus {
+    fun restoreBaseline(): EmbeddedRuntimeStatus = FleetRuntimePreparation.mutate { restoreBaselineLocked() }
+
+    private fun restoreBaselineLocked(): EmbeddedRuntimeStatus {
         val descriptor = descriptor()
         val bundle = copyVerifiedAsset(
             "agent-fleet/${descriptor.runtime.file}",
@@ -1381,7 +1414,10 @@ class EmbeddedRuntimeManager(private val context: Context) {
     }
 
     @Synchronized
-    fun installHotfix(bundle: File, expectedSha256: String): EmbeddedRuntimeStatus {
+    fun installHotfix(bundle: File, expectedSha256: String): EmbeddedRuntimeStatus =
+        FleetRuntimePreparation.mutate { installHotfixLocked(bundle, expectedSha256) }
+
+    private fun installHotfixLocked(bundle: File, expectedSha256: String): EmbeddedRuntimeStatus {
         require(bundle.isFile && bundle.length() in 1..32L * 1024L * 1024L && bundle.sha256() == expectedSha256) {
             "Runtime hotfix artifact verification failed"
         }
@@ -1515,7 +1551,9 @@ class EmbeddedRuntimeManager(private val context: Context) {
 
     /** Registry repair also works on an already provisioned emulator; no ABI packages are installed. */
     @Synchronized
-    fun repairFleetConfiguration() {
+    fun repairFleetConfiguration() = FleetRuntimePreparation.mutate { repairFleetConfigurationLocked() }
+
+    private fun repairFleetConfigurationLocked() {
         val descriptor = descriptor()
         val registry = copyVerifiedAsset(
             "agent-fleet/${descriptor.registry.file}", File(staging, descriptor.registry.file),

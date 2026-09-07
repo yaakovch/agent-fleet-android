@@ -110,7 +110,11 @@ reference images and comparison tolerances are unchanged.
 The golden host explicitly draws edge to edge because Native owns its status-bar
 padding. Overlay changes can leave WindowManager reporting the old cutout inset
 even after System UI pixels update. The guarded fixture refreshes display
-configuration with an orientation round trip, restores and verifies the original
+configuration after waiting for the targeted broadcast and application-thread
+barriers with `am wait-for-broadcast-barrier --flush-broadcast-loopers
+--flush-application-threads`. Require both barrier completion markers; a fixed
+sleep does not establish delivery. The fixture then performs an orientation
+round trip, restores and verifies the original
 rotation policy, and repeats that refresh when restoring the original overlays.
 Each comparison retains content bounds and the status-bar inset as JSON.
 Managed `full` runs goldens and the functional suite in separate instrumentation
@@ -119,6 +123,15 @@ display refresh: either isolation or the refresh alone can retain old insets.
 Both phases retain raw results and screenshots and require terminal `OK` and
 instrumentation code `-1`, in addition to Gradle success. Terminal service tests
 wait for first layout/insets dispatch before asserting exact chrome geometry.
+
+Host setup coverage exercises More → Find and repair hosts, account review,
+exactly one pairing and repair action, and visible completion. The packaged
+bridge test can run the real agent with its historical 1.5.0 advertisement while
+keeping session inventory synthetic. Keep the captured review and repaired
+screens separate from the real pinned loopback SSH/input evidence. A discovery
+list is not proof that a host session can be opened. Live Tailnet probes use the
+registry's exact stable entrypoint and wait for capabilities before requesting a
+snapshot; the physical phone remains user-operated.
 
 The discovery recovery test runs the packaged bridge and agent against synthetic
 inventory, then opens a real managed terminal through a pinned SSH connection to
