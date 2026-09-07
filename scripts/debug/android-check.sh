@@ -44,23 +44,39 @@ fi
 
 if [[ "$mode" == "full" && "$backend" == "managed" ]]; then
   say "running full Pixel 7 / API 36 managed-device suite"
-  status=0
-  "$gradle" :app:testDebugUnitTest :app:agentFleetPixel7Api36DebugAndroidTest \
-    --daemon --no-build-cache --parallel --console=plain >"$log" 2>&1 || status=$?
-  for entry in \
-    'reports/androidTests/managedDevice:reports' \
-    'outputs/androidTest-results/managedDevice:results' \
-    'outputs/managed_device_android_test_additional_output:device-output'; do
-    source_path="app/build/${entry%%:*}"
-    [[ ! -d "$source_path" ]] || cp -R "$source_path" "$artifacts/${entry##*:}"
-  done
-  if [[ "$status" -ne 0 ]]; then
-    tail -n 35 "$log" >&2
-    fail "managed-device tests failed"
-  fi
-  for raw in "$artifacts"/results/debug/agentFleetPixel7Api36/adb.*.am.instrument.*.txt; do
-    [[ -f "$raw" ]] || fail "managed raw instrumentation report is missing"
-    "$instrumentation_checker" "$raw" || fail "managed instrumentation did not finish successfully"
+  # A managed image's model overlays change the reference viewport. Android
+  # can retain old status-bar insets if they change after earlier activities.
+  # Give goldens a fresh instrumentation process and retain both phases before
+  # Gradle replaces its result directory. Every test still runs exactly once.
+  for phase in goldens functional; do
+    phase_artifacts="$artifacts/$phase"
+    mkdir -p "$phase_artifacts"
+    phase_args=(-Pandroid.testInstrumentationRunnerArguments.class=com.termux.app.AgentFleetGoldenTest)
+    phase_tasks=(:app:agentFleetPixel7Api36DebugAndroidTest)
+    if [[ "$phase" == "functional" ]]; then
+      phase_args=(-Pandroid.testInstrumentationRunnerArguments.notClass=com.termux.app.AgentFleetGoldenTest)
+      phase_tasks=(:app:testDebugUnitTest :app:agentFleetPixel7Api36DebugAndroidTest)
+    fi
+    say "managed $phase phase"
+    status=0
+    "$gradle" "${phase_tasks[@]}" "${phase_args[@]}" \
+      --daemon --no-build-cache --parallel --console=plain >"$phase_artifacts/run.log" 2>&1 || status=$?
+    cat "$phase_artifacts/run.log" >>"$log"
+    for entry in \
+      'reports/androidTests/managedDevice:reports' \
+      'outputs/androidTest-results/managedDevice:results' \
+      'outputs/managed_device_android_test_additional_output:device-output'; do
+      source_path="app/build/${entry%%:*}"
+      [[ ! -d "$source_path" ]] || cp -R "$source_path" "$phase_artifacts/${entry##*:}"
+    done
+    if [[ "$status" -ne 0 ]]; then
+      tail -n 35 "$phase_artifacts/run.log" >&2
+      fail "managed $phase tests failed"
+    fi
+    for raw in "$phase_artifacts"/results/debug/agentFleetPixel7Api36/adb.*.am.instrument.*.txt; do
+      [[ -f "$raw" ]] || fail "managed $phase raw instrumentation report is missing"
+      "$instrumentation_checker" "$raw" || fail "managed $phase instrumentation did not finish successfully"
+    done
   done
   say "PASS · report: $artifacts"
   exit 0

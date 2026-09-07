@@ -104,9 +104,12 @@ even after System UI pixels update. The guarded fixture refreshes display
 configuration with an orientation round trip, restores and verifies the original
 rotation policy, and repeats that refresh when restoring the original overlays.
 Each comparison retains content bounds and the status-bar inset as JSON.
-Managed `full` runs the complete suite in its established order. It retains
-raw results and screenshots on success or failure and requires terminal `OK`
-and instrumentation code `-1`, in addition to Gradle's result.
+Managed `full` runs goldens and the functional suite in separate instrumentation
+processes, preserving all tests exactly once. The golden process also needs the
+display refresh: either isolation or the refresh alone can retain old insets.
+Both phases retain raw results and screenshots and require terminal `OK` and
+instrumentation code `-1`, in addition to Gradle success. Terminal service tests
+wait for first layout/insets dispatch before asserting exact chrome geometry.
 
 The discovery recovery test runs the packaged bridge and agent against synthetic
 inventory, then opens a real managed terminal through a pinned SSH connection to
