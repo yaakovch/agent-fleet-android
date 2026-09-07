@@ -4,7 +4,7 @@ import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.graphics.Color
 import android.os.SystemClock
-import androidx.compose.ui.test.junit4.createComposeRule
+import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.performClick
 import androidx.test.ext.junit.runners.AndroidJUnit4
@@ -33,13 +33,24 @@ import org.junit.Assert.fail
 import org.junit.Assume.assumeTrue
 import org.junit.BeforeClass
 import org.junit.AfterClass
+import org.junit.Before
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
 
 @RunWith(AndroidJUnit4::class)
 class AgentFleetGoldenTest {
-    @get:Rule val compose = createComposeRule()
+    @get:Rule val compose = createAndroidComposeRule<androidx.activity.ComponentActivity>()
+
+    @Before
+    fun prepareReferenceWindow() {
+        compose.runOnUiThread {
+            // NativeSessionScreen owns its status-bar padding. Make the
+            // screenshot host's window contract independent of prior activities.
+            androidx.core.view.WindowCompat.setDecorFitsSystemWindows(compose.activity.window, false)
+            androidx.core.view.ViewCompat.requestApplyInsets(compose.activity.window.decorView)
+        }
+    }
 
     @Test
     fun darkPlanQuestionsMatchGolden() {
@@ -206,6 +217,17 @@ class AgentFleetGoldenTest {
         val source = InstrumentationRegistry.getInstrumentation().uiAutomation.takeScreenshot()
         val actual = Bitmap.createScaledBitmap(source, GOLDEN_WIDTH, GOLDEN_HEIGHT, true)
         val storage = PlatformTestStorageRegistry.getInstance()
+        compose.runOnUiThread {
+            val content = compose.activity.findViewById<android.view.View>(android.R.id.content)
+            val location = IntArray(2).also(content::getLocationOnScreen)
+            val insets = androidx.core.view.ViewCompat.getRootWindowInsets(content)
+            storage.openOutputFile("$name-viewport.json").use {
+                it.write(org.json.JSONObject()
+                    .put("contentY", location[1]).put("contentHeight", content.height)
+                    .put("statusBarInset", insets?.getInsets(androidx.core.view.WindowInsetsCompat.Type.statusBars())?.top)
+                    .put("observedAt", java.time.Instant.now().toString()).toString().toByteArray())
+            }
+        }
         storage.openOutputFile("$name-actual.png").use { actual.compress(Bitmap.CompressFormat.PNG, 100, it) }
         val update = InstrumentationRegistry.getArguments().getString("agentFleetUpdateGoldens") == "true"
         if (update) {
