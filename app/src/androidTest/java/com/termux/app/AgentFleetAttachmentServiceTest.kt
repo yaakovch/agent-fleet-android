@@ -107,6 +107,7 @@ class TermuxAttachmentServiceTest {
         }
 
         ActivityScenario.launch<TermuxActivity>(intent).use { scenario ->
+            awaitTerminalInsets(scenario)
             scenario.onActivity { activity ->
                 assertEquals(android.view.View.VISIBLE, activity.findViewById<android.view.View>(R.id.agent_fleet_terminal_chrome).visibility)
                 assertEquals(android.view.View.VISIBLE, activity.findViewById<android.view.View>(R.id.agent_fleet_composer).visibility)
@@ -116,6 +117,7 @@ class TermuxAttachmentServiceTest {
             }
             scenario.moveToState(androidx.lifecycle.Lifecycle.State.CREATED)
             scenario.moveToState(androidx.lifecycle.Lifecycle.State.RESUMED)
+            awaitTerminalInsets(scenario)
             scenario.onActivity { activity ->
                 assertEquals(android.view.View.VISIBLE, activity.findViewById<android.view.View>(R.id.agent_fleet_terminal_chrome).visibility)
                 assertEquals(android.view.View.VISIBLE, activity.findViewById<android.view.View>(R.id.agent_fleet_composer).visibility)
@@ -152,11 +154,26 @@ class TermuxAttachmentServiceTest {
         ActivityScenario.launch<TermuxActivity>(intent).use { scenario ->
             waitUntil { !failed.terminalSession.isRunning }
             assertEquals(255, failed.terminalSession.exitStatus)
+            awaitTerminalInsets(scenario)
             scenario.onActivity { activity ->
                 assertEquals(android.view.View.VISIBLE, activity.findViewById<android.view.View>(R.id.agent_fleet_terminal_chrome).visibility)
                 assertEquals(android.view.View.VISIBLE, activity.findViewById<android.view.View>(R.id.agent_fleet_composer).visibility)
                 assertTerminalChromeReservesSystemBar(activity)
             }
+        }
+    }
+
+    private fun awaitTerminalInsets(scenario: ActivityScenario<TermuxActivity>) {
+        // RESUMED can precede the first layout/insets dispatch. Wait on the
+        // instrumentation thread so Android can draw before checking geometry.
+        waitUntil {
+            var ready = false
+            scenario.onActivity { activity ->
+                val chrome = activity.findViewById<android.view.View>(R.id.agent_fleet_terminal_chrome)
+                ready = chrome.isLaidOut && (ViewCompat.getRootWindowInsets(chrome)
+                    ?.getInsets(WindowInsetsCompat.Type.statusBars())?.top ?: 0) > 0
+            }
+            ready
         }
     }
 

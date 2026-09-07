@@ -104,11 +104,9 @@ even after System UI pixels update. The guarded fixture refreshes display
 configuration with an orientation round trip, restores and verifies the original
 rotation policy, and repeats that refresh when restoring the original overlays.
 Each comparison retains content bounds and the status-bar inset as JSON.
-Managed `full` runs the golden class and all remaining tests in separate
-instrumentation processes, retaining each phase under the same full-run report.
-This separates viewport normalization from the functional activities. Every test
-runs once, functional tests keep their normal viewport,
-and both raw reports must contain terminal `OK` and instrumentation code `-1`.
+Managed `full` runs the complete suite in its established order. It retains
+raw results and screenshots on success or failure and requires terminal `OK`
+and instrumentation code `-1`, in addition to Gradle's result.
 
 The discovery recovery test runs the packaged bridge and agent against synthetic
 inventory, then opens a real managed terminal through a pinned SSH connection to
