@@ -4,7 +4,9 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawing
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsNotEnabled
@@ -109,6 +111,31 @@ import org.junit.runner.RunWith
 @RunWith(AndroidJUnit4::class)
 class AgentFleetComposeTest {
     @get:Rule val compose = createComposeRule()
+
+    @Test
+    fun configurationFailureOffersRepairWithoutRequiringPairing() {
+        val state = mutableStateOf(com.termux.app.fleet.FleetLoadState.Unavailable(
+            "Saved fleet information needs repair. Your trusted hosts are retained.", "REGISTRY_INVALID"
+        ))
+        val repairs = AtomicInteger()
+        compose.setContent {
+            AgentFleetTheme(darkTheme = true) {
+                Box(Modifier.fillMaxWidth().windowInsetsPadding(WindowInsets.safeDrawing).padding(18.dp)) {
+                    FleetUnavailableCard(state.value, onRefresh = {
+                        repairs.incrementAndGet()
+                        state.value = state.value.copy(recovering = true, reason = "Restoring your saved fleet information…")
+                    }, onPair = { error("Existing fleet recovery must not request pairing") })
+                }
+            }
+        }
+        compose.onNodeWithText("Fleet configuration unavailable").assertIsDisplayed()
+        compose.onNodeWithText("Pair").assertDoesNotExist()
+        compose.onNodeWithText("Repair and retry").performClick()
+        assertEquals(1, repairs.get())
+        compose.onNodeWithText("Repair and retry").assertIsNotEnabled()
+        compose.onNodeWithText("Restoring your saved fleet information…").assertIsDisplayed()
+        discoveryScreenshot("configuration-recovery")
+    }
 
     @Test
     fun cachedHostRecoversThroughThePackagedBridgeAndEnablesItsSession() {

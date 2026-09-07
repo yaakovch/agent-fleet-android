@@ -339,5 +339,5 @@ data class FleetDoctorResult(
 sealed interface FleetLoadState {
     object Loading : FleetLoadState
     data class Ready(val snapshot: FleetSnapshot) : FleetLoadState
-    data class Unavailable(val reason: String) : FleetLoadState
+    data class Unavailable(val reason: String, val code: String = "", val recovering: Boolean = false) : FleetLoadState
 }

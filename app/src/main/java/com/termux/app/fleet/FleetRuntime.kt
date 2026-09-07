@@ -148,9 +148,9 @@ class FleetRuntime(private val context: Context) {
 
     private fun loadSnapshotLegacy(): FleetSnapshot {
         val bridge = executable("wtmux-bridge")
-            ?: throw FleetUnavailableException("Pair or restore wtmux to connect this phone to your fleet.")
+            ?: throw FleetUnavailableException("The built-in fleet runtime needs repair.", "LOCAL_RUNTIME_UNAVAILABLE")
         val python = executable("python3")
-            ?: throw FleetUnavailableException("Python is missing from the restored Termux environment.")
+            ?: throw FleetUnavailableException("Python is missing from the built-in runtime.", "LOCAL_RUNTIME_UNAVAILABLE")
         val titlesEnabled = AutomaticSessionTitleSettings.isEnabled(context)
         val support = supportsBridgeOptions(python, bridge)
         val process = ProcessBuilder(listOf(python.absolutePath, bridge.absolutePath) + snapshotBridgeArguments(
@@ -179,14 +179,17 @@ class FleetRuntime(private val context: Context) {
         if (!process.waitForCompat(20, TimeUnit.SECONDS)) {
             process.destroyForciblyCompat()
             outputReader.join(1_000)
-            throw FleetUnavailableException("Fleet refresh timed out. Check Tailscale and host reachability.")
+            throw FleetUnavailableException("Fleet discovery timed out. Retrying automatically.", "SNAPSHOT_TIMEOUT")
         }
         outputReader.join(1_000)
         val output = outputBuffer.toByteArray()
         if (output.size > MAX_OUTPUT_BYTES) throw FleetUnavailableException("Fleet response exceeded the safety limit.")
         if (process.exitValue() != 0) {
             val error = output.take(MAX_ERROR_BYTES).toByteArray().toString(Charsets.UTF_8).trim()
-            throw FleetUnavailableException(safeError(error.ifBlank { "Fleet bridge exited with status ${process.exitValue()}." }))
+            val code = if (error.lineSequence().any { it.startsWith("REGISTRY_INVALID:") }) {
+                "REGISTRY_INVALID"
+            } else "LOCAL_RUNTIME_UNAVAILABLE"
+            throw FleetUnavailableException(safeError(error.ifBlank { "Fleet bridge exited with status ${process.exitValue()}." }), code)
         }
         return FleetSnapshotParser.parse(output.toString(Charsets.UTF_8))
     }

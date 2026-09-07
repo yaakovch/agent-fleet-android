@@ -1,11 +1,20 @@
 package com.termux.app
 
 import android.content.Context
+import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.junit4.createEmptyComposeRule
+import androidx.compose.ui.test.onAllNodesWithTag
+import androidx.compose.ui.test.onNodeWithTag
+import androidx.compose.ui.test.onNodeWithText
 import androidx.test.core.app.ActivityScenario
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.termux.app.fleet.EmbeddedRuntimeDescriptor
 import com.termux.app.fleet.EmbeddedRuntimeManager
+import com.termux.app.fleet.FleetSnapshotStore
+import com.termux.app.fleet.FleetControlSupervisor
+import com.termux.app.fleet.ClientSupervisorSettings
+import com.termux.app.fleet.AgentFleetDiagnosticJournal
 import com.termux.app.fleet.embeddedRegistryBindingIsCurrent
 import com.termux.app.fleet.enableTermuxExec
 import java.io.File
@@ -16,10 +25,83 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import org.junit.Rule
 import org.junit.runner.RunWith
 
 @RunWith(AndroidJUnit4::class)
 class AgentFleetEmbeddedRegistryTest {
+    @get:Rule val compose = createEmptyComposeRule()
+    @Test
+    fun launcherAutomaticallyRepairsDamagedActivatedRegistryBeforeDiscoveringHosts() {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        check(android.os.Build.HARDWARE in setOf("ranchu", "goldfish") &&
+            "x86_64" in android.os.Build.SUPPORTED_ABIS && android.os.Build.VERSION.SDK_INT == 36)
+        val instrumentation = androidx.test.platform.app.InstrumentationRegistry.getInstrumentation()
+        instrumentation.uiAutomation.grantRuntimePermission(context.packageName, android.Manifest.permission.POST_NOTIFICATIONS)
+        val runtimeRoot = prepareRuntime(context)
+        val manager = EmbeddedRuntimeManager(context)
+        val descriptor = manager.descriptor()
+        val config = File(context.filesDir, "home/.config/wtmux/wtmux.conf")
+        installRegistry(context, descriptor, runtimeRoot, config, preserveCurrent = false)
+        val current = File(runtimeRoot, "registry/current")
+        val manifest = JSONObject(File(current, "registry-manifest.json").readText())
+        val entry = manifest.getJSONArray("records").getJSONObject(0)
+        val record = File(current, entry.getString("path"))
+        val verifiedBytes = record.readBytes()
+        val activatedRelease = current.canonicalPath
+        val sharedControl = ClientSupervisorSettings.usesSharedControl(context)
+        ClientSupervisorSettings.setUsesSharedControl(context, true)
+        FleetControlSupervisor.stop()
+        record.writeText("{}")
+        val startedAt = System.currentTimeMillis()
+        try {
+            ActivityScenario.launch(AgentFleetActivity::class.java).use {
+                val deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(60)
+                while (System.nanoTime() < deadline) {
+                    val snapshot = FleetSnapshotStore.latestSnapshot()
+                    if (record.readBytes().contentEquals(verifiedBytes) && snapshot != null &&
+                        snapshot.receivedAtMillis >= startedAt && snapshot.hosts.isNotEmpty() &&
+                        snapshot.hosts.all { host -> host.errorCode != "REGISTRY_INVALID" }) break
+                    Thread.sleep(100)
+                }
+                assertTrue("The launcher did not restore the verified host record", record.readBytes().contentEquals(verifiedBytes))
+                assertEquals("Recovery must preserve the activated registry", activatedRelease, current.canonicalPath)
+                val snapshot = requireNotNull(FleetSnapshotStore.latestSnapshot())
+                assertTrue("Expected fresh production discovery after recovery", snapshot.receivedAtMillis >= startedAt)
+                assertTrue(snapshot.hosts.any { host -> host.id == "gaming-desktop-ubuntu" })
+                assertTrue(snapshot.hosts.none { host -> host.errorCode == "REGISTRY_INVALID" })
+                assertTrue(AgentFleetDiagnosticJournal(context).events().any { event ->
+                    event.epochMs >= startedAt && event.operation == "fleet.configuration_repair" && event.status == "success"
+                })
+                compose.waitUntil(15_000) {
+                    compose.onAllNodesWithTag("host-status-gaming-desktop-ubuntu").fetchSemanticsNodes().isNotEmpty()
+                }
+                compose.onNodeWithTag("host-status-gaming-desktop-ubuntu").assertIsDisplayed()
+                compose.onNodeWithText("Restoring your saved fleet information…").assertDoesNotExist()
+                compose.waitForIdle()
+                android.os.SystemClock.sleep(250)
+                instrumentation.waitForIdleSync()
+                val output = androidx.test.platform.io.PlatformTestStorageRegistry.getInstance()
+                output.openOutputFile("startup-configuration-recovery.png").use { stream ->
+                    instrumentation.uiAutomation.takeScreenshot().compress(android.graphics.Bitmap.CompressFormat.PNG, 100, stream)
+                }
+                output.openOutputFile("startup-configuration-recovery.json").use { stream ->
+                    stream.write(JSONObject().put("observedAt", java.time.Instant.now().toString())
+                        .put("flow", "production_launcher_configuration_recovery")
+                        .put("package", context.packageName).put("activationPreserved", true)
+                        .put("verifiedRegistrySha256", descriptor.registry.sha256)
+                        .put("freshSnapshotRevision", snapshot.revision)
+                        .put("automaticRepair", true).put("pairingActionRequired", false)
+                        .toString(2).toByteArray(Charsets.UTF_8))
+                }
+            }
+        } finally {
+            record.writeBytes(verifiedBytes)
+            ClientSupervisorSettings.setUsesSharedControl(context, sharedControl)
+            FleetControlSupervisor.stop()
+        }
+    }
+
     internal fun prepareRuntime(context: Context): File {
         ensureBootstrap(context)
         val descriptor = EmbeddedRuntimeManager(context).descriptor()

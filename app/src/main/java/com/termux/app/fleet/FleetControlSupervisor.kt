@@ -84,6 +84,7 @@ object FleetControlSupervisor {
     private var processStarts = 0
     private var reconnectAttempt = 0
     private var nextReconnectAt = 0L
+    private var lastFailure: FleetUnavailableException? = null
     private var connectionStartedAt = 0L
     private var lastReadyLatencyMs: Long? = null
     private var lastRequestDurationMs: Long? = null
@@ -155,15 +156,17 @@ object FleetControlSupervisor {
                 active.writer.newLine()
                 active.writer.flush()
             } catch (_: Exception) {
-                disconnect(active, "bridge_disconnected")
-                throw FleetUnavailableException("Fleet control connection was lost. Try again.", "bridge_disconnected")
+                active.errorReader?.join(200)
+                val code = active.startupFailureCode.ifBlank { "LOCAL_RUNTIME_UNAVAILABLE" }
+                disconnect(active, code)
+                throw failureFor(code)
             }
 
             val reply = requestPending.replies.poll(remaining(deadline), TimeUnit.MILLISECONDS)
             if (reply == null) {
                 applyAction(SupervisorAction("request-timed-out"))
                 disconnect(active, "request_timeout")
-                throw FleetUnavailableException("Fleet action timed out. Try again.", "timeout")
+                throw FleetUnavailableException("Fleet discovery timed out. Retrying automatically.", "SNAPSHOT_TIMEOUT")
             }
             reply.error?.let { throw it }
             val response = requireNotNull(reply.response)
@@ -185,6 +188,7 @@ object FleetControlSupervisor {
             synchronized(lock) {
                 reconnectAttempt = 0
                 nextReconnectAt = 0
+                lastFailure = null
             }
             applyReady()
             return result
@@ -207,6 +211,7 @@ object FleetControlSupervisor {
             channel = null
             nextReconnectAt = 0
             reconnectAttempt = 0
+            lastFailure = null
             if (state.phase != "stopped") state = reduceSupervisorState(state, SupervisorAction("background-stop"))
             failPendingLocked(FleetUnavailableException("Fleet control stopped in the background.", "background"))
         }
@@ -240,7 +245,7 @@ object FleetControlSupervisor {
             channel = null
             val now = System.currentTimeMillis()
             if (now < nextReconnectAt) {
-                throw FleetUnavailableException("Fleet control is reconnecting. Try again.", "reconnect_backoff")
+                throw lastFailure ?: FleetUnavailableException("Fleet control is reconnecting. Try again.", "LOCAL_RUNTIME_UNAVAILABLE")
             }
             state = when (state.phase) {
                 "backoff" -> reduceSupervisorState(state, SupervisorAction("retry-elapsed"))
@@ -366,14 +371,23 @@ object FleetControlSupervisor {
                 "protocol_error" -> reduceSupervisorState(state, SupervisorAction("channel-failed", "control"))
                 else -> reduceSupervisorState(state, SupervisorAction("process-exited"))
             }
-            val stable = TransportContract.stableCode(code) ?: "NETWORK_UNREACHABLE"
-            val recovery = TransportContract.recoveryFor(stable)
-            failPendingLocked(FleetUnavailableException(
-                recovery?.let { "${it.title}. ${it.action}." } ?: "Fleet control connection was lost. Try again.", stable
-            ))
+            val failure = failureFor(code)
+            lastFailure = failure
+            failPendingLocked(failure)
             scheduleReconnectLocked()
         }
         closeChannel(active)
+    }
+
+    private fun failureFor(code: String): FleetUnavailableException {
+        val stable = TransportContract.stableCode(code) ?: when (code) {
+            "request_timeout" -> "SNAPSHOT_TIMEOUT"
+            else -> "LOCAL_RUNTIME_UNAVAILABLE"
+        }
+        val recovery = TransportContract.recoveryFor(stable)
+        return FleetUnavailableException(
+            recovery?.let { "${it.title}. ${it.action}." } ?: "Fleet control is reconnecting. Try again.", stable
+        )
     }
 
     private fun scheduleReconnectLocked() {

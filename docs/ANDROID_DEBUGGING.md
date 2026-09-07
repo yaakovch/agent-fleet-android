@@ -61,6 +61,15 @@ config to the legacy migration root, and proves an idempotent repair back to
 the verified app-owned registry. The JVM metadata test separately covers the
 production arm64 automatic-repair decision.
 
+The launcher recovery regression damages an activated APK registry record, starts
+the production `AgentFleetActivity`, and waits for `FleetSnapshotStore` to repair
+the exact verified record and obtain a fresh bridge snapshot without pairing.
+It retains a screenshot and `startup-configuration-recovery.json`. This covers
+local upgrade/recovery separately from the synthetic inventory and SSH flow below.
+JVM coverage verifies bounded repair retries and foreground VPN/network callbacks,
+including suppression of initial network notifications during a cold handshake.
+VPN availability triggers reconnection; it does not replace host identity checks.
+
 Run JVM tests plus the complete Pixel 7 / API 36 suite. Under WSL, `auto`
 prefers the protected persistent Windows AVD even when `/dev/kvm` is usable:
 

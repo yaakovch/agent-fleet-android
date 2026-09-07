@@ -18,6 +18,9 @@ object FleetSnapshotStore {
     private val main = Handler(Looper.getMainLooper())
     private val executor = Executors.newSingleThreadExecutor()
     private val refreshing = AtomicBoolean(false)
+    private val reconnectRequested = AtomicBoolean(false)
+    private var networkMonitor: FleetNetworkMonitor? = null
+    private var recoveryLoader: FleetRecoveryLoader? = null
     private data class Observer(
         val callback: (FleetLoadState) -> Unit,
         val continuous: Boolean
@@ -62,7 +65,15 @@ object FleetSnapshotStore {
                 main.post(refreshRunnable)
             }
         }
-        lifecycleChange?.let { FleetControlSupervisor.setForeground(context.applicationContext, it) }
+        lifecycleChange?.let { enabled ->
+            FleetControlSupervisor.setForeground(context.applicationContext, enabled)
+            if (enabled) {
+                if (networkMonitor == null) networkMonitor = FleetNetworkMonitor(context.applicationContext, main) {
+                    refresh(reconnect = true)
+                }
+                networkMonitor?.start()
+            }
+        }
         main.post { observer(current) }
     }
 
@@ -75,10 +86,14 @@ object FleetSnapshotStore {
             context = contextReference?.get()
             if (observers.values.none { it.continuous }) main.removeCallbacks(refreshRunnable)
         }
-        if (lifecycleChange == false) context?.let { FleetControlSupervisor.setForeground(it, false) }
+        if (lifecycleChange == false) {
+            networkMonitor?.stop()
+            context?.let { FleetControlSupervisor.setForeground(it, false) }
+        }
     }
 
-    fun refresh(showLoading: Boolean = false) {
+    fun refresh(showLoading: Boolean = false, reconnect: Boolean = false) {
+        if (reconnect) reconnectRequested.set(true)
         val active: Boolean
         val context: Context
         synchronized(this) {
@@ -88,17 +103,41 @@ object FleetSnapshotStore {
         if (!active || !refreshing.compareAndSet(false, true)) return
         if (showLoading && state !is FleetLoadState.Ready) publishState(FleetLoadState.Loading)
         executor.execute {
+            val loader = recoveryLoader ?: FleetRecoveryLoader(
+                fetch = { FleetRuntime(context).loadSnapshot() },
+                repairConfiguration = {
+                    val journal = AgentFleetDiagnosticJournal(context)
+                    try {
+                        EmbeddedRuntimeManager(context).repairFleetConfiguration()
+                        journal.record("fleet.configuration_repair", "success")
+                    } catch (error: Exception) {
+                        journal.record("fleet.configuration_repair", "failure", code = "REGISTRY_INVALID",
+                            message = error.message.orEmpty())
+                        throw error
+                    }
+                },
+                onRepair = {
+                    main.post {
+                        if (latestSnapshot() == null) publishState(FleetLoadState.Unavailable(
+                            "Restoring your saved fleet information…", "REGISTRY_INVALID", recovering = true
+                        ))
+                    }
+                }
+            ).also { recoveryLoader = it }
+            if (reconnectRequested.getAndSet(false)) {
+                loader.retryNow()
+                FleetControlSupervisor.restartForConfigurationChange()
+            }
             val result = try {
-                val fresh = FleetRuntime(context).loadSnapshot()
+                val fresh = loader.load()
                 FleetLoadState.Ready(reconcileFleetSnapshot(latestSnapshot(), fresh))
             } catch (error: Exception) {
                 val previous = latestSnapshot()
-                val code = (error as? FleetUnavailableException)?.code?.let(TransportContract::stableCode)
-                    ?: "NETWORK_UNREACHABLE"
+                val code = fleetFailureCode(error)
                 if (previous != null) {
                     FleetLoadState.Ready(staleFleetSnapshot(previous, code))
                 } else {
-                    FleetLoadState.Unavailable(error.message ?: "Fleet refresh failed.")
+                    FleetLoadState.Unavailable(error.message ?: "Fleet refresh failed.", code)
                 }
             }
             refreshing.set(false)
@@ -107,7 +146,7 @@ object FleetSnapshotStore {
                 synchronized(this) {
                     if (observers.values.any { it.continuous }) {
                         main.removeCallbacks(refreshRunnable)
-                        main.postDelayed(refreshRunnable, REFRESH_INTERVAL_MS)
+                        main.postDelayed(refreshRunnable, if (reconnectRequested.get()) 0 else REFRESH_INTERVAL_MS)
                     }
                 }
             }

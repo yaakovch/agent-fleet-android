@@ -302,7 +302,7 @@ class AgentFleetActivity : ComponentActivity() {
                     diagnosticError = diagnosticError.value,
                     localModelUi = localModelUi.value,
                     onSharedImagesHandled = { pendingSharedImages.value = emptyList() },
-                    onRefresh = ::refreshFleet,
+                    onRefresh = ::reconnectFleet,
                     onOpenSession = ::openFleetSession,
                     onOpenSessionWithImages = ::openFleetSessionWithImages,
                     onCreateSession = ::createFleetSession,
@@ -515,6 +515,10 @@ class AgentFleetActivity : ComponentActivity() {
 
     private fun refreshFleet() {
         FleetSnapshotStore.refresh(showLoading = true)
+    }
+
+    private fun reconnectFleet() {
+        FleetSnapshotStore.refresh(showLoading = true, reconnect = true)
     }
 
     private fun runDiagnostics() {
@@ -1618,7 +1622,7 @@ private fun SessionsScreen(
         when (fleetState) {
             FleetLoadState.Loading -> item { EmptyState("Refreshing fleet…") }
             is FleetLoadState.Unavailable -> item {
-                FleetUnavailableCard(fleetState.reason, onRefresh, onPair)
+                FleetUnavailableCard(fleetState, onRefresh, onPair)
             }
             is FleetLoadState.Ready -> {
                 if (fleetState.snapshot.isStale) {
@@ -1635,7 +1639,11 @@ private fun SessionsScreen(
                     Column(Modifier.fillMaxWidth().testTag("host-failure-${host.id}").padding(vertical = 4.dp)) {
                         Text("${host.name} · ${recovery?.title ?: "Host unavailable"}", fontSize = 12.sp)
                         Text(recovery?.action ?: "Open Diagnostics to review this host", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        if (recovery?.actionKind == "retry") TextButton(onClick = onRefresh) { Text("Retry") }
+                        if (recovery?.actionKind == "retry" || host.errorCode == "REGISTRY_INVALID") {
+                            TextButton(onClick = onRefresh) {
+                                Text(if (host.errorCode == "REGISTRY_INVALID") "Repair and retry" else "Retry")
+                            }
+                        }
                     }
                 }
                 if (filtered.isEmpty()) {
@@ -2339,14 +2347,16 @@ private fun SharedImagesSessionDialog(
 }
 
 @Composable
-private fun FleetUnavailableCard(reason: String, onRefresh: () -> Unit, onPair: () -> Unit) {
+internal fun FleetUnavailableCard(state: FleetLoadState.Unavailable, onRefresh: () -> Unit, onPair: () -> Unit) {
     Card(shape = RoundedCornerShape(20.dp), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)) {
         Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            Text("Fleet is not connected", fontSize = 20.sp, fontWeight = FontWeight.Bold)
-            Text(reason, fontSize = 16.sp, lineHeight = 22.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text(TransportContract.recoveryFor(state.code)?.title ?: "Fleet is not connected", fontSize = 20.sp, fontWeight = FontWeight.Bold)
+            Text(state.reason, fontSize = 16.sp, lineHeight = 22.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
             Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                Button(onClick = onPair, shape = RoundedCornerShape(14.dp)) { Text("Pair", fontSize = 16.sp) }
-                OutlinedButton(onClick = onRefresh, shape = RoundedCornerShape(14.dp)) { Text("Retry", fontSize = 16.sp) }
+                if (state.code.isBlank()) Button(onClick = onPair, shape = RoundedCornerShape(14.dp)) { Text("Pair", fontSize = 16.sp) }
+                OutlinedButton(onClick = onRefresh, enabled = !state.recovering, shape = RoundedCornerShape(14.dp)) {
+                    Text(if (state.code == "REGISTRY_INVALID") "Repair and retry" else "Retry", fontSize = 16.sp)
+                }
             }
         }
     }

@@ -1513,6 +1513,19 @@ class EmbeddedRuntimeManager(private val context: Context) {
         )
     }
 
+    /** Registry repair also works on an already provisioned emulator; no ABI packages are installed. */
+    @Synchronized
+    fun repairFleetConfiguration() {
+        val descriptor = descriptor()
+        val registry = copyVerifiedAsset(
+            "agent-fleet/${descriptor.registry.file}", File(staging, descriptor.registry.file),
+            descriptor.registry.sha256, descriptor.registry.size
+        )
+        installRegistry(registry, descriptor)
+        check(embeddedRegistryReady()) { "Fleet configuration did not pass its health check" }
+        FleetControlSupervisor.restartForConfigurationChange()
+    }
+
     private fun installRegistry(bundle: File, descriptor: EmbeddedRuntimeDescriptor) {
         admittedRuntimeExecutionTarget(
             runtimeLinks()["current"].orEmpty(),
@@ -1531,20 +1544,28 @@ class EmbeddedRuntimeManager(private val context: Context) {
         require(installed.exitCode == 0) { installed.safeError("Embedded Fleet registry installation failed") }
     }
 
-    private fun embeddedRegistryReady(): Boolean = runCatching {
+    fun verifyFleetConfiguration(): String {
         admittedRuntimeExecutionTarget(runtimeLinks()["current"].orEmpty(), ::isInstalledRuntimeVerified)
         val resolver = File(runtimeRoot, "current/lib/fleet_registry.py")
         require(resolver.isFile)
+        // OEMs can expose equivalent /data/data and /data/user/0 aliases.
+        // The installer binds the canonical root, so verify the same spelling.
+        val canonicalRoot = runtimeRoot.canonicalFile
         val result = runProcess(
-            listOf(File(binDir, "python3").absolutePath, resolver.absolutePath, "--active", runtimeRoot.absolutePath),
+            listOf(File(binDir, "python3").absolutePath, resolver.absolutePath, "--active", canonicalRoot.absolutePath),
             timeoutSeconds = 15
         )
-        require(result.exitCode == 0)
+        require(result.exitCode == 0) { result.safeError("Saved fleet configuration could not be verified") }
         val machines = result.output.trim()
-        require(machines.startsWith(runtimeRoot.absolutePath + "/") && !machines.contains('\n'))
-        require(config.isFile && config.length() in 1..1024L * 1024L)
-        embeddedRegistryBindingIsCurrent(config.readText(Charsets.UTF_8), machines)
-    }.getOrDefault(false)
+        require(machines.startsWith(canonicalRoot.absolutePath + "/") && !machines.contains('\n'))
+        require(config.isFile && config.length() in 1..1024L * 1024L) { "The saved fleet binding is missing" }
+        require(embeddedRegistryBindingIsCurrent(config.readText(Charsets.UTF_8), machines)) {
+            "The terminal binding does not match the verified fleet configuration"
+        }
+        return "Saved host identities and fleet binding are verified"
+    }
+
+    private fun embeddedRegistryReady(): Boolean = runCatching { verifyFleetConfiguration() }.isSuccess
 
     private fun runSetupAndDoctor() {
         admittedRuntimeExecutionTarget(

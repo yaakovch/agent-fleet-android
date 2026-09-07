@@ -210,6 +210,9 @@ class AgentFleetDiagnosticsRunner(
             )
         }
         checks += check("downloads", "Downloads storage") { verifyAgentFleetDownloads(context) }
+        checks += check("configuration", "Fleet configuration") {
+            runtime.verifyFleetConfiguration() to "Host discovery uses this verified local configuration over Tailscale."
+        }
         checks += check("policy", "Pairing and updates") {
             val policy = policyStore.load() ?: throw DiagnosticAttention("No paired client policy is installed")
             "Policy ${policy.policyRevision} is ready" to "Signed app and runtime update sources are configured."
