@@ -31,6 +31,8 @@ import java.io.FileNotFoundException
 import kotlin.math.abs
 import org.junit.Assert.fail
 import org.junit.Assume.assumeTrue
+import org.junit.BeforeClass
+import org.junit.AfterClass
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -252,5 +254,43 @@ class AgentFleetGoldenTest {
         private const val GOLDEN_HEIGHT = 852
         private const val CHANNEL_THRESHOLD = 8
         private const val MAX_CHANGED_RATIO = 0.005
+        private val changedViewportOverlays = mutableListOf<String>()
+
+        private fun deviceShell(command: String): String {
+            val fd = InstrumentationRegistry.getInstrumentation().uiAutomation.executeShellCommand(command)
+            return android.os.ParcelFileDescriptor.AutoCloseInputStream(fd).bufferedReader().use { it.readText() }
+        }
+
+        private fun isEnabled(overlays: String, name: String): Boolean =
+            overlays.lineSequence().any { it.trim() == "[x] $name" }
+
+        @JvmStatic @BeforeClass
+        fun prepareReferenceViewport() {
+            check(android.os.Build.HARDWARE in setOf("ranchu", "goldfish") &&
+                "x86_64" in android.os.Build.SUPPORTED_ABIS && android.os.Build.VERSION.SDK_INT == 36)
+            check(deviceShell("getprop ro.kernel.qemu").trim() == "1")
+            // The references use a flat display. Managed Pixel 7 images enable
+            // model overlays that change the cutout and status-bar height.
+            // Keep the reference pixels and threshold; restore the device after
+            // this class so every functional test uses its normal viewport.
+            val overlays = deviceShell("cmd overlay list --user current")
+            for (name in listOf("com.android.internal.emulation.pixel_7", "com.android.systemui.emulation.pixel_7")) {
+                if (isEnabled(overlays, name)) {
+                    changedViewportOverlays.add(name)
+                    deviceShell("cmd overlay disable --user current $name")
+                    check(!isEnabled(deviceShell("cmd overlay list --user current"), name))
+                }
+            }
+            if (changedViewportOverlays.isNotEmpty()) SystemClock.sleep(500)
+        }
+
+        @JvmStatic @AfterClass
+        fun restoreDeviceViewport() {
+            for (name in changedViewportOverlays.asReversed()) {
+                deviceShell("cmd overlay enable --user current $name")
+                check(isEnabled(deviceShell("cmd overlay list --user current"), name))
+            }
+            changedViewportOverlays.clear()
+        }
     }
 }

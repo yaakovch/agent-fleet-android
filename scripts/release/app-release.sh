@@ -13,6 +13,12 @@ while [[ $# -gt 0 ]]; do
 done
 
 repo="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+emulator_backend="${AGENT_FLEET_EMULATOR_BACKEND:-windows}"
+case "$emulator_backend" in
+  auto) emulator_backend=windows ;;
+  windows|managed) ;;
+  *) echo "release emulator backend must be windows or managed" >&2; exit 2 ;;
+esac
 source "$repo/scripts/release/release-common.sh"
 agent_fleet_release_read_version "$repo"
 version_name="$AGENT_FLEET_RELEASE_VERSION_NAME"
@@ -39,9 +45,9 @@ write_report() {
     python3 "$repo/scripts/release/publication_receipt.py" redact \
       "$publication_transaction" "$publication_status" || true
   fi
-  python3 - "$report_dir/release-report.json" "$stages" "$outcome" "$version_name" "$version_code" "$git_commit" "$hold" "$release_dir" <<'PY'
+  python3 - "$report_dir/release-report.json" "$stages" "$outcome" "$version_name" "$version_code" "$git_commit" "$hold" "$release_dir" "$emulator_backend" <<'PY'
 import hashlib, json, pathlib, sys
-output, stages_path, outcome, version_name, version_code, commit, hold, release_dir = sys.argv[1:]
+output, stages_path, outcome, version_name, version_code, commit, hold, release_dir, emulator_backend = sys.argv[1:]
 stages = []
 for line in pathlib.Path(stages_path).read_text(encoding="utf-8").splitlines():
     name, seconds, status = line.split("\t")
@@ -63,7 +69,7 @@ report = {
     "versionName": version_name,
     "versionCode": int(version_code),
     "gitCommit": commit,
-    "emulatorBackend": "windows",
+    "emulatorBackend": emulator_backend,
     "publicationHeld": hold == "1",
     "outcome": outcome,
     "stages": stages,
@@ -139,7 +145,7 @@ if [[ "$preflight_only" == "1" ]]; then
 fi
 
 run_stage full-api36 env -u AGENT_FLEET_STORE_PASSWORD -u AGENT_FLEET_KEY_PASSWORD \
-  AGENT_FLEET_EMULATOR_BACKEND=windows \
+  AGENT_FLEET_EMULATOR_BACKEND="$emulator_backend" \
   bash "$repo/scripts/debug/android-check.sh" full
 run_stage release-lint env -u AGENT_FLEET_STORE_PASSWORD -u AGENT_FLEET_KEY_PASSWORD \
   "$repo/scripts/debug/android-gradle.sh" :app:lintRelease \

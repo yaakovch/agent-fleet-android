@@ -95,7 +95,7 @@ class EmbeddedRuntimeRegistryTest(unittest.TestCase):
                     "transport": "tailscale",
                 }
             )
-        with self.assertRaisesRegex(ValueError, "no verified transport"):
+        with self.assertRaisesRegex(ValueError, "no verified OpenSSH transport"):
             runtime.validate_connectable_registry_record(
                 {
                     "schemaVersion": 2,
@@ -133,7 +133,7 @@ class EmbeddedRuntimeRegistryTest(unittest.TestCase):
                 }
             )["id"],
         )
-        with self.assertRaisesRegex(ValueError, "no verified transport"):
+        with self.assertRaisesRegex(ValueError, "no verified OpenSSH transport"):
             runtime.validate_connectable_registry_record(
                 {
                     "schemaVersion": 2,
@@ -163,6 +163,13 @@ class EmbeddedRuntimeRegistryTest(unittest.TestCase):
                 }
             )["id"],
         )
+        with self.assertRaisesRegex(ValueError, "OpenSSH transport for Android"):
+            runtime.validate_connectable_registry_record({
+                "schemaVersion": 2, "id": "tailscale-only", "roles": ["host"], "transport": "tailscale",
+                "endpoints": [{"network": "tailnet", "sshEngine": "tailscale-cli",
+                               "identityState": "verified", "tailscaleNodeId": "node-example",
+                               "sshHostKeySha256": ""}],
+            })
 
 
 class RepositoryPolicyTest(unittest.TestCase):

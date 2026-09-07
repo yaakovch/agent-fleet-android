@@ -1,9 +1,11 @@
 #!/usr/bin/env python3
-"""Bounded HTTPS reads with an explicit certificate-checked loopback fallback."""
+"""Bounded HTTPS reads with an explicit certificate-checked local fallback."""
 
 from __future__ import annotations
 
 from contextlib import contextmanager
+import ipaddress
+import os
 import subprocess
 import sys
 import time
@@ -95,8 +97,27 @@ def loopback_curl_command(url: str, timeout: int, maximum: int | None = None) ->
         "--show-error",
         "--connect-timeout", str(min(timeout, 20)),
         "--max-time", str(timeout),
-        "--resolve", f"{host}:443:127.0.0.1",
     ]
+    target = os.environ.get("AGENT_FLEET_RELEASE_HTTPS_CONNECT_TO", "")
+    if target:
+        address, separator, port_text = target.rpartition(":")
+        try:
+            ip = ipaddress.IPv4Address(address)
+            port = int(port_text)
+            private_networks = ("10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16")
+            if (
+                not separator or str(ip) != address or str(port) != port_text or
+                not 1 <= port <= 65535 or
+                not (ip.is_loopback or any(ip in ipaddress.ip_network(net) for net in private_networks))
+            ):
+                raise ValueError
+        except ValueError as error:
+            raise ValueError("local HTTPS target must be a canonical private IPv4 address and port") from error
+        # Change only the socket destination. The public HTTPS URL, TLS SNI,
+        # certificate verification and HTTP Host remain the approved origin.
+        command.extend(("--connect-to", f"{host}:443:{target}"))
+    else:
+        command.extend(("--resolve", f"{host}:443:127.0.0.1"))
     if maximum is not None:
         command.extend(("--max-filesize", str(maximum)))
     command.append(url)
@@ -123,7 +144,7 @@ def fetch(url: str, timeout: int, loopback_fallback: bool = False, maximum: int 
         command = loopback_curl_command(url, timeout, maximum)
         print(
             "[release] direct HTTPS unavailable; retrying the local publisher through "
-            "loopback with normal certificate validation",
+            "its configured TLS route with normal certificate validation",
             file=sys.stderr,
         )
         process = subprocess.Popen(command, stdout=subprocess.PIPE)

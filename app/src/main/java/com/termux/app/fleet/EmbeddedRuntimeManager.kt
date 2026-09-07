@@ -96,10 +96,25 @@ internal fun shouldInstallEmbeddedBaseline(status: EmbeddedRuntimeStatus, explic
 
 internal fun embeddedRegistryBindingIsCurrent(config: String, registryMachines: String): Boolean {
     val lines = config.lineSequence().toList()
+    val escaped = registryMachines.replace("'", "'\"'\"'")
+    val declaration = "WTMUX_SHARED_REGISTRY_DIR='$escaped'"
+    val loader = "wtmux_load_shared_registry '$escaped'"
+    // Current projections combine the verified binding and loader. They need
+    // not have the old runtime-only marker or the APK's bootstrap identity.
+    for (label in listOf("wtmux-fleet configuration", "wtmux-runtime registry")) {
+        val begin = "# BEGIN $label"
+        val end = "# END $label"
+        val start = lines.indexOf(begin)
+        if (start >= 0 && lines.indexOf(end) == start + 3) {
+            return lines.count { it == begin } == 1 && lines.count { it == end } == 1 &&
+                lines[start + 1] == declaration && lines[start + 2] == loader &&
+                lines.count { it.startsWith("WTMUX_SHARED_REGISTRY_DIR=") } == 1 &&
+                lines.count { it.startsWith("wtmux_load_shared_registry ") } == 1
+        }
+    }
     val runtimeStart = lines.indexOf("# BEGIN wtmux-runtime registry")
     val runtimeEnd = lines.indexOf("# END wtmux-runtime registry")
     val managedStart = lines.indexOf("# BEGIN wtmux-managed shared-registry")
-    val escaped = registryMachines.replace("'", "'\"'\"'")
     return runtimeStart >= 0 && runtimeEnd == runtimeStart + 2 &&
         lines.count { it == "# BEGIN wtmux-runtime registry" } == 1 &&
         lines.count { it == "# END wtmux-runtime registry" } == 1 &&
@@ -1127,7 +1142,7 @@ class EmbeddedRuntimeManager(private val context: Context) {
         val usable = File(binDir, "bash").canExecute() && File(binDir, "python3").canExecute() &&
             (File(binDir, "wtmux").canExecute() || File(runtimeRoot, "current/scripts/wtmux").canExecute())
         val baselineReady = links["baseline"] == descriptor.baselineVersion
-        val registryReady = embeddedRegistryReady(descriptor)
+        val registryReady = embeddedRegistryReady()
         val repairNeeded = !supported || outdated.isNotEmpty() || !usable || !baselineReady || !registryReady
         val detail = when {
             !supported -> "Offline fleet runtime is available for arm64 devices only"
@@ -1509,29 +1524,26 @@ class EmbeddedRuntimeManager(private val context: Context) {
             listOf(
                 File(binDir, "python3").absolutePath, runtime.absolutePath, "install-registry",
                 "--bundle", bundle.absolutePath, "--sha256", descriptor.registry.sha256,
-                "--root", runtimeRoot.absolutePath, "--config", config.absolutePath
+                "--root", runtimeRoot.absolutePath, "--config", config.absolutePath, "--preserve-current"
             ),
             timeoutSeconds = 30
         )
         require(installed.exitCode == 0) { installed.safeError("Embedded Fleet registry installation failed") }
     }
 
-    private fun embeddedRegistryReady(descriptor: EmbeddedRuntimeDescriptor): Boolean = runCatching {
-        val releaseId = descriptor.registry.sha256.take(16)
-        val registryRoot = File(runtimeRoot, "registry")
-        val current = File(registryRoot, "current")
-        require(Os.readlink(current.absolutePath) == "releases/$releaseId")
-        val release = File(registryRoot, "releases/$releaseId")
-        require(
-            release.isDirectory &&
-                File(release, "registry-manifest.json").isFile &&
-                File(release, "machines").isDirectory
+    private fun embeddedRegistryReady(): Boolean = runCatching {
+        admittedRuntimeExecutionTarget(runtimeLinks()["current"].orEmpty(), ::isInstalledRuntimeVerified)
+        val resolver = File(runtimeRoot, "current/lib/fleet_registry.py")
+        require(resolver.isFile)
+        val result = runProcess(
+            listOf(File(binDir, "python3").absolutePath, resolver.absolutePath, "--active", runtimeRoot.absolutePath),
+            timeoutSeconds = 15
         )
+        require(result.exitCode == 0)
+        val machines = result.output.trim()
+        require(machines.startsWith(runtimeRoot.absolutePath + "/") && !machines.contains('\n'))
         require(config.isFile && config.length() in 1..1024L * 1024L)
-        embeddedRegistryBindingIsCurrent(
-            config.readText(Charsets.UTF_8),
-            File(registryRoot, "current/machines").absolutePath
-        )
+        embeddedRegistryBindingIsCurrent(config.readText(Charsets.UTF_8), machines)
     }.getOrDefault(false)
 
     private fun runSetupAndDoctor() {

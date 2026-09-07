@@ -38,7 +38,7 @@ object FleetSnapshotParser {
                     "wtmuxVersion", "agentVersion", "protocolVersion", "timeZone"
                 ))
                 host.requiredString("transport", 16)
-                host.requiredString("errorCode", 64, allowEmpty = true)
+                val errorCode = host.requiredString("errorCode", 64, allowEmpty = true)
                 val wtmuxVersion = host.requiredString("wtmuxVersion", 64, allowEmpty = true)
                 host.requiredString("agentVersion", 64, allowEmpty = true)
                 host.requiredInt("protocolVersion", 1, 1)
@@ -50,7 +50,8 @@ object FleetSnapshotParser {
                     platform = host.requiredString("platform", 32),
                     lastSeenAt = host.optionalString("lastSeenAt", 40),
                     capabilities = host.requiredArray("capabilities", 32).mapStrings(64).toSet(),
-                    wtmuxVersion = wtmuxVersion
+                    wtmuxVersion = wtmuxVersion,
+                    errorCode = errorCode
                 )
             },
             sessions = root.requiredArray("sessions", 500).mapObjects { session ->

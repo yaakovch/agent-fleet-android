@@ -74,6 +74,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.platform.LocalContext
@@ -159,6 +160,7 @@ import com.termux.app.fleet.WorkspaceReducer
 import com.termux.app.fleet.WorkspaceTerminalBroker
 import com.termux.app.fleet.isDesktopPresentation
 import com.termux.app.fleet.workspacePanes
+import com.termux.app.fleet.TransportContract
 import java.io.File
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.ExecutorService
@@ -1573,7 +1575,34 @@ private fun SessionsScreen(
                         fontSize = 16.sp
                     )
                 }
-                Button(onClick = onNewSession, enabled = snapshot != null, shape = RoundedCornerShape(14.dp)) { Text("New", fontSize = 16.sp) }
+                Button(onClick = onNewSession, enabled = snapshot?.let { !it.isStale && it.hosts.any { host -> host.status in setOf("online", "healthy") } } == true, shape = RoundedCornerShape(14.dp)) { Text("New", fontSize = 16.sp) }
+            }
+        }
+        item {
+            Row(
+                modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
+                snapshot?.hosts?.forEach { host ->
+                    val dotColor = when (host.status) {
+                        "online", "healthy" -> Color(0xFF4CAF50)
+                        "connecting" -> Color(0xFFFF9800)
+                        else -> Color(0xFF757575)
+                    }
+                    val statusLabel = when (host.status) {
+                        "online", "healthy" -> "online"
+                        "connecting" -> "connecting\u2026"
+                        else -> "offline"
+                    }
+                    Surface(modifier = Modifier.testTag("host-status-${host.id}"), shape = RoundedCornerShape(10.dp), color = MaterialTheme.colorScheme.surfaceVariant) {
+                        Row(modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                            Box(modifier = Modifier.size(7.dp).clip(CircleShape).background(dotColor))
+                            Text(host.name, fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Text("\u00b7 $statusLabel", fontSize = 10.sp, color = dotColor)
+                        }
+                    }
+                }
             }
         }
         item {
@@ -1592,8 +1621,29 @@ private fun SessionsScreen(
                 FleetUnavailableCard(fleetState.reason, onRefresh, onPair)
             }
             is FleetLoadState.Ready -> {
+                if (fleetState.snapshot.isStale) {
+                    item {
+                        Text(
+                            "Showing cached sessions · Last refresh " + android.text.format.DateUtils.getRelativeTimeSpanString(fleetState.snapshot.receivedAtMillis),
+                            modifier = Modifier.testTag("fleet-cache-status").padding(vertical = 6.dp),
+                            color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 12.sp
+                        )
+                    }
+                }
+                items(fleetState.snapshot.hosts.filter { it.errorCode.isNotBlank() }, key = { "failure-${it.id}" }) { host ->
+                    val recovery = TransportContract.recoveryFor(host.errorCode)
+                    Column(Modifier.fillMaxWidth().testTag("host-failure-${host.id}").padding(vertical = 4.dp)) {
+                        Text("${host.name} · ${recovery?.title ?: "Host unavailable"}", fontSize = 12.sp)
+                        Text(recovery?.action ?: "Open Diagnostics to review this host", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        if (recovery?.actionKind == "retry") TextButton(onClick = onRefresh) { Text("Retry") }
+                    }
+                }
                 if (filtered.isEmpty()) {
-                    item { EmptyState(if (query.isBlank()) "No managed sessions are open." else "No sessions match “$query”.") }
+                    item { EmptyState(when {
+                        query.isNotBlank() -> "No sessions match \u201c$query\u201d."
+                        fleetState.snapshot.hosts.any { it.status !in setOf("online", "healthy") } -> "Session discovery is incomplete. Waiting for host contact."
+                        else -> "No managed sessions are open."
+                    }) }
                 } else {
                     items(filtered, key = { it.id }) { session ->
                         val available = snapshot?.let { isFleetSessionAvailable(it, session) } == true

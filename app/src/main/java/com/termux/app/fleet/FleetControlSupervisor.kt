@@ -55,7 +55,9 @@ object FleetControlSupervisor {
         val reader: InputStream,
         val writer: BufferedWriter,
         val closing: AtomicBoolean = AtomicBoolean(false),
-        @Volatile var lastFrameAt: Long = System.currentTimeMillis()
+        @Volatile var lastFrameAt: Long = System.currentTimeMillis(),
+        @Volatile var startupFailureCode: String = "",
+        @Volatile var errorReader: Thread? = null
     )
 
     private data class ControlReply(
@@ -277,25 +279,28 @@ object FleetControlSupervisor {
     }
 
     private fun startReaders(active: ControlChannel) {
+        active.errorReader = thread(name = "fleet-control-errors", isDaemon = true) {
+            runCatching {
+                BoundedUtf8LineReader(active.process.errorStream, 512).use { errors ->
+                    while (!active.closing.get()) {
+                        val line = errors.readLine() ?: break
+                        if (line.startsWith("REGISTRY_INVALID:")) active.startupFailureCode = "REGISTRY_INVALID"
+                    }
+                }
+            }
+        }
         thread(name = "fleet-control-reader", isDaemon = true) {
             try {
                 while (!active.closing.get()) {
                     val line = readBoundedLine(active.reader) ?: break
                     acceptFrame(active, JSONObject(line))
                 }
-                if (!active.closing.get()) disconnect(active, "process_exit")
+                // EOF can race the bounded stderr classification; retain only
+                // an allowlisted code, never the raw diagnostic text.
+                active.errorReader?.join(200)
+                if (!active.closing.get()) disconnect(active, active.startupFailureCode.ifBlank { "process_exit" })
             } catch (_: Exception) {
                 if (!active.closing.get()) disconnect(active, "protocol_error")
-            }
-        }
-        thread(name = "fleet-control-errors", isDaemon = true) {
-            runCatching {
-                active.process.errorStream.use { errors ->
-                    val buffer = ByteArray(4 * 1024)
-                    while (!active.closing.get() && errors.read(buffer) >= 0) {
-                        // Drain without logging or retaining bridge output.
-                    }
-                }
             }
         }
     }
@@ -361,7 +366,11 @@ object FleetControlSupervisor {
                 "protocol_error" -> reduceSupervisorState(state, SupervisorAction("channel-failed", "control"))
                 else -> reduceSupervisorState(state, SupervisorAction("process-exited"))
             }
-            failPendingLocked(FleetUnavailableException("Fleet control connection was lost. Try again.", "bridge_disconnected"))
+            val stable = TransportContract.stableCode(code) ?: "NETWORK_UNREACHABLE"
+            val recovery = TransportContract.recoveryFor(stable)
+            failPendingLocked(FleetUnavailableException(
+                recovery?.let { "${it.title}. ${it.action}." } ?: "Fleet control connection was lost. Try again.", stable
+            ))
             scheduleReconnectLocked()
         }
         closeChannel(active)

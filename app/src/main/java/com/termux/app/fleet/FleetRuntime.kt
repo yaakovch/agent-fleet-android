@@ -176,7 +176,7 @@ class FleetRuntime(private val context: Context) {
             }
         }
 
-        if (!process.waitForCompat(12, TimeUnit.SECONDS)) {
+        if (!process.waitForCompat(20, TimeUnit.SECONDS)) {
             process.destroyForciblyCompat()
             outputReader.join(1_000)
             throw FleetUnavailableException("Fleet refresh timed out. Check Tailscale and host reachability.")

@@ -930,6 +930,7 @@ agent_fleet_release_find_sdk() {{ :; }}
             repo / "scripts/debug/android-check.sh",
             "#!/usr/bin/env bash\n"
             "[[ -z ${AGENT_FLEET_STORE_PASSWORD:-}${AGENT_FLEET_KEY_PASSWORD:-} ]] || exit 97\n"
+            "[[ ${AGENT_FLEET_EMULATOR_BACKEND:-} == ${TEST_EXPECTED_BACKEND:-windows} ]] || exit 98\n"
             "printf 'full-api36\\n' >>\"$TEST_LOG\"\n",
         )
         write_executable(
@@ -1022,6 +1023,7 @@ agent_fleet_release_find_sdk() {{ :; }}
                 "XDG_STATE_HOME": str(pathlib.Path(temporary.name) / "state"),
                 "AGENT_FLEET_STORE_PASSWORD": "must-not-leak",
                 "AGENT_FLEET_KEY_PASSWORD": "must-not-leak",
+                "AGENT_FLEET_EMULATOR_BACKEND": "windows",
                 **environment,
             },
         )
@@ -1037,6 +1039,18 @@ agent_fleet_release_find_sdk() {{ :; }}
             self.assertEqual(0o700, stat.S_IMODE(reservations[0].parent.stat().st_mode))
             self.assertEqual(0o600, stat.S_IMODE(reservations[0].stat().st_mode))
         return temporary, repo, publisher, latest, log, reports[0], receipt, result
+
+    def test_explicit_managed_backend_runs_the_gate_and_is_recorded(self):
+        temporary, repo, publisher, latest, log, stages, receipt, result = self.run_fixture(
+            AGENT_FLEET_EMULATOR_BACKEND="managed", TEST_EXPECTED_BACKEND="managed"
+        )
+        try:
+            self.assertEqual(0, result.returncode, result.stdout + result.stderr)
+            report = json.loads((stages.parent / "release-report.json").read_text(encoding="utf-8"))
+            self.assertEqual("managed", report["emulatorBackend"])
+            self.assertIn("full-api36", log.read_text(encoding="utf-8"))
+        finally:
+            temporary.cleanup()
 
     def test_preflight_failure_stops_before_sequence_admission(self):
         temporary, repo, publisher, latest, log, stages, receipt, result = self.run_fixture(
@@ -1251,12 +1265,31 @@ class ReleaseSequenceAndOrderingTest(unittest.TestCase):
         self.assertIn('loopback_args=(--loopback-fallback)', pipeline)
         self.assertIn('[[ "$AGENT_FLEET_PUBLISH_PRIMARY" == local:* ]]', pipeline)
         self.assertIn('"--resolve", f"{host}:443:127.0.0.1"', helper)
-        command = load_private_https_module().loopback_curl_command(
-            "https://release.example/manifest.json", 20
-        )
+        with mock.patch.dict(os.environ, {"AGENT_FLEET_RELEASE_HTTPS_CONNECT_TO": ""}):
+            command = load_private_https_module().loopback_curl_command(
+                "https://release.example/manifest.json", 20
+            )
         self.assertEqual("0", command[command.index("--max-redirs") + 1])
         self.assertNotIn("--insecure", helper)
         self.assertNotIn("-k", helper)
+
+    def test_forwarded_local_https_preserves_public_url_and_tls_identity(self):
+        module = load_private_https_module()
+        with mock.patch.dict(os.environ, {"AGENT_FLEET_RELEASE_HTTPS_CONNECT_TO": "192.168.31.207:9444"}):
+            command = module.loopback_curl_command("https://release.example/fleet/latest/manifest.json", 20)
+        self.assertEqual("release.example:443:192.168.31.207:9444", command[command.index("--connect-to") + 1])
+        self.assertEqual("https://release.example/fleet/latest/manifest.json", command[-1])
+        self.assertEqual("=https", command[command.index("--proto") + 1])
+        self.assertEqual("0", command[command.index("--max-redirs") + 1])
+        self.assertNotIn("--insecure", command)
+        self.assertNotIn("--resolve", command)
+
+    def test_local_https_route_rejects_public_or_noncanonical_targets(self):
+        module = load_private_https_module()
+        for target in ["8.8.8.8:443", "example.com:443", "0.0.0.0:443", "127.0.0.1:0", "127.0.0.1:65536", "127.0.0.1:0443", "127.0.0.1:443 --insecure", "127.0.0.1:443\n"]:
+            with self.subTest(target=target), mock.patch.dict(os.environ, {"AGENT_FLEET_RELEASE_HTTPS_CONNECT_TO": target}):
+                with self.assertRaisesRegex(ValueError, "canonical private IPv4"):
+                    module.loopback_curl_command("https://release.example/manifest.json", 20)
 
     def test_build_preflight_precedes_runtime_verification_and_gradle(self):
         text = (ROOT / "scripts/release/build-signed-release.sh").read_text(encoding="utf-8")

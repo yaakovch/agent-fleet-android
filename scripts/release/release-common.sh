@@ -32,7 +32,7 @@ agent_fleet_release_load_config() {
     value="${line#*=}"
     [[ "$key" != "$line" ]] || agent_fleet_release_fail "invalid release config line" || return
     case "$key" in
-      AGENT_FLEET_RELEASE_BASE_URL|AGENT_FLEET_PUBLISH_PRIMARY|AGENT_FLEET_PUBLISH_FALLBACK|AGENT_FLEET_RUNTIME_MANIFEST_URL)
+      AGENT_FLEET_RELEASE_BASE_URL|AGENT_FLEET_PUBLISH_PRIMARY|AGENT_FLEET_PUBLISH_FALLBACK|AGENT_FLEET_RUNTIME_MANIFEST_URL|AGENT_FLEET_RELEASE_HTTPS_CONNECT_TO)
         if [[ -z "${!key:-}" ]]; then
           printf -v "$key" '%s' "$value"
           export "$key"

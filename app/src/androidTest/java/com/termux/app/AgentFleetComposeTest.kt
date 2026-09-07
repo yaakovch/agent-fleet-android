@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsNotEnabled
+import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.assertIsNotDisplayed
 import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.assertContentDescriptionEquals
@@ -108,6 +109,60 @@ import org.junit.runner.RunWith
 @RunWith(AndroidJUnit4::class)
 class AgentFleetComposeTest {
     @get:Rule val compose = createComposeRule()
+
+    @Test
+    fun cachedHostRecoversThroughThePackagedBridgeAndEnablesItsSession() {
+        LocalFleetDiscoveryProbe(ApplicationProvider.getApplicationContext()).use { probe ->
+            val live = probe.snapshot()
+            assertEquals(1, live.sessions.size)
+            val state = mutableStateOf(com.termux.app.fleet.staleFleetSnapshot(live, "NETWORK_UNREACHABLE"))
+            val opens = AtomicInteger()
+            var connectionEvidence = ""
+            compose.setContent { FixtureApp(fleetSnapshot = state.value,
+                onRefresh = { state.value = probe.snapshot() },
+                onOpenSession = {
+                    connectionEvidence = probe.confirmConnection(it)
+                    probe.openTerminal(it)
+                    opens.incrementAndGet()
+                }) }
+            val session = live.sessions.single()
+            compose.onNodeWithTag("fleet-cache-status").assertIsDisplayed()
+            compose.onNodeWithTag("host-failure-emulator-host").assertIsDisplayed()
+            compose.onNodeWithTag("session-open-${session.id}").assertIsNotEnabled()
+            discoveryScreenshot("discovery-cached")
+            compose.onNodeWithText("Retry").performClick()
+            compose.onNodeWithTag("host-status-emulator-host").assertIsDisplayed()
+            compose.onNodeWithTag("session-${session.id}").assertIsDisplayed()
+            discoveryScreenshot("discovery-recovered")
+            compose.onNodeWithTag("session-open-${session.id}").assertIsEnabled().performClick()
+            assertEquals(1, opens.get())
+            connectionEvidence = probe.confirmUsableTerminal(connectionEvidence)
+            discoveryScreenshot("discovery-terminal", waitForCompose = false)
+            androidx.test.platform.io.PlatformTestStorageRegistry.getInstance().openOutputFile("discovery-connection.json").use {
+                it.write(connectionEvidence.toByteArray(Charsets.UTF_8))
+            }
+        }
+    }
+
+    private fun discoveryScreenshot(name: String, waitForCompose: Boolean = true) {
+        if (waitForCompose) compose.waitForIdle()
+        else {
+            val instrumentation = androidx.test.platform.app.InstrumentationRegistry.getInstrumentation()
+            instrumentation.waitForIdleSync()
+            // Terminal output is asserted in the emulator buffer first; allow
+            // its scheduled draw to reach the captured display frame as well.
+            android.os.SystemClock.sleep(250)
+            instrumentation.waitForIdleSync()
+        }
+        val bitmap = androidx.test.platform.app.InstrumentationRegistry.getInstrumentation().uiAutomation.takeScreenshot()
+        androidx.test.platform.io.PlatformTestStorageRegistry.getInstance().openOutputFile("$name.png").use {
+            bitmap.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, it)
+        }
+        androidx.test.platform.io.PlatformTestStorageRegistry.getInstance().openOutputFile("$name-observation.json").use {
+            it.write(org.json.JSONObject().put("observedAt", java.time.Instant.now().toString())
+                .put("screen", name).toString().toByteArray(Charsets.UTF_8))
+        }
+    }
 
     @Test
     fun modelAndEffortPickerIsSharedByNativeAndTerminalChrome() {
@@ -1310,6 +1365,7 @@ class AgentFleetComposeTest {
     @androidx.compose.runtime.Composable
     private fun FixtureApp(
         fleetSnapshot: FleetSnapshot = snapshot,
+        onRefresh: () -> Unit = {},
         diagnosticsUi: DiagnosticsUiState = DiagnosticsUiState(),
         onListRepository: (FleetSession, String, Boolean, String, (Result<FleetRepositoryPage>) -> Unit) -> Unit = { _, _, _, _, callback -> callback(Result.success(repositoryPage)) },
         onDownloadRepository: (FleetSession, FleetRepositoryEntry, (FleetDownloadState) -> Unit) -> FleetDownloadCancellation = { _, _, _ -> FleetDownloadCancellation() },
@@ -1338,7 +1394,7 @@ class AgentFleetComposeTest {
                 diagnosticError = null,
                 localModelUi = LocalModelUiState(),
                 onSharedImagesHandled = {},
-                onRefresh = {},
+                onRefresh = onRefresh,
                 onOpenSession = onOpenSession,
                 onOpenSessionWithImages = { _, _ -> },
                 onCreateSession = { _, _, _, _, _, _ -> },
@@ -1423,6 +1479,13 @@ class AgentFleetComposeTest {
     )
 
     companion object {
+        @JvmStatic @org.junit.BeforeClass
+        fun prepareDiscoveryRuntimeBeforeCreatingTheComposeHost() {
+            // Bootstrap uses its own ActivityScenario. Finish it before the
+            // Compose rule owns a host, so closing bootstrap cannot close that UI.
+            AgentFleetEmbeddedRegistryTest().prepareRuntime(ApplicationProvider.getApplicationContext())
+        }
+
         private val session = FleetSession(
             "gaming:wtmux", "gaming", "wtmux-main", "wtmux:1", "Diagnostics", "wtmux", "codex", "linux", "active", false,
             "2026-07-15T00:00:00Z", 0, "/home/user/projects/wtmux", "project"

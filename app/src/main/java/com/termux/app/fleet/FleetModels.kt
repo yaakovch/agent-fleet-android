@@ -7,7 +7,8 @@ data class FleetHost(
     val platform: String,
     val lastSeenAt: String?,
     val capabilities: Set<String>,
-    val wtmuxVersion: String = ""
+    val wtmuxVersion: String = "",
+    val errorCode: String = ""
 )
 
 data class FleetPhysicalHost(
@@ -247,7 +248,10 @@ data class FleetSnapshot(
     val physicalHosts: List<FleetPhysicalHost> = legacyPhysicalHosts(hosts),
     val endpoints: List<FleetEndpoint> = emptyList(),
     val executionTargets: List<FleetExecutionTarget> = legacyExecutionTargets(physicalHosts),
-    val pairingRequests: List<FleetPairingRequest> = emptyList()
+    val pairingRequests: List<FleetPairingRequest> = emptyList(),
+    val isStale: Boolean = false,
+    val receivedAtMillis: Long = System.currentTimeMillis(),
+    val cachedSessionSince: Map<String, Long> = emptyMap()
 )
 
 private fun legacyPhysicalHosts(hosts: List<FleetHost>): List<FleetPhysicalHost> = hosts.map { host ->
@@ -257,7 +261,7 @@ private fun legacyPhysicalHosts(hosts: List<FleetHost>): List<FleetPhysicalHost>
         platform = host.platform,
         status = host.status,
         lastSeenAt = host.lastSeenAt,
-        errorCode = "",
+        errorCode = host.errorCode,
         endpointIds = emptyList(),
         executionTargetIds = if (host.platform == "wsl") listOf("linux", "windows") else listOf("linux"),
         legacyHostIds = listOf(host.id)

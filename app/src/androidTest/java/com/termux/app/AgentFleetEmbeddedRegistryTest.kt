@@ -20,6 +20,14 @@ import org.junit.runner.RunWith
 
 @RunWith(AndroidJUnit4::class)
 class AgentFleetEmbeddedRegistryTest {
+    internal fun prepareRuntime(context: Context): File {
+        ensureBootstrap(context)
+        val descriptor = EmbeddedRuntimeManager(context).descriptor()
+        val runtimeRoot = File(context.filesDir, "home/.local/share/agent-fleet/wtmux")
+        installRuntime(context, descriptor, runtimeRoot)
+        return runtimeRoot
+    }
+
     @Test
     fun currentRuntimeRepairsMissingAndMigratedRegistryState() {
         val context = ApplicationProvider.getApplicationContext<Context>()
@@ -35,7 +43,7 @@ class AgentFleetEmbeddedRegistryTest {
         val registryMachines = File(registryRoot, "current/machines").absolutePath
 
         installRuntime(context, descriptor, runtimeRoot)
-        installRegistry(context, descriptor, runtimeRoot, config)
+        installRegistry(context, descriptor, runtimeRoot, config, preserveCurrent = false)
 
         assertEquals(
             File(registryRoot, "releases/$expectedRelease").canonicalFile,
@@ -54,6 +62,22 @@ class AgentFleetEmbeddedRegistryTest {
         installRegistry(context, descriptor, runtimeRoot, config)
 
         assertTrue(embeddedRegistryBindingIsCurrent(config.readText(Charsets.UTF_8), registryMachines))
+
+        val newer = File(registryRoot, "releases/${java.util.UUID.randomUUID().toString().replace("-", "").take(16)}")
+        File(registryRoot, "current").canonicalFile.copyRecursively(newer, overwrite = true)
+        val newerManifest = JSONObject(File(newer, "registry-manifest.json").readText())
+        val entry = newerManifest.getJSONArray("records").getJSONObject(0)
+        val recordFile = File(newer, entry.getString("path"))
+        val record = JSONObject(recordFile.readText()).put("name", "Updated fleet host")
+        val bytes = record.toString(2).toByteArray(Charsets.UTF_8)
+        recordFile.writeBytes(bytes)
+        entry.put("size", bytes.size).put("sha256", java.security.MessageDigest.getInstance("SHA-256").digest(bytes).joinToString("") { "%02x".format(it) })
+        File(newer, "registry-manifest.json").writeText(newerManifest.toString(2))
+        assertTrue(File(registryRoot, "current").delete())
+        android.system.Os.symlink("releases/${newer.name}", File(registryRoot, "current").absolutePath)
+        installRegistry(context, descriptor, runtimeRoot, config)
+        assertEquals(newer.canonicalFile, File(registryRoot, "current").canonicalFile)
+        assertEquals("Updated fleet host", JSONObject(recordFile.readText()).getString("name"))
     }
 
     private fun installRuntime(context: Context, descriptor: EmbeddedRuntimeDescriptor, runtimeRoot: File) {
@@ -89,7 +113,8 @@ class AgentFleetEmbeddedRegistryTest {
         context: Context,
         descriptor: EmbeddedRuntimeDescriptor,
         runtimeRoot: File,
-        config: File
+        config: File,
+        preserveCurrent: Boolean = true
     ) {
         val appRoot = requireNotNull(context.filesDir.parentFile)
         val prefix = File(appRoot, "files/usr")
@@ -104,7 +129,7 @@ class AgentFleetEmbeddedRegistryTest {
                 File(runtimeRoot, "current/scripts/wtmux-runtime").absolutePath,
                 "install-registry", "--bundle", registry.absolutePath, "--sha256", descriptor.registry.sha256,
                 "--root", runtimeRoot.absolutePath, "--config", config.absolutePath
-            )
+            ) + if (preserveCurrent) listOf("--preserve-current") else emptyList()
         )
     }
 

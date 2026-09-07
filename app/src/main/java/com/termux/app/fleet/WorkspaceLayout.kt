@@ -57,7 +57,7 @@ fun isDesktopPresentation(mode: WorkspacePresentationMode, widthDp: Int): Boolea
 }
 
 fun isFleetSessionAvailable(snapshot: FleetSnapshot, session: FleetSession): Boolean {
-    return snapshot.hosts.any { it.id == session.hostId && it.status == "healthy" }
+    return !snapshot.isStale && snapshot.hosts.any { it.id == session.hostId && it.status in setOf("healthy", "online") }
 }
 
 object WorkspaceReducer {

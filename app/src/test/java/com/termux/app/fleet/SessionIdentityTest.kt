@@ -37,16 +37,16 @@ class SessionIdentityTest {
     }
 
     @Test fun bridgeArgumentsArePrivacyGated() {
-        assertEquals(listOf("--snapshot", "--identity-graph", "--session-titles"), snapshotBridgeArguments(true))
-        assertEquals(listOf("--snapshot", "--identity-graph"), snapshotBridgeArguments(false))
+        assertEquals(listOf("--snapshot", "--startup-timeout", "15", "--identity-graph", "--session-titles"), snapshotBridgeArguments(true))
+        assertEquals(listOf("--snapshot", "--startup-timeout", "15", "--identity-graph"), snapshotBridgeArguments(false))
     }
 
     @Test fun oldBridgeFallsBackWithoutBreakingFleetConnection() {
-        val oldHelp = "usage: wtmux-bridge [-h] [--snapshot] [--stdio]"
+        val oldHelp = "usage: wtmux-bridge [-h] [--snapshot] [--stdio] [--startup-timeout SECONDS]"
         assertEquals(false, bridgeHelpSupportsSessionTitles(0, oldHelp))
         assertEquals(false, bridgeHelpSupportsIdentityGraph(0, oldHelp))
         assertEquals(
-            listOf("--snapshot"),
+            listOf("--snapshot", "--startup-timeout", "15"),
             snapshotBridgeArguments(titlesEnabled = true, titlesSupported = false, identityGraphSupported = false)
         )
         assertEquals(
@@ -59,7 +59,7 @@ class SessionIdentityTest {
         val currentHelp = "usage: wtmux-bridge [--snapshot] [--stdio] [--identity-graph] [--session-titles]"
         assertEquals(true, bridgeHelpSupportsSessionTitles(0, currentHelp))
         assertEquals(true, bridgeHelpSupportsIdentityGraph(0, currentHelp))
-        assertEquals(listOf("--snapshot", "--identity-graph", "--session-titles"), snapshotBridgeArguments(true, true, true))
+        assertEquals(listOf("--snapshot", "--startup-timeout", "15", "--identity-graph", "--session-titles"), snapshotBridgeArguments(true, true, true))
         assertEquals(listOf("--stdio", "--identity-graph", "--session-titles"), stdioBridgeArguments(true, true, true))
     }
 

@@ -65,6 +65,10 @@ android {
         versionName appVersionName
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         testInstrumentationRunnerArguments clearPackageData: "true"
+        // These are the ABIs with maintained Agent Fleet bootstrap payloads.
+        ndk {
+            abiFilters 'arm64-v8a', 'x86_64'
+        }
 
         validateVersionName(versionName)
 

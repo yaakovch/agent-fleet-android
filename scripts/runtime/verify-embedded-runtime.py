@@ -101,21 +101,13 @@ def validate_connectable_registry_record(value: object) -> dict:
         and endpoint.get("identityState") == "verified"
         and endpoint.get("network") == expected_network
         and (expected_network != "tailnet" or bool(endpoint.get("tailscaleNodeId")))
-        and (
-            (
-                expected_network == "tailnet"
-                and endpoint.get("sshEngine") == "tailscale-cli"
-            )
-            or (
-                endpoint.get("sshEngine") == "openssh"
-                and bool(endpoint.get("sshHostKeySha256"))
-            )
-        )
+        and endpoint.get("sshEngine") == "openssh"
+        and bool(endpoint.get("sshHostKeySha256"))
         for endpoint in endpoints
     )
     if not connectable:
         raise ValueError(
-            f"embedded host registry record has no verified transport: {value.get('id', 'unknown')}"
+            f"embedded host registry record has no verified OpenSSH transport for Android: {value.get('id', 'unknown')}"
         )
     return value
 
@@ -647,13 +639,14 @@ def verify(root: Path) -> dict:
                 "license": "MIT",
                 "contractPackageVersion": descriptor["contractPackageVersion"],
             }
-            or manifest.get("target") != {
-                "platform": "termux",
-                "architecture": "universal",
-                "prefix": "/data/data/com.yaakovch.fleet/files/home/.local/share/agent-fleet/wtmux",
-            }
         ):
-            raise ValueError("runtime archive version does not match embedded baseline")
+            raise ValueError("runtime archive identity or components do not match the embedded descriptor")
+        if manifest.get("target") != {
+            "platform": "termux",
+            "architecture": "universal",
+            "prefix": "/data/data/com.yaakovch.fleet/files/home/.local/share/agent-fleet/wtmux",
+        }:
+            raise ValueError("embedded script runtime target must be termux/universal at the permanent-ID prefix")
         expected = {"runtime-manifest.json"}
         for item in manifest.get("files", []):
             expected.add(item["path"])

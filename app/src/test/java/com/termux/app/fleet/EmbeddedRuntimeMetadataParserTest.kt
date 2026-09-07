@@ -469,4 +469,16 @@ class EmbeddedRuntimeMetadataParserTest {
             registry
         ))
     }
+
+    @Test
+    fun acceptsCanonicalActivatedBindingsWithoutAcceptingAShadowedPath() {
+        val registry = "/runtime/fleet-config/current/registry/machines"
+        for (label in listOf("wtmux-fleet configuration", "wtmux-runtime registry")) {
+            val config = "# BEGIN $label\nWTMUX_SHARED_REGISTRY_DIR='$registry'\n" +
+                "wtmux_load_shared_registry '$registry'\n# END $label\n"
+            assertTrue(embeddedRegistryBindingIsCurrent(config, registry))
+            assertFalse(embeddedRegistryBindingIsCurrent(config.replace(registry, "/stale"), registry))
+            assertFalse(embeddedRegistryBindingIsCurrent(config + "WTMUX_SHARED_REGISTRY_DIR='/stale'\n", registry))
+        }
+    }
 }

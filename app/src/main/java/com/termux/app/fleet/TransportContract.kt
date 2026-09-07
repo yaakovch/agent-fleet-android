@@ -8,6 +8,7 @@ data class TransportRecovery(
 
 object TransportContract {
     val recovery: Map<String, TransportRecovery> = mapOf(
+        "ENDPOINT_UNSUPPORTED" to TransportRecovery("No compatible host route", "Verify an OpenSSH endpoint for this host", "review"),
         "NETWORK_UNREACHABLE" to TransportRecovery(
             "Private network unavailable", "Retry when Tailscale is connected", "retry"
         ),
@@ -34,10 +35,19 @@ object TransportContract {
         ),
         "TMUX_UNAVAILABLE" to TransportRecovery(
             "tmux unavailable", "Repair the host session service", "review"
-        )
+        ),
+        "ENDPOINT_REVERIFY_REQUIRED" to TransportRecovery("Endpoint verification required", "Verify this host before connecting", "review"),
+        "ENDPOINT_TRUST_UNAVAILABLE" to TransportRecovery("Host key unavailable", "Retry when the host is reachable", "retry"),
+        "HANDSHAKE_TIMEOUT" to TransportRecovery("Host handshake timed out", "Retry the host connection", "retry"),
+        "HEARTBEAT_TIMEOUT" to TransportRecovery("Host contact lost", "Retry the host connection", "retry"),
+        "SNAPSHOT_TIMEOUT" to TransportRecovery("Session inventory timed out", "Retry session discovery", "retry"),
+        "LOCAL_RUNTIME_UNAVAILABLE" to TransportRecovery("Local runtime unavailable", "Repair the built-in runtime", "review"),
+        "REGISTRY_INVALID" to TransportRecovery("Fleet configuration unavailable", "Review or restore the last verified configuration", "review")
     )
 
     private val legacyCodes = mapOf(
+        "bridge_disconnected" to "NETWORK_UNREACHABLE",
+        "runtime_unavailable" to "LOCAL_RUNTIME_UNAVAILABLE",
         "connection_failed" to "NETWORK_UNREACHABLE",
         "heartbeat_timeout" to "NETWORK_UNREACHABLE",
         "unreachable" to "NETWORK_UNREACHABLE",

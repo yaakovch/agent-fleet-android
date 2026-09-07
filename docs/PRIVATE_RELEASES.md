@@ -83,6 +83,10 @@ would target a different application ID or release lane.
    Use `--hold` to stop after verification or `--preflight-only` to check a
    prepared next version without building. Stage timings are stored under
    `build/reports/agent-fleet/release/`.
+   Windows remains the default emulator backend. Explicit
+   `AGENT_FLEET_EMULATOR_BACKEND=managed` runs the same protected API-36 suite
+   for CI parity or an isolated Linux build environment, and the report records
+   the selected backend. Neither backend skips device checks or test failures.
 6. The lower-level `build-signed-release.sh`, `verify-release.sh`, and
    `publish-release.sh` commands remain available for recovery. The signed
    builder requires arguments that exactly match `app/version.properties` and
@@ -128,6 +132,13 @@ would target a different application ID or release lane.
    own Tailscale address, the release task retries through `127.0.0.1` with the
    configured HTTPS hostname supplied by curl `--resolve`. Certificate and SNI
    validation remain enabled; insecure TLS flags are forbidden.
+   When that existing Tailscale endpoint forwards TLS to a local reverse proxy,
+   `AGENT_FLEET_RELEASE_HTTPS_CONNECT_TO=192.168.31.207:9444` can select the
+   configured local backend for the fallback. Only canonical private IPv4 or
+   loopback addresses and valid ports are accepted. Curl changes the socket
+   destination while retaining the public HTTPS URL, SNI, certificate
+   verification and HTTP Host. This does not change the phone's update URL,
+   publish to a different lane, follow redirects, or change a service binding.
 8. Put the primary/fallback app and runtime manifest URLs plus their approved
    artifact origins in a strict `client-policy-v1` file. Pass it to
    `wtmux-pairing prepare-artifacts --client-policy FILE`; pairing installs it

@@ -92,6 +92,20 @@ Generate candidate screenshot references for review:
 bash scripts/debug/android-check.sh update-goldens
 ```
 
+Golden references use a flat display viewport. The managed Pixel 7 image
+enables two device-model overlays that add a camera cutout and a taller status
+bar. `AgentFleetGoldenTest` temporarily disables only those enabled Pixel 7
+overlays after verifying API 36, x86_64 and the emulator identity, then restores
+them after the class. Functional tests retain the normal device viewport;
+reference images and comparison tolerances are unchanged.
+
+The discovery recovery test runs the packaged bridge and agent against synthetic
+inventory, then opens a real managed terminal through a pinned SSH connection to
+`127.0.0.1:9840` inside the emulator. It asserts terminal input and output before
+capturing the terminal screen and connection evidence. The fixture grants only
+the app's declared first-run permissions after verifying the emulator identity;
+it does not contact a user host or operate a physical phone.
+
 After verifying an official x86_64 Termux APK against its upstream checksum,
 prove package-level coinstallation on the same isolated emulator:
 

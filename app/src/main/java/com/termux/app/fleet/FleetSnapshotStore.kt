@@ -89,9 +89,17 @@ object FleetSnapshotStore {
         if (showLoading && state !is FleetLoadState.Ready) publishState(FleetLoadState.Loading)
         executor.execute {
             val result = try {
-                FleetLoadState.Ready(FleetRuntime(context).loadSnapshot())
+                val fresh = FleetRuntime(context).loadSnapshot()
+                FleetLoadState.Ready(reconcileFleetSnapshot(latestSnapshot(), fresh))
             } catch (error: Exception) {
-                FleetLoadState.Unavailable(error.message ?: "Fleet refresh failed.")
+                val previous = latestSnapshot()
+                val code = (error as? FleetUnavailableException)?.code?.let(TransportContract::stableCode)
+                    ?: "NETWORK_UNREACHABLE"
+                if (previous != null) {
+                    FleetLoadState.Ready(staleFleetSnapshot(previous, code))
+                } else {
+                    FleetLoadState.Unavailable(error.message ?: "Fleet refresh failed.")
+                }
             }
             refreshing.set(false)
             main.post {

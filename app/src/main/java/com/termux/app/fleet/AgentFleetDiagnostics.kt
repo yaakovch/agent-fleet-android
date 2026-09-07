@@ -263,7 +263,7 @@ class AgentFleetDiagnosticsRunner(
         var snapshot = snapshotHint
         val fleetSeconds = ((deadline - System.currentTimeMillis()) / 1_000L).coerceIn(1L, REMOTE_TIMEOUT_SECONDS)
         checks += check("fleet", "Fleet snapshot", fleetSeconds) {
-            snapshot = snapshot ?: fleetRuntime.loadSnapshot()
+            snapshot = fleetRuntime.loadSnapshot()
             val value = snapshot ?: error("Fleet snapshot is unavailable")
             "${value.hosts.size} hosts · ${value.sessions.size} sessions" to "The paired bridge returned a valid metadata snapshot."
         }

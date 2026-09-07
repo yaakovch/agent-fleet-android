@@ -22,8 +22,12 @@ class TransportContractTest {
         val codes = (0 until failures.length()).map {
             failures.getJSONObject(it).getString("code")
         }.toSet()
-        assertEquals(TransportContract.recovery.keys, codes)
+        org.junit.Assert.assertTrue(TransportContract.recovery.keys.containsAll(codes))
         codes.forEach { assertNotNull(TransportContract.recoveryFor(it)) }
+    }
+
+    @Test fun everyDiscoveryPhaseHasRecovery() {
+        listOf("ENDPOINT_REVERIFY_REQUIRED", "ENDPOINT_TRUST_UNAVAILABLE", "ENDPOINT_UNSUPPORTED", "HANDSHAKE_TIMEOUT", "HEARTBEAT_TIMEOUT", "SNAPSHOT_TIMEOUT", "LOCAL_RUNTIME_UNAVAILABLE", "REGISTRY_INVALID").forEach { assertNotNull(TransportContract.recoveryFor(it)) }
     }
 
     @Test fun unprovenOptimizationsRemainDisabled() {

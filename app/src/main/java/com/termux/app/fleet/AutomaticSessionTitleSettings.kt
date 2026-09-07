@@ -36,6 +36,11 @@ internal fun snapshotBridgeArguments(
     identityGraphSupported: Boolean = true
 ): List<String> = buildList {
     add("--snapshot")
+    // Cold client environments (first SSH handshakes over tailnet, endpoint
+    // evidence subprocesses) need more than the 5s default before hosts are
+    // ready; the bridge clamps at 30s.
+    add("--startup-timeout")
+    add("15")
     if (identityGraphSupported) add("--identity-graph")
     if (titlesEnabled && titlesSupported) add("--session-titles")
 }
