@@ -287,23 +287,66 @@ class AgentFleetGoldenTest {
         private fun isEnabled(overlays: String, name: String): Boolean =
             overlays.lineSequence().any { it.trim() == "[x] $name" }
 
+        private fun recordDisplayState(name: String) {
+            val storage = PlatformTestStorageRegistry.getInstance()
+            for ((label, command) in listOf("window" to "dumpsys window displays",
+                "display" to "dumpsys display", "overlays" to "cmd overlay list --user current")) {
+                storage.openOutputFile("$name-$label.txt").use { it.write(deviceShell(command).toByteArray()) }
+            }
+        }
+
+        private fun awaitDisplayRotation(expected: Int) {
+            val manager = InstrumentationRegistry.getInstrumentation().targetContext
+                .getSystemService(android.content.Context.DISPLAY_SERVICE) as android.hardware.display.DisplayManager
+            val display = checkNotNull(manager.getDisplay(android.view.Display.DEFAULT_DISPLAY))
+            val deadline = SystemClock.elapsedRealtime() + 10_000
+            while (display.rotation != expected && SystemClock.elapsedRealtime() < deadline) {
+                SystemClock.sleep(50)
+            }
+            check(display.rotation == expected) { "Emulator display did not rotate to $expected" }
+            InstrumentationRegistry.getInstrumentation().waitForIdleSync()
+        }
+
         private fun refreshDisplayInsets() {
+            // Overlay changes reach system-server and app resources asynchronously.
+            // Wait for already queued work, not all future startup broadcasts.
+            val barrier = deviceShell("timeout 45 am wait-for-broadcast-barrier --flush-broadcast-loopers --flush-application-threads")
+            PlatformTestStorageRegistry.getInstance().openOutputFile("viewport-broadcast-${viewportRefreshes + 1}.txt").use {
+                it.write(barrier.toByteArray())
+            }
+            check(barrier.contains("Test barrier passed") && barrier.contains("Finished application barriers!")) {
+                "Emulator overlay configuration did not settle; see viewport-broadcast evidence"
+            }
             val rotation = deviceShell("wm user-rotation").trim()
             check(Regex("free|lock [0-3]").matches(rotation)) { "Unknown emulator rotation state: $rotation" }
+            val fixedRotation = deviceShell("wm fixed-to-user-rotation").trim()
+            check(fixedRotation in setOf("default", "enabled", "disabled", "enabled_if_no_auto_rotation")) {
+                "Unknown emulator fixed-rotation state: $fixedRotation"
+            }
             // Overlay changes can update System UI pixels while WindowManager
             // still reports the old cutout inset. A configuration round trip
             // refreshes both without changing the reference size or density.
             try {
+                // A retained portrait activity can ignore user-rotation locks.
+                // Require actual display transitions, then restore both policies.
+                deviceShell("wm fixed-to-user-rotation enabled")
                 deviceShell("wm user-rotation lock 1")
+                awaitDisplayRotation(android.view.Surface.ROTATION_90)
                 SystemClock.sleep(750)
                 deviceShell("wm user-rotation lock 0")
+                awaitDisplayRotation(android.view.Surface.ROTATION_0)
                 SystemClock.sleep(750)
             } finally {
                 deviceShell("wm user-rotation $rotation")
+                deviceShell("wm fixed-to-user-rotation $fixedRotation")
                 check(deviceShell("wm user-rotation").trim() == rotation) { "Emulator rotation was not restored" }
+                check(deviceShell("wm fixed-to-user-rotation").trim() == fixedRotation) {
+                    "Emulator fixed-rotation policy was not restored"
+                }
             }
             PlatformTestStorageRegistry.getInstance().openOutputFile("viewport-refresh-${++viewportRefreshes}.json").use {
                 it.write(org.json.JSONObject().put("rotationRestored", rotation)
+                    .put("fixedRotationRestored", fixedRotation).put("observedRotations", org.json.JSONArray(listOf(1, 0)))
                     .put("observedAt", java.time.Instant.now().toString()).toString().toByteArray())
             }
         }
@@ -313,6 +356,7 @@ class AgentFleetGoldenTest {
             check(android.os.Build.HARDWARE in setOf("ranchu", "goldfish") &&
                 "x86_64" in android.os.Build.SUPPORTED_ABIS && android.os.Build.VERSION.SDK_INT == 36)
             check(deviceShell("getprop ro.kernel.qemu").trim() == "1")
+            recordDisplayState("viewport-before")
             // The references use a flat display. Managed Pixel 7 images enable
             // model overlays that change the cutout and status-bar height.
             // Keep the reference pixels and threshold; restore the device after
@@ -326,6 +370,7 @@ class AgentFleetGoldenTest {
                 }
             }
             if (changedViewportOverlays.isNotEmpty()) refreshDisplayInsets()
+            recordDisplayState("viewport-normalized")
         }
 
         @JvmStatic @AfterClass
@@ -337,6 +382,7 @@ class AgentFleetGoldenTest {
             }
             changedViewportOverlays.clear()
             if (changed) refreshDisplayInsets()
+            recordDisplayState("viewport-restored")
         }
     }
 }
