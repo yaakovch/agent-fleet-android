@@ -277,6 +277,7 @@ class AgentFleetGoldenTest {
         private const val CHANNEL_THRESHOLD = 8
         private const val MAX_CHANGED_RATIO = 0.005
         private val changedViewportOverlays = mutableListOf<String>()
+        private var viewportRefreshes = 0
 
         private fun deviceShell(command: String): String {
             val fd = InstrumentationRegistry.getInstrumentation().uiAutomation.executeShellCommand(command)
@@ -285,6 +286,27 @@ class AgentFleetGoldenTest {
 
         private fun isEnabled(overlays: String, name: String): Boolean =
             overlays.lineSequence().any { it.trim() == "[x] $name" }
+
+        private fun refreshDisplayInsets() {
+            val rotation = deviceShell("wm user-rotation").trim()
+            check(Regex("free|lock [0-3]").matches(rotation)) { "Unknown emulator rotation state: $rotation" }
+            // Overlay changes can update System UI pixels while WindowManager
+            // still reports the old cutout inset. A configuration round trip
+            // refreshes both without changing the reference size or density.
+            try {
+                deviceShell("wm user-rotation lock 1")
+                SystemClock.sleep(750)
+                deviceShell("wm user-rotation lock 0")
+                SystemClock.sleep(750)
+            } finally {
+                deviceShell("wm user-rotation $rotation")
+                check(deviceShell("wm user-rotation").trim() == rotation) { "Emulator rotation was not restored" }
+            }
+            PlatformTestStorageRegistry.getInstance().openOutputFile("viewport-refresh-${++viewportRefreshes}.json").use {
+                it.write(org.json.JSONObject().put("rotationRestored", rotation)
+                    .put("observedAt", java.time.Instant.now().toString()).toString().toByteArray())
+            }
+        }
 
         @JvmStatic @BeforeClass
         fun prepareReferenceViewport() {
@@ -303,16 +325,18 @@ class AgentFleetGoldenTest {
                     check(!isEnabled(deviceShell("cmd overlay list --user current"), name))
                 }
             }
-            if (changedViewportOverlays.isNotEmpty()) SystemClock.sleep(500)
+            if (changedViewportOverlays.isNotEmpty()) refreshDisplayInsets()
         }
 
         @JvmStatic @AfterClass
         fun restoreDeviceViewport() {
+            val changed = changedViewportOverlays.isNotEmpty()
             for (name in changedViewportOverlays.asReversed()) {
                 deviceShell("cmd overlay enable --user current $name")
                 check(isEnabled(deviceShell("cmd overlay list --user current"), name))
             }
             changedViewportOverlays.clear()
+            if (changed) refreshDisplayInsets()
         }
     }
 }

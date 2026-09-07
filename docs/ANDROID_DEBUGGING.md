@@ -98,14 +98,16 @@ bar. `AgentFleetGoldenTest` temporarily disables only those enabled Pixel 7
 overlays after verifying API 36, x86_64 and the emulator identity, then restores
 them after the class. Functional tests retain the normal device viewport;
 reference images and comparison tolerances are unchanged.
-The golden host also explicitly draws edge to edge because Native owns its
-status-bar padding. Leaving that window policy implicit produced an extra top
-inset when the same screenshot class ran after service/terminal tests. Each
-comparison retains the observed content bounds and status-bar inset as JSON.
+The golden host explicitly draws edge to edge because Native owns its status-bar
+padding. Overlay changes can leave WindowManager reporting the old cutout inset
+even after System UI pixels update. The guarded fixture refreshes display
+configuration with an orientation round trip, restores and verifies the original
+rotation policy, and repeats that refresh when restoring the original overlays.
+Each comparison retains content bounds and the status-bar inset as JSON.
 Managed `full` runs the golden class and all remaining tests in separate
 instrumentation processes, retaining each phase under the same full-run report.
-This prevents Android from retaining pre-normalization insets from earlier
-activities. Every test runs once, functional tests keep their normal viewport,
+This separates viewport normalization from the functional activities. Every test
+runs once, functional tests keep their normal viewport,
 and both raw reports must contain terminal `OK` and instrumentation code `-1`.
 
 The discovery recovery test runs the packaged bridge and agent against synthetic
