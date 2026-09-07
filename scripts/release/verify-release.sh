@@ -93,6 +93,14 @@ def archive_runtime(apk):
             manifest_payload = runtime_archive.extractfile("runtime-manifest.json").read()
         if hashlib.sha256(manifest_payload).hexdigest() != descriptor["runtime"]["manifestSha256"]:
             raise SystemExit("APK runtime manifest binding is invalid")
+        try:
+            host_repair = json.loads(archive.read(prefix + "host-repair-runtime-v1.json"))
+            host_repair_file = runtime_verifier.host_repair_filename(host_repair, descriptor)
+            runtime_verifier.verify_host_repair_payload(
+                host_repair, archive.read(prefix + host_repair_file), descriptor, json.loads(manifest_payload),
+            )
+        except (ValueError, KeyError, TypeError, tarfile.TarError) as error:
+            raise SystemExit(f"APK host repair runtime verification failed: {error}") from error
         lock = json.loads(archive.read(prefix + descriptor["packageLock"]["file"]))
         legacy_lock_fields = {
             "schemaVersion", "applicationId", "prefix", "architecture", "repository", "bundleUrl",
@@ -231,6 +239,7 @@ def archive_runtime(apk):
                 raise SystemExit("APK trusted runtime key verification failed")
         expected_assets = {
             prefix + "embedded-runtime-v1.json", prefix + descriptor["runtime"]["file"],
+            prefix + "host-repair-runtime-v1.json", prefix + host_repair_file,
             prefix + descriptor["registry"]["file"], prefix + descriptor["packageLock"]["file"],
             prefix + descriptor["sbom"]["file"],
             *((prefix + closure_file,) if closure_file else ()),

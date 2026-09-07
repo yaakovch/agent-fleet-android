@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import base64
 import hashlib
+import io
 import json
 import re
 import tarfile
@@ -549,6 +550,39 @@ def runtime_pin(path: Path, architecture: str) -> dict:
     return value
 
 
+def host_repair_filename(value: dict, descriptor: dict) -> str:
+    if (not isinstance(value, dict) or set(value) != {"schemaVersion", "file", "sha256", "size"}
+        or type(value["schemaVersion"]) is not int or value["schemaVersion"] != 1
+        or value["file"] != f"wtmux-host-repair-{descriptor['wtmuxCommit'][:7]}.tar"
+        or type(value["size"]) is not int or not 1 <= value["size"] <= 32 * 1024 * 1024
+        or not isinstance(value["sha256"], str) or not re.fullmatch(r"[a-f0-9]{64}", value["sha256"])):
+        raise ValueError("host repair runtime descriptor is invalid")
+    return value["file"]
+
+
+def verify_host_repair_payload(value: dict, payload: bytes, descriptor: dict, manifest: dict) -> None:
+    host_repair_filename(value, descriptor)
+    if len(payload) != value["size"] or hashlib.sha256(payload).hexdigest() != value["sha256"]:
+        raise ValueError("host repair runtime artifact failed verification")
+    with tarfile.open(fileobj=io.BytesIO(payload), mode="r:") as archive:
+        members = archive.getmembers()
+        names = [item.name for item in members]
+        if len(names) != len(set(names)) or any(not item.isfile() for item in members):
+            raise ValueError("host repair runtime contains unsafe members")
+        host_manifest = json.load(archive.extractfile("runtime-manifest.json"))
+        if (host_manifest.get("formatVersion") != 2 or host_manifest.get("version") != descriptor["baselineVersion"]
+            or host_manifest.get("source") != manifest["source"] or host_manifest.get("components") != descriptor["components"]
+            or host_manifest.get("target") != {"platform": "linux", "architecture": "universal", "prefix": "~/.local"}):
+            raise ValueError("host repair runtime does not match the app's source and components")
+        expected = {"runtime-manifest.json"}
+        for item in host_manifest["files"]:
+            expected.add(item["path"])
+            payload = archive.extractfile(item["path"]).read()
+            if len(payload) != item["size"] or hashlib.sha256(payload).hexdigest() != item["sha256"]:
+                raise ValueError("host repair runtime member failed verification")
+        if expected != set(names) or "scripts/wtmux-connect" not in expected:
+            raise ValueError("host repair runtime inventory is invalid")
+
 def verify(root: Path) -> dict:
     pins_root = root.parents[2] / "runtime-pins"
     pins = {
@@ -666,29 +700,9 @@ def verify(root: Path) -> dict:
             raise ValueError("runtime archive SBOM, license, or contracts are missing")
 
     host_repair = json.loads((root / "host-repair-runtime-v1.json").read_text(encoding="utf-8"))
-    if (set(host_repair) != {"schemaVersion", "file", "sha256", "size"}
-        or host_repair["schemaVersion"] != 1
-        or host_repair["file"] != f"wtmux-host-repair-{descriptor['wtmuxCommit'][:7]}.tar"):
-        raise ValueError("host repair runtime descriptor is invalid")
+    host_repair_filename(host_repair, descriptor)
     host_artifact = checked_file(root, {key: host_repair[key] for key in ("file", "sha256", "size")}, 32 * 1024 * 1024)
-    with tarfile.open(host_artifact, "r:") as archive:
-        members = archive.getmembers()
-        names = [item.name for item in members]
-        if len(names) != len(set(names)) or any(not item.isfile() for item in members):
-            raise ValueError("host repair runtime contains unsafe members")
-        host_manifest = json.load(archive.extractfile("runtime-manifest.json"))
-        if (host_manifest.get("formatVersion") != 2 or host_manifest.get("version") != descriptor["baselineVersion"]
-            or host_manifest.get("source") != manifest["source"] or host_manifest.get("components") != descriptor["components"]
-            or host_manifest.get("target") != {"platform": "linux", "architecture": "universal", "prefix": "~/.local"}):
-            raise ValueError("host repair runtime does not match the app's source and components")
-        expected = {"runtime-manifest.json"}
-        for item in host_manifest["files"]:
-            expected.add(item["path"])
-            payload = archive.extractfile(item["path"]).read()
-            if len(payload) != item["size"] or hashlib.sha256(payload).hexdigest() != item["sha256"]:
-                raise ValueError("host repair runtime member failed verification")
-        if expected != set(names) or "scripts/wtmux-connect" not in expected:
-            raise ValueError("host repair runtime inventory is invalid")
+    verify_host_repair_payload(host_repair, host_artifact.read_bytes(), descriptor, manifest)
 
     registry_value = descriptor["registry"]
     if set(registry_value) != {"file", "sha256", "size"}:

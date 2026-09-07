@@ -244,6 +244,16 @@ APK-only version increase whose embedded baseline is unchanged. The app may
 promote its monotonic replay floor in that case, but it must not reactivate the
 older baseline. A genuinely changed embedded baseline still takes precedence.
 
+The Linux host-repair archive is an embedded executable input. Use the same
+artifact validator for source assets and the signed APK, and exercise corruption,
+source/component mismatch, and a nonportable target. Source-directory validation
+alone does not prove the APK's complete asset inventory accepts the new input.
+After a host-runtime upgrade, also inspect that host's activated registry and
+sourced shell configuration: legacy records lack endpoint identity evidence, and
+an unconditional local-host array append can duplicate a registry entry. Preserve
+existing members and overrides when repairing these independent configuration
+inputs, then check the actual installed CLI and its remote inventory.
+
 Dark screenshot references are normalized to exactly 393×852 pixels. A pixel
 is different when any RGB channel differs by more than 8, and the test fails
 when more than 0.5% of pixels differ. Candidate references are generated as
