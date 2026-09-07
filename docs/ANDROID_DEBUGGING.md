@@ -102,6 +102,11 @@ The golden host also explicitly draws edge to edge because Native owns its
 status-bar padding. Leaving that window policy implicit produced an extra top
 inset when the same screenshot class ran after service/terminal tests. Each
 comparison retains the observed content bounds and status-bar inset as JSON.
+Managed `full` runs the golden class and all remaining tests in separate
+instrumentation processes, retaining each phase under the same full-run report.
+This prevents Android from retaining pre-normalization insets from earlier
+activities. Every test runs once, functional tests keep their normal viewport,
+and both raw reports must contain terminal `OK` and instrumentation code `-1`.
 
 The discovery recovery test runs the packaged bridge and agent against synthetic
 inventory, then opens a real managed terminal through a pinned SSH connection to
