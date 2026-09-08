@@ -27,6 +27,13 @@ publication children receive an environment with those variables removed.
 
 ## Default rollout policy
 
+When preparing an isolated release checkout, compare its user-facing behavior
+with the previous delivered app and inspect pending changes in the original
+checkout. Preserving those files on disk does not preserve behavior in the APK.
+Carry forward approved UI changes that have already reached the user, and keep
+their interaction and layout regressions in the release branch. In particular,
+the compact Sessions screen must pass its four-visible-cards regression.
+
 After a permanent-ID Android release passes its documented JVM, API 36,
 lint, signing, certificate, embedded-runtime, identity, and checksum gates,
 publish that verified artifact to the `fleet/latest` in-app update lane as part

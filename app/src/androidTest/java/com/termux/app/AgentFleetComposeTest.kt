@@ -4,6 +4,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.windowInsetsPadding
@@ -722,6 +723,45 @@ class AgentFleetComposeTest {
         compose.setContent { FixtureApp() }
         compose.onNodeWithText("Diagnostics").assertIsDisplayed()
         compose.onNodeWithText("wtmux:1 · gaming · wtmux").assertIsDisplayed()
+    }
+
+    @Test
+    fun compactSessionsFitFourCardsAndKeepSearchAndActionsUsable() {
+        val sessions = (1..4).map { index ->
+            session.copy(id = "gaming:compact-$index", title = "Compact session $index")
+        }
+        val opened = mutableListOf<String>()
+        var pixelsPerDp = 1f
+        compose.setContent {
+            val density = LocalDensity.current
+            pixelsPerDp = density.density
+            CompositionLocalProvider(LocalDensity provides Density(density.density, 1f)) {
+                Box(Modifier.width(393.dp).height(740.dp)) {
+                    FixtureApp(fleetSnapshot = snapshot.copy(sessions = sessions), onOpenSession = { opened += it.id })
+                }
+            }
+        }
+        discoveryScreenshot("compact-sessions")
+        val firstCard = compose.onNodeWithTag("session-${sessions.first().id}").fetchSemanticsNode().boundsInRoot
+        assertTrue("Ordinary session cards must remain compact: ${firstCard.height / pixelsPerDp} dp", firstCard.height <= 140 * pixelsPerDp)
+        val navigationTop = compose.onNodeWithTag("nav-sessions").fetchSemanticsNode().boundsInRoot.top
+        sessions.forEach { item ->
+            val open = compose.onNodeWithTag("session-open-${item.id}").assertIsDisplayed().assertIsEnabled()
+            assertTrue("Four complete session cards must fit above navigation", open.fetchSemanticsNode().boundsInRoot.bottom <= navigationTop)
+        }
+        compose.onNodeWithTag("session-new").assertIsDisplayed().assertIsEnabled()
+        androidx.test.platform.io.PlatformTestStorageRegistry.getInstance().openOutputFile("compact-sessions-layout.json").use {
+            it.write(org.json.JSONObject().put("observedAt", java.time.Instant.now().toString())
+                .put("viewportWidthDp", 393).put("viewportHeightDp", 740)
+                .put("firstCardHeightDp", firstCard.height / pixelsPerDp)
+                .put("fullyVisibleSessionCards", sessions.size).toString().toByteArray(Charsets.UTF_8))
+        }
+        compose.onNodeWithTag("session-search").performScrollTo().performTextInput("Compact session 4")
+        compose.onNodeWithTag("session-${sessions.first().id}").assertDoesNotExist()
+        compose.onNodeWithTag("session-open-${sessions.last().id}").performScrollTo().performClick()
+        compose.runOnIdle { assertEquals(listOf(sessions.last().id), opened) }
+        compose.onNodeWithTag("session-more-${sessions.last().id}").performClick()
+        compose.onNodeWithText("Download a file").assertIsDisplayed()
     }
 
     @Test

@@ -54,6 +54,7 @@ import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.LocalTextStyle
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
@@ -1267,7 +1268,7 @@ fun AgentFleetApp(
         modifier = Modifier.testTag("agent-fleet-shell"),
         containerColor = MaterialTheme.colorScheme.background,
         topBar = {
-            TopAppBar(
+            if (section != FleetSection.Sessions) TopAppBar(
                 title = {
                     Column {
                         Text("Agent Fleet", fontWeight = FontWeight.Bold, fontSize = 22.sp)
@@ -1566,61 +1567,65 @@ private fun SessionsScreen(
 
     LazyColumn(
         modifier = Modifier.fillMaxSize().padding(padding).testTag("sessions-screen"),
-        contentPadding = PaddingValues(horizontal = 18.dp, vertical = 12.dp),
-        verticalArrangement = Arrangement.spacedBy(14.dp)
+        contentPadding = PaddingValues(horizontal = 14.dp, vertical = 0.dp),
+        verticalArrangement = Arrangement.spacedBy(0.dp)
     ) {
         item {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Column(modifier = Modifier.weight(1f)) {
-                    Text("Your sessions", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
-                    Text(
-                        if (snapshot == null) "Connect to your fleet" else "${snapshot.sessions.size} sessions across ${snapshot.physicalHosts.size} hosts",
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        fontSize = 16.sp
-                    )
-                }
-                Button(onClick = onNewSession, enabled = snapshot?.let { !it.isStale && it.hosts.any { host -> host.status in setOf("online", "healthy") } } == true, shape = RoundedCornerShape(14.dp)) { Text("New", fontSize = 16.sp) }
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text("Agent Fleet", fontSize = 18.sp, fontWeight = FontWeight.Bold, lineHeight = 20.sp)
+                Text("Sessions", fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
         }
         item {
             Row(
-                modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+                modifier = Modifier.fillMaxWidth().padding(bottom = 4.dp),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(6.dp)
             ) {
-                snapshot?.hosts?.forEach { host ->
-                    val dotColor = when (host.status) {
-                        "online", "healthy" -> Color(0xFF4CAF50)
-                        "connecting" -> Color(0xFFFF9800)
-                        else -> Color(0xFF757575)
-                    }
-                    val statusLabel = when (host.status) {
-                        "online", "healthy" -> "online"
-                        "connecting" -> "connecting\u2026"
-                        else -> "offline"
-                    }
-                    Surface(modifier = Modifier.testTag("host-status-${host.id}"), shape = RoundedCornerShape(10.dp), color = MaterialTheme.colorScheme.surfaceVariant) {
-                        Row(modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                            Box(modifier = Modifier.size(7.dp).clip(CircleShape).background(dotColor))
-                            Text(host.name, fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                            Text("\u00b7 $statusLabel", fontSize = 10.sp, color = dotColor)
+                Row(
+                    modifier = Modifier.weight(1f).horizontalScroll(rememberScrollState()),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    snapshot?.hosts?.forEach { host ->
+                        val dotColor = when (host.status) {
+                            "online", "healthy" -> Color(0xFF4CAF50)
+                            "connecting" -> Color(0xFFFF9800)
+                            else -> Color(0xFF757575)
+                        }
+                        val statusLabel = when (host.status) {
+                            "online", "healthy" -> "online"
+                            "connecting" -> "connecting\u2026"
+                            else -> "offline"
+                        }
+                        Surface(modifier = Modifier.testTag("host-status-${host.id}"), shape = RoundedCornerShape(10.dp), color = MaterialTheme.colorScheme.surfaceVariant) {
+                            Row(modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                                Box(modifier = Modifier.size(7.dp).clip(CircleShape).background(dotColor))
+                                Text(host.name, fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                Text("\u00b7 $statusLabel", fontSize = 10.sp, color = dotColor)
+                            }
                         }
                     }
                 }
+                Text(
+                    if (snapshot == null) "" else "\u00b7 ${snapshot.sessions.size}",
+                    fontSize = 12.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Button(
+                    onClick = onNewSession, enabled = snapshot?.let { !it.isStale && it.hosts.any { host -> host.status in setOf("online", "healthy") } } == true,
+                    modifier = Modifier.testTag("session-new"),
+                    shape = RoundedCornerShape(8.dp),
+                    contentPadding = PaddingValues(horizontal = 10.dp, vertical = 2.dp)
+                ) { Text("New", fontSize = 12.sp) }
             }
         }
-        item {
-            OutlinedTextField(
-                value = query,
-                onValueChange = { query = it },
-                modifier = Modifier.fillMaxWidth().testTag("session-search"),
-                label = { Text("Search sessions") },
-                singleLine = true,
-                shape = RoundedCornerShape(16.dp)
-            )
-        }
         when (fleetState) {
-            FleetLoadState.Loading -> item { EmptyState("Refreshing fleet…") }
+            FleetLoadState.Loading -> item { EmptyState("Refreshing fleet\u2026") }
             is FleetLoadState.Unavailable -> item {
                 FleetUnavailableCard(fleetState, onRefresh, onPair)
             }
@@ -1667,6 +1672,17 @@ private fun SessionsScreen(
                 }
             }
         }
+        item {
+            OutlinedTextField(
+                value = query,
+                onValueChange = { query = it },
+                modifier = Modifier.fillMaxWidth().testTag("session-search").heightIn(min = 44.dp),
+                placeholder = { Text("Search", fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant) },
+                singleLine = true,
+                shape = RoundedCornerShape(12.dp),
+                textStyle = LocalTextStyle.current.copy(fontSize = 14.sp)
+            )
+        }
     }
 }
 
@@ -1682,45 +1698,45 @@ private fun SessionCard(
     val identity = sessionIdentityPresentation(session)
     Card(
         modifier = Modifier.fillMaxWidth().testTag("session-${session.id}"),
-        shape = RoundedCornerShape(20.dp),
+        shape = RoundedCornerShape(14.dp),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
     ) {
-        Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        Column(Modifier.padding(4.dp), verticalArrangement = Arrangement.spacedBy(3.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 StatusDot(if (available && session.activity == "active") ReadyGreen else QuietGray)
-                Spacer(Modifier.size(10.dp))
+                Spacer(Modifier.size(6.dp))
                 Column(Modifier.weight(1f)) {
-                    Text(identity.primary, fontSize = 20.sp, fontWeight = FontWeight.Bold)
-                    if (identity.secondary.isNotBlank()) Text(identity.secondary, fontSize = 14.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text(identity.primary, fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                    if (identity.secondary.isNotBlank()) Text(identity.secondary, fontSize = 11.sp, maxLines = 1, overflow = TextOverflow.Ellipsis, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
                 Text(
                     if (!available) "Unavailable" else if (session.activity == "active") "Active" else "Idle",
                     color = if (available && session.activity == "active") ReadyGreen else QuietGray,
-                    fontWeight = FontWeight.SemiBold
+                    fontWeight = FontWeight.SemiBold, fontSize = 12.sp
                 )
             }
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically) {
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
                 Text(
                     hostName,
                     modifier = Modifier.weight(1f),
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
-                    fontSize = 15.sp,
+                    fontSize = 12.sp,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
                 Text(
                     session.tool.replaceFirstChar { it.uppercase() },
-                    modifier = Modifier.background(MaterialTheme.colorScheme.surfaceVariant, RoundedCornerShape(10.dp)).padding(horizontal = 10.dp, vertical = 6.dp),
+                    modifier = Modifier.background(MaterialTheme.colorScheme.surfaceVariant, RoundedCornerShape(10.dp)).padding(horizontal = 8.dp, vertical = 3.dp),
                     maxLines = 1,
-                    fontSize = 14.sp,
+                    fontSize = 12.sp,
                     fontWeight = FontWeight.SemiBold
                 )
             }
             Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                Button(onClick = onOpen, enabled = available, modifier = Modifier.weight(1f).testTag("session-open-${session.id}"), shape = RoundedCornerShape(14.dp)) {
-                    Text(if (locallyAttached) "Return" else "Enter", fontSize = 17.sp)
+                Button(onClick = onOpen, enabled = available, modifier = Modifier.weight(1f).testTag("session-open-${session.id}"), shape = RoundedCornerShape(10.dp), contentPadding = PaddingValues(vertical = 6.dp)) {
+                    Text(if (locallyAttached) "Return" else "Enter", fontSize = 13.sp)
                 }
-                OutlinedButton(onClick = onMore, modifier = Modifier.testTag("session-more-${session.id}"), shape = RoundedCornerShape(14.dp)) { Text("More", fontSize = 16.sp) }
+                OutlinedButton(onClick = onMore, modifier = Modifier.testTag("session-more-${session.id}"), shape = RoundedCornerShape(10.dp), contentPadding = PaddingValues(vertical = 6.dp)) { Text("More", fontSize = 12.sp) }
             }
         }
     }
