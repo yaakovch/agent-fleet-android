@@ -1930,3 +1930,22 @@ S23FE was not accessed and no APK was installed or published.
 
 Gate: Android and Windows carry the same dotted-session fix, and phone host
 repair installs the same portable runtime that the Windows app embeds.
+
+Acceptance record (2026-09-16): Android commit `fe2a39d2` embeds exact wtmux
+source `f5e1308` at sequences `77/69/41`, contracts `1.10.0/20`, universal
+Termux bundle SHA-256
+`e03a4b435ecd4b45a0dc5ba611b93ca3675f4e01afa9a00a99e43fd6a95f0514`, and
+host-repair archive SHA-256
+`dc3d52beba36d450897c8d3b8503a8992d48b26775ec356db3726cdf48a86e27`, which is the
+Windows baseline artifact. The embedded-runtime verifier and all 75
+release/runtime script tests passed. `app-release.sh` passed preflight, the
+protected full API 36 suite, release lint, the signed build, artifact
+verification, the live sequence recheck, publication, and HTTPS served-byte
+verification. Published `0.118.4-agentfleet.94` (`1108`) has arm64 SHA-256
+`123a241d26c505ddb990f790ebf63259b21afaf71bf768cd7ac8467f3604d618` and universal
+SHA-256 `5b1fb93e9dd9a33ad701304189ef9125b3dac9c639a599610d837f9384ad606c`; the
+publisher high-water claim is now `1108`. The first signed build from this WSL
+checkout selected the Windows SDK fallback and CMD rejected its UNC path, and a
+second attempt was stopped by host memory pressure before signing; the
+published build used `ANDROID_SDK_ROOT` and `ANDROID_HOME` set to the native
+Linux SDK. The physical S23FE was not accessed.
