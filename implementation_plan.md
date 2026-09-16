@@ -1916,3 +1916,17 @@ All 66 release/runtime tests, rollback rehearsal, JVM/lint/package gate, and
 the exactly-once protected full suite passed; the latter recorded `OK (59
 tests)` and `INSTRUMENTATION_CODE: -1` in `20260820T105733Z-full`. The physical
 S23FE was not accessed and no APK was installed or published.
+
+## 66. Dotted Project Session Names Parity
+
+1. Embed exact wtmux source `f5e1308` at component sequences `77/69/41` and
+   contracts `1.10.0/20`, using Android's canonical universal Termux runtime
+   and the portable Linux host-repair archive from the same commit.
+2. Raise the Android embedded-runtime floor to the same values so an APK cannot
+   reactivate a runtime whose session names keep tmux target separators.
+3. Release `0.118.4-agentfleet.94`, version code `1108`, through
+   `scripts/release/app-release.sh` after the protected API 36 suite, release
+   lint, signed build, artifact verification, and served-byte verification.
+
+Gate: Android and Windows carry the same dotted-session fix, and phone host
+repair installs the same portable runtime that the Windows app embeds.

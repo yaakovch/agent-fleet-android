@@ -58,9 +58,9 @@ class EmbeddedRuntimeRegistryTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "omits managed terminal-reply safety"):
             runtime.validate_terminal_reply_safe_runtime(
                 {
-                    "clientRuntime": {"sequence": 66},
-                    "hostRuntime": {"sequence": 60},
-                    "providerAdapters": {"sequence": 33},
+                    "clientRuntime": {"sequence": 77},
+                    "hostRuntime": {"sequence": 69},
+                    "providerAdapters": {"sequence": 41},
                 },
                 {"lib/tmux_state.sh"},
             )
@@ -73,13 +73,31 @@ class EmbeddedRuntimeRegistryTest(unittest.TestCase):
                 },
                 safe_files,
             )
-        self.assertEqual(
-            66,
+        with self.assertRaisesRegex(ValueError, "predates managed terminal-reply safety"):
             runtime.validate_terminal_reply_safe_runtime(
                 {
                     "clientRuntime": {"sequence": 66},
                     "hostRuntime": {"sequence": 60},
                     "providerAdapters": {"sequence": 33},
+                },
+                safe_files,
+            )
+        with self.assertRaisesRegex(ValueError, "predates managed terminal-reply safety"):
+            runtime.validate_terminal_reply_safe_runtime(
+                {
+                    "clientRuntime": {"sequence": 76},
+                    "hostRuntime": {"sequence": 68},
+                    "providerAdapters": {"sequence": 40},
+                },
+                safe_files,
+            )
+        self.assertEqual(
+            77,
+            runtime.validate_terminal_reply_safe_runtime(
+                {
+                    "clientRuntime": {"sequence": 77},
+                    "hostRuntime": {"sequence": 69},
+                    "providerAdapters": {"sequence": 41},
                 },
                 safe_files,
             )["clientRuntime"]["sequence"],
