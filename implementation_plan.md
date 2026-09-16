@@ -1963,3 +1963,22 @@ Linux SDK. The physical S23FE was not accessed.
 
 Gate: Android and Windows carry the same configuration loader and writer, and
 phone host repair installs the runtime that the Windows app embeds.
+
+Acceptance record (2026-09-16): Android commit `75fd566c` embeds exact wtmux
+source `28d569f` at sequences `79/71/43`, contracts `1.10.0/20`, universal
+Termux bundle SHA-256
+`bc5f6c97846cebd8566061d8f3c449631231a54a3e6a5bc1108d36ceebc30209`, and
+host-repair archive SHA-256
+`cfe568c254b7d6def3c561cf395f11c05f95a52b4fd1aa5b87da5af55ec842f7`, the Windows
+baseline artifact. Commit `3bee683e` had embedded `ccdc45f`, whose repeated
+render added a blank line; it was superseded before release. The
+embedded-runtime verifier and all 75 release/runtime script tests passed. The
+app already accepts the canonical `wtmux-fleet configuration` binding and
+installs registries through the runtime, so it carries no separate writer.
+`app-release.sh` with the native Linux SDK passed preflight, the protected full
+API 36 suite, release lint, the signed build, artifact verification, the live
+sequence recheck, publication, and HTTPS served-byte verification. Published
+`0.118.4-agentfleet.95` (`1109`) has arm64 SHA-256
+`670a3f777b0fd66672da5ee322901f9c979858546ac1ada955d060e656bd9255` and universal
+SHA-256 `04c7c5b63270d922ed06d446761623eaec95fe0681de718bba3bda0074b57670`; the
+publisher high-water claim is now `1109`. The physical S23FE was not accessed.
