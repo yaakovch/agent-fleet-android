@@ -1,25 +1,25 @@
 {
   "schemaVersion": 1,
-  "baselineVersion": "git-f5e1308",
+  "baselineVersion": "git-ccdc45f",
   "sourceRepository": "https://github.com/yaakovch/wtmux",
-  "wtmuxCommit": "f5e13083d2a62b0129d140aff9e1645807359ac3",
+  "wtmuxCommit": "ccdc45f8bb260e485305f5016e868428ab7bbfc9",
   "contractPackageVersion": "1.10.0",
   "components": {
     "clientRuntime": {
-      "sequence": 77,
-      "version": "git-f5e1308"
+      "sequence": 78,
+      "version": "git-ccdc45f"
     },
     "contracts": {
       "sequence": 20,
       "version": "1.10.0"
     },
     "hostRuntime": {
-      "sequence": 69,
-      "version": "git-f5e1308"
+      "sequence": 70,
+      "version": "git-ccdc45f"
     },
     "providerAdapters": {
-      "sequence": 41,
-      "version": "git-f5e1308"
+      "sequence": 42,
+      "version": "git-ccdc45f"
     }
   },
   "protocolVersion": 2,
@@ -27,12 +27,12 @@
     "arm64-v8a"
   ],
   "runtime": {
-    "file": "wtmux-runtime-git-f5e1308.tar",
-    "sha256": "e03a4b435ecd4b45a0dc5ba611b93ca3675f4e01afa9a00a99e43fd6a95f0514",
+    "file": "wtmux-runtime-git-ccdc45f.tar",
+    "sha256": "7e4049e61ab5f9bbd25a5cc9110bcf178e039665dc5d3d446c4ad5a0b3c09313",
     "size": 2007040,
     "formatVersion": 2,
-    "manifestSha256": "f55922274c1ad6b9632e0ce7815871df3c65773113e1b1333350d3996e5be159",
-    "sbomSha256": "44976a542c4ecaca942196322a06d64f3177acddcf58c950417998aa99fdafa9",
+    "manifestSha256": "1ad26c06844a389ad7c1d499386645177b0a6cc7f5d887e7ac7d17b1d427050e",
+    "sbomSha256": "06d2c4bd07b6184c21c518e57c5a310e237923cb52e880757f526ae4907e1d67",
     "licenseSha256": "35f21b22ce50b6ff562c9223606a3f0681821cb67c6390543b25d742801ea7b1"
   },
   "registry": {

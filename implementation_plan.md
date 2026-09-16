@@ -1949,3 +1949,17 @@ checkout selected the Windows SDK fallback and CMD rejected its UNC path, and a
 second attempt was stopped by host memory pressure before signing; the
 published build used `ANDROID_SDK_ROOT` and `ANDROID_HOME` set to the native
 Linux SDK. The physical S23FE was not accessed.
+
+## 67. Single wtmux Configuration Writer Parity
+
+1. Embed exact wtmux source `ccdc45f` at component sequences `78/70/42` and
+   contracts `1.10.0/20`, using Android's canonical universal Termux runtime
+   and the portable Linux host-repair archive from the same commit.
+2. Raise the Android embedded-runtime floor to the same values. The runtime
+   loads each registry machine once and exposes the canonical
+   `wtmux-fleet-config render-config` projection.
+3. Release `0.118.4-agentfleet.95`, version code `1109`, through
+   `scripts/release/app-release.sh` with the native Linux SDK.
+
+Gate: Android and Windows carry the same configuration loader and writer, and
+phone host repair installs the runtime that the Windows app embeds.
