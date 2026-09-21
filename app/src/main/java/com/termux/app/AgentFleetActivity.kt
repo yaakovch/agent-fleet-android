@@ -2364,10 +2364,14 @@ private fun SharedImagesSessionDialog(
 
 @Composable
 internal fun FleetUnavailableCard(state: FleetLoadState.Unavailable, onRefresh: () -> Unit, onPair: () -> Unit) {
+    val recovery = TransportContract.recoveryFor(state.code)
     Card(shape = RoundedCornerShape(20.dp), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)) {
         Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            Text(TransportContract.recoveryFor(state.code)?.title ?: "Fleet is not connected", fontSize = 20.sp, fontWeight = FontWeight.Bold)
+            Text(recovery?.title ?: "Fleet is not connected", fontSize = 20.sp, fontWeight = FontWeight.Bold)
             Text(state.reason, fontSize = 16.sp, lineHeight = 22.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            if (TransportContract.stableCode(state.code) == "NETWORK_UNREACHABLE" && recovery != null) {
+                Text(recovery.action, fontSize = 16.sp, lineHeight = 22.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
             Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                 if (state.code.isBlank()) Button(onClick = onPair, shape = RoundedCornerShape(14.dp)) { Text("Pair", fontSize = 16.sp) }
                 OutlinedButton(onClick = onRefresh, enabled = !state.recovering, shape = RoundedCornerShape(14.dp)) {

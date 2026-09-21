@@ -738,3 +738,12 @@ trusted fleet.
   replacing a pane closes its controller without killing the tmux session.
 - Host resource-budget attention appears in Diagnostics as connection resources
   needing review. Diagnostic output remains metadata-only.
+
+## Connection Recovery Guidance
+
+- Android and Windows show `Check your connection` for network-unreachable
+  failures, with explicit advice to open Tailscale and check its connection on
+  both devices when Tailscale is used. A timeout is not proof of VPN state.
+- Android shows this advice for both initial discovery failures and cached
+  offline hosts. Keep Retry, automatic reconnection, and distinct configuration,
+  SSH trust, and host-runtime recovery paths.

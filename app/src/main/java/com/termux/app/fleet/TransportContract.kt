@@ -10,7 +10,9 @@ object TransportContract {
     val recovery: Map<String, TransportRecovery> = mapOf(
         "ENDPOINT_UNSUPPORTED" to TransportRecovery("No compatible host route", "Verify an OpenSSH endpoint for this host", "review"),
         "NETWORK_UNREACHABLE" to TransportRecovery(
-            "Private network unavailable", "Waiting for host contact; retrying automatically", "retry"
+            "Check your connection",
+            "If you use Tailscale, open it and make sure it’s connected on this device and the host. Retrying automatically.",
+            "retry"
         ),
         "DNS_UNAVAILABLE" to TransportRecovery(
             "Endpoint name unavailable", "Retry endpoint lookup", "retry"

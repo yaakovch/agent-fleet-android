@@ -152,6 +152,30 @@ class AgentFleetComposeTest {
     }
 
     @Test
+    fun networkFailureShowsTailscaleGuidanceBeforeHostsLoad() {
+        val state = mutableStateOf(FleetLoadState.Unavailable("Host could not be reached", "NETWORK_UNREACHABLE"))
+        val retries = AtomicInteger()
+        compose.setContent {
+            AgentFleetTheme(darkTheme = true) {
+                Box(Modifier.fillMaxWidth().windowInsetsPadding(WindowInsets.safeDrawing).padding(18.dp)) {
+                    FleetUnavailableCard(state.value, onRefresh = { retries.incrementAndGet() },
+                        onPair = { error("A network failure must not request pairing") })
+                }
+            }
+        }
+        compose.onNodeWithText("If you use Tailscale", substring = true).assertIsDisplayed()
+        compose.onNodeWithText("Host could not be reached").assertIsDisplayed()
+        compose.onNodeWithText("Pair").assertDoesNotExist()
+        compose.onNodeWithText("Retry").performClick()
+        assertEquals(1, retries.get())
+        discoveryScreenshot("tailscale-connection-guidance")
+        compose.runOnIdle { state.value = FleetLoadState.Unavailable("Saved fleet information needs repair", "REGISTRY_INVALID") }
+        compose.onNodeWithText("If you use Tailscale", substring = true).assertDoesNotExist()
+        compose.onNodeWithText("Fleet configuration unavailable").assertIsDisplayed()
+        compose.onNodeWithText("Repair and retry").assertIsEnabled()
+    }
+
+    @Test
     fun configurationFailureOffersRepairWithoutRequiringPairing() {
         val state = mutableStateOf(com.termux.app.fleet.FleetLoadState.Unavailable(
             "Saved fleet information needs repair. Your trusted hosts are retained.", "REGISTRY_INVALID"
@@ -194,10 +218,12 @@ class AgentFleetComposeTest {
             val session = live.sessions.single()
             compose.onNodeWithTag("fleet-cache-status").assertIsDisplayed()
             compose.onNodeWithTag("host-failure-emulator-host").assertIsDisplayed()
+            compose.onNodeWithText("If you use Tailscale", substring = true).assertIsDisplayed()
             compose.onNodeWithTag("session-open-${session.id}").assertIsNotEnabled()
             discoveryScreenshot("discovery-cached")
             compose.onNodeWithText("Retry").performClick()
             compose.onNodeWithTag("host-status-emulator-host").assertIsDisplayed()
+            compose.onNodeWithText("If you use Tailscale", substring = true).assertDoesNotExist()
             compose.onNodeWithTag("session-${session.id}").assertIsDisplayed()
             discoveryScreenshot("discovery-recovered")
             compose.onNodeWithTag("session-open-${session.id}").assertIsEnabled().performClick()

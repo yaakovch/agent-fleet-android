@@ -1982,3 +1982,23 @@ sequence recheck, publication, and HTTPS served-byte verification. Published
 `670a3f777b0fd66672da5ee322901f9c979858546ac1ada955d060e656bd9255` and universal
 SHA-256 `04c7c5b63270d922ed06d446761623eaec95fe0681de718bba3bda0074b57670`; the
 publisher high-water claim is now `1109`. The physical S23FE was not accessed.
+
+## 68. Explicit Tailscale Connection Guidance
+
+Owner confirmed disconnected Tailscale caused the S23FE `.95` report and
+approved clearer recovery wording on 2026-09-21; the existing no-SPEC decision
+continues. Update Windows recovery text first, then match Android and expose
+the advice on the initial unavailable card. Validate transport mappings, Retry,
+cached-host recovery, and absence of network advice for configuration errors.
+This is client presentation only, with no protocol or intentional platform
+behavior difference. Initial focused validation passed: five JVM tests,
+three protected API 36 interactions, debug lint, and Windows's eight transport
+and setup tests plus typechecking. The new initial-card test failed before
+the change. Captures confirm readable advice and its removal after recovery.
+
+The owner subsequently authorized a new version through the in-app updater.
+Release `.96` (1110) from a clean pushed revision using `app-release.sh`, the
+native Linux SDK and the protected Windows API 36 backend. Run the local
+quality gate and one full release suite, publish the exact signed artifact to
+`fleet/latest`, retain `.95`, and verify HTTPS-served bytes. The physical phone
+remains owner-operated; this task does not publish a Windows app release.
