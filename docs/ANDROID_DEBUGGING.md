@@ -279,3 +279,34 @@ signed in-app update flow. Manually check launch, one existing Native session,
 one terminal fallback, one file download, one Plan answer, limits, and
 Diagnostics preview/export. Do not uninstall or reset the phone during this
 smoke test.
+
+## Native question provider acceptance
+
+`AgentFleetComposeTest.liveNativeQuestionsReachProviderAndContinue` is an optional
+connected probe. It reads an actual conversation snapshot from the protected
+emulator's `/sdcard/Download/agent-fleet-native-question-snapshot.json`, taps the
+second option for every question and writes the exact answer payload to the
+corresponding `-answer.json`. An external isolated-provider driver sends that
+payload through `wtmux-conversation answer` and writes `-response.json` containing
+the matching receipt and a fresh snapshot with the agent continuation. The probe
+asserts one submission, closes only after receipt, and captures prompt/tap/continued
+images through PlatformTestStorage. It exercises Native UI and the production
+bridge; the file relay substitutes the Android transport. It must not be reported
+as an SSH/controller integration test.
+
+The probe skips when its input fixture is absent. An `OK (1 test)` report can
+therefore be a skip: acceptance additionally requires no assumption violation,
+the actual tap payload, provider receipt, continuation and inspected images.
+Remove only those three temporary fixture files after the probe so routine full
+suites skip it instead of replaying an already answered provider request.
+
+UiAutomation shell commands are argument-tokenized, not interpreted as shell
+syntax. Use `executeShellCommandRw` with `tee` to transfer JSON without shell
+quoting or redirection. Capture a real current provider transcript: Codex 0.155.1
+ordinary messages use `item_completed` UserMessage/AgentMessage records; its async
+answers use quoted titles while newer upstream versions use explicit reply IDs.
+
+Conversation Markdown prose is hosted in Android TextViews. Compose text matchers
+do not inspect those views; use the actual view hierarchy for visible-content
+assertions and retain the rendered screenshot. A missing Compose text node alone
+is not evidence that the conversation text is absent from the screen.

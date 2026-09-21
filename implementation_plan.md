@@ -2002,3 +2002,41 @@ native Linux SDK and the protected Windows API 36 backend. Run the local
 quality gate and one full release suite, publish the exact signed artifact to
 `fleet/latest`, retain `.95`, and verify HTTPS-served bytes. The physical phone
 remains owner-operated; this task does not publish a Windows app release.
+
+
+## Approved Native questions implementation (2026-09-21)
+
+1. Reproduce final-answer delivery and asynchronous question lifecycle failures
+   against installed Codex; fix stable request revisions and durable receipts.
+2. Implement pending/submitting/error/complete lifecycle in Windows, then Android;
+   retain drafts and implement async request selection without composer capture.
+3. Apply the focused desktop-inspired conversation presentation on both clients.
+4. Validate shared behavior fixtures, actual provider continuation, Windows UI
+   parity and protected Android emulator interactions and reviewed screenshots.
+5. Package the fixed host runtime and publish one verified Android in-app update.
+   Windows installer publication is outside this scope. Acceptance is pending
+   until evidence and release gates are recorded.
+
+Current implementation evidence: host source `654438dd44a4622ca8d469d82ad7157b8e22241b`
+passes 51 existing plus 9 new question/message tests. Real Codex blocking groups
+1/2/3/4/8 and async group 2 delivered successfully with idempotent retry receipts.
+Both embedded runtimes verify; Windows parity commit `0730b7e` passes 45 targeted
+tests, TypeScript, production build and actual Native renderer click/receipt checks.
+Windows dark/light PNGs were reviewed. The Android connected probe found and fixed
+missing Codex 0.155.1 UserMessage/AgentMessage `item_completed` support in the host.
+The connected Android probe passed on protected API 36 (20260921T191307Z-focused):
+three actual taps, one production bridge delivery, matching provider receipt and
+visible continuation. The file relay substitutes Android transport; this is not
+an SSH/controller integration claim. Evidence and verified flow/parity receipts:
+`build/reports/agent-fleet/native-question-acceptance`. The 49 regular Compose
+checks passed in the earlier focused class run; the connected-only rerun resolved
+the Markdown TextView assertion. Dark/light question and compact tool screenshots were inspected and adopted from
+`20260921T191619Z-update-goldens`; release gates remain pending.
+Candidate version is .97 / 1111. Existing remote hosts need the bundled runtime
+through More → Find and repair hosts; phone operation remains owner-performed.
+
+Pre-release local quality gate passed: all JVM tests, debug lint, complete debug
+APK integrity, 75 release/runtime regressions and backup/rollback rehearsal.
+Shared contract generation check passed for both client repositories. The signed
+release orchestrator must record its remaining gates and publication result in
+the wtmux handoff `docs/integration/NATIVE_QUESTIONS_REFRESH_2026-09-21.md`.

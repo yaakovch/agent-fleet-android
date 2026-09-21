@@ -12,6 +12,21 @@ import org.robolectric.RuntimeEnvironment
 
 @RunWith(RobolectricTestRunner::class)
 class ConversationStreamParserTest {
+    @Test fun sharedAsyncQuestionFixtureSurvivesNewActivity() {
+        val fixture = org.json.JSONObject(checkNotNull(javaClass.classLoader?.getResourceAsStream("native-question-behavior-v1.json"))
+            .bufferedReader().use { it.readText() })
+        val examples = fixture.getJSONArray("cases")
+        repeat(examples.length()) { index ->
+            val example = examples.getJSONObject(index)
+            val frame = org.json.JSONObject().put("protocolVersion", 2).put("type", "conversation.snapshot")
+                .put("timestamp", "2026-09-21T10:00:00Z").put("session", "fixture").put("adapter", "codex")
+                .put("mode", "ai").put("interactionMode", "default").put("revision", "r1").put("items", example.getJSONArray("events"))
+                .put("nextCursor", org.json.JSONObject.NULL).put("hasMore", false)
+            val parsed = ConversationStreamParser.parseFrame(frame.toString()) as ConversationFrame.Snapshot
+            val merged = mergeConversationItems(emptyList(), parsed.items)
+            assertEquals(example.getJSONArray("pending").getString(0), activePendingAction(merged)?.id)
+        }
+    }
     private fun item(id: String, text: String = "hello") = """
         {"id":"$id","kind":"message","timestamp":"2026-07-13T00:00:00Z","role":"assistant","title":"","text":"$text","detail":"","state":"complete","tool":"codex","attachments":[],"choices":[]}
     """.trimIndent()

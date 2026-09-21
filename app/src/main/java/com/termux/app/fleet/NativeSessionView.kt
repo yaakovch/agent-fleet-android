@@ -168,7 +168,10 @@ fun NativeSessionScreen(
     var dismissedActionId by rememberSaveable { mutableStateOf("") }
     var feedNearBottom by remember { mutableStateOf(true) }
     var viewerOpen by remember { mutableStateOf(false) }
-    val pendingAction = activePendingAction(state.items)
+    val pendingActions = retireSupersededQuestions(state.items).filter { it.kind in setOf("question", "approval") && it.state != "complete" }
+    val pendingAction = pendingActions.firstOrNull { it.id == actionSheetId }
+        ?: pendingActions.lastOrNull { it.source != "codex_async_question" } ?: pendingActions.firstOrNull()
+    val answerStateHolder = androidx.compose.runtime.saveable.rememberSaveableStateHolder()
     val suggestionSurfaceActive = state.surfaceActive && state.suggestionFocused &&
         state.viewMode == NativeViewMode.Native
     val automaticQuestion = pendingAction?.takeIf { it.kind == "question" }
@@ -203,6 +206,7 @@ fun NativeSessionScreen(
         state.focusQuestionSerial,
         state.providerState.mutationsAllowed
     ) {
+        if (actionSheetId.isNotBlank() && pendingActions.none { it.id == actionSheetId }) actionSheetId = ""
         if (pendingAction == null) {
             actionSheetId = ""
             dismissedActionId = ""
@@ -211,7 +215,7 @@ fun NativeSessionScreen(
         } else if (state.focusQuestionSerial > 0 && pendingAction.id == state.focusQuestionId) {
             dismissedActionId = ""
             actionSheetId = pendingAction.id
-        } else if (pendingAction.id != dismissedActionId && feedNearBottom && !viewerOpen) {
+        } else if (pendingAction.source != "codex_async_question" && pendingAction.id != dismissedActionId && feedNearBottom && !viewerOpen) {
             actionSheetId = pendingAction.id
         }
     }
@@ -247,6 +251,7 @@ fun NativeSessionScreen(
             }
         },
         bottomBar = {
+          Column {
             if (pendingAction != null && state.providerState.mutationsAllowed) {
                 Surface(
                     modifier = Modifier.windowInsetsPadding(WindowInsets.navigationBars),
@@ -258,7 +263,7 @@ fun NativeSessionScreen(
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Column(Modifier.weight(1f)) {
-                            Text(pendingAction.title.ifBlank { if (pendingAction.kind == "question") "Answer needed" else "Approval needed" }, fontSize = AgentFleetDisplayDensity.DEFAULT_NATIVE_BODY_SP.sp, fontWeight = FontWeight.Bold)
+                            Text(if (pendingActions.size > 1) "${pendingActions.size} questions waiting" else pendingAction.title.ifBlank { if (pendingAction.kind == "question") "Answer needed" else "Approval needed" }, fontSize = AgentFleetDisplayDensity.DEFAULT_NATIVE_BODY_SP.sp, fontWeight = FontWeight.Bold)
                             Text("Tap to respond", fontSize = (AgentFleetDisplayDensity.DEFAULT_NATIVE_BODY_SP - 3).sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
                         Text("Open", color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold)
@@ -269,7 +274,9 @@ fun NativeSessionScreen(
                     label = "Response is available in Terminal",
                     onOpenTerminal = onToggleTerminal
                 )
-            } else if (state.sourceMode == "shell" && !aiComposer) {
+            }
+            if (pendingAction == null || pendingAction.source == "codex_async_question") {
+              if (state.sourceMode == "shell" && !aiComposer) {
                 ShellCommandBar(onShellCommand, onShellKey, onControlC)
             } else if (aiComposer && inlineComposer && state.providerState.mutationsAllowed) {
                 NativeAiComposer(
@@ -282,6 +289,8 @@ fun NativeSessionScreen(
                     onOpenTerminal = onToggleTerminal
                 )
             }
+            }
+          }
         }
     ) { padding ->
         key(state.hostId, state.internalSession) {
@@ -322,16 +331,27 @@ fun NativeSessionScreen(
                     Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
                         Column(Modifier.weight(1f)) {
                             Text("Action needed", fontWeight = FontWeight.Bold, fontSize = 17.sp)
-                            Text("Complete this to continue", fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Text(if (pendingAction.source == "codex_async_question") "Codex can keep working while you answer" else "Complete this to continue", fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
                         TextButton(onClick = { actionSheetId = ""; dismissedActionId = pendingAction.id }) { Text("Close") }
                     }
+                    if (pendingActions.size > 1) {
+                        Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).testTag("native-question-picker")) {
+                            pendingActions.forEachIndexed { index, action ->
+                                TextButton(onClick = { actionSheetId = action.id }, modifier = Modifier.testTag("native-question-open-${action.id}")) {
+                                    Text("${index + 1}. ${action.questions.firstOrNull()?.header?.ifBlank { null } ?: "Question"}")
+                                }
+                            }
+                        }
+                    }
                     Box(Modifier.weight(1f).padding(horizontal = 10.dp, vertical = 6.dp)) {
+                      answerStateHolder.SaveableStateProvider(pendingAction.id) {
                         ConversationItemCard(
                             pendingAction, onApproval, onQuestion, onToggleTerminal, onRetry,
                             onOpenTool = { _, _ -> }, onOpenPlan = {},
                             localSuggestions = localSuggestions, conversationItems = state.items
                         )
+                      }
                     }
                 }
             }
@@ -926,7 +946,9 @@ private fun ConversationFeed(
     val listState = rememberLazyListState()
     val scope = rememberCoroutineScope()
     val rows = remember(state.items, state.hasMore, pinnedActionId) {
-        buildConversationRows(state.items.filterNot { it.id == pinnedActionId }, state.hasMore)
+        buildConversationRows(state.items.filterNot {
+            it.id == pinnedActionId || (it.kind == "question" && it.source == "codex_async_question" && it.state != "complete")
+        }, state.hasMore)
     }
     var expandedToolIds by rememberSaveable { mutableStateOf(listOf<String>()) }
     var handledLiveSerial by remember { mutableStateOf(state.liveEventSerial) }
@@ -1270,11 +1292,10 @@ private fun MessageCard(value: ConversationItem) {
         if (user) {
             Card(
                 modifier = Modifier.widthIn(max = 680.dp).fillMaxWidth(0.9f),
-                shape = RoundedCornerShape(14.dp),
-                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer)
+                shape = RoundedCornerShape(20.dp),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
             ) {
                 Column(Modifier.padding(horizontal = 11.dp, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                    Text("You", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
                     MarkdownText(value.text)
                     value.attachments.forEach { Text("📎 $it", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant) }
                 }
@@ -1284,10 +1305,8 @@ private fun MessageCard(value: ConversationItem) {
                 Modifier.widthIn(max = 680.dp).fillMaxWidth().padding(horizontal = 2.dp, vertical = 4.dp),
                 verticalArrangement = Arrangement.spacedBy(5.dp)
             ) {
-                Text("Codex", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = ReadyGreen)
                 MarkdownText(value.text)
                 value.attachments.forEach { Text("📎 $it", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant) }
-                Box(Modifier.fillMaxWidth().height(1.dp).background(MaterialTheme.colorScheme.outlineVariant))
             }
         }
     }
@@ -1466,7 +1485,7 @@ private fun ToolGroupCard(
         modifier = Modifier.testTag("tool-group-${group.calls.first().id}"),
         shape = RoundedCornerShape(16.dp),
         colors = CardDefaults.cardColors(
-            containerColor = if (state == "error") MaterialTheme.colorScheme.errorContainer else MaterialTheme.colorScheme.surface
+            containerColor = if (state == "error") MaterialTheme.colorScheme.errorContainer else Color.Transparent
         )
     ) {
         Column(Modifier.fillMaxWidth().padding(horizontal = 15.dp, vertical = 12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -1833,16 +1852,16 @@ private fun QuestionCard(
         return
     }
 
-    Card(modifier = Modifier.fillMaxSize().testTag("question-${value.id}"), shape = RoundedCornerShape(18.dp), colors = CardDefaults.cardColors(containerColor = Color(0xFFFFF3D4))) {
+    Card(modifier = Modifier.fillMaxSize().testTag("question-${value.id}"), shape = RoundedCornerShape(18.dp), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)) {
         Column(Modifier.fillMaxSize().padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            Text(value.title.ifBlank { "Answer needed" }, color = Color(0xFF352A00), fontSize = 18.sp, fontWeight = FontWeight.Bold)
+            Text(value.title.ifBlank { "Answer needed" }, color = MaterialTheme.colorScheme.onSurface, fontSize = 18.sp, fontWeight = FontWeight.Bold)
             when {
                 value.state == "running" -> {
-                    Text("Sending your answer and waiting for the agent to confirm it…", color = Color(0xFF514500), fontSize = 15.sp)
+                    Text("Sending your answer and waiting for the agent to confirm it…", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 15.sp)
                     OutlinedButton(onClick = onOpenTerminal) { Text("Open Terminal") }
                 }
                 value.state == "error" -> {
-                    Text(value.text.ifBlank { "The answer was not confirmed. Review it, then retry." }, color = Color(0xFF7A3000), fontSize = 15.sp)
+                    Text(value.text.ifBlank { "The answer was not confirmed. Review it, then retry." }, color = MaterialTheme.colorScheme.error, fontSize = 15.sp)
                     if (value.revision != null && value.questions.isNotEmpty()) QuestionForm(value, onQuestion, onOpenTerminal, localSuggestions, conversationItems, Modifier.weight(1f), retry = true)
                     else Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         Button(onClick = onCheckAgain) { Text("Check again") }
@@ -1850,7 +1869,7 @@ private fun QuestionCard(
                     }
                 }
                 value.revision == null || value.questions.isEmpty() -> {
-                    Text("This prompt can be reviewed here, but it cannot be answered safely in Native view.", color = Color(0xFF514500), fontSize = 15.sp)
+                    Text("This prompt can be reviewed here, but it cannot be answered safely in Native view.", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 15.sp)
                     OutlinedButton(onClick = onOpenTerminal) { Text("Open Terminal") }
                 }
                 else -> QuestionForm(value, onQuestion, onOpenTerminal, localSuggestions, conversationItems, Modifier.weight(1f))
@@ -1902,9 +1921,9 @@ private fun QuestionForm(
             Modifier.fillMaxWidth().weight(1f).verticalScroll(rememberScrollState()).padding(end = 3.dp),
             verticalArrangement = Arrangement.spacedBy(9.dp)
         ) {
-            Text("${page + 1} of ${value.questions.size}", modifier = Modifier.testTag("question-page"), color = Color(0xFF6C5B00), fontSize = 13.sp, fontWeight = FontWeight.Bold)
-            if (question.header.isNotBlank()) Text(question.header, color = Color(0xFF352A00), fontSize = 14.sp, fontWeight = FontWeight.Bold)
-            Text(question.prompt, color = Color(0xFF352A00), fontSize = 16.sp)
+            Text("${page + 1} of ${value.questions.size}", modifier = Modifier.testTag("question-page"), color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 13.sp, fontWeight = FontWeight.Bold)
+            if (question.header.isNotBlank()) Text(question.header, color = MaterialTheme.colorScheme.onSurface, fontSize = 14.sp, fontWeight = FontWeight.Bold)
+            Text(question.prompt, color = MaterialTheme.colorScheme.onSurface, fontSize = 16.sp)
             options.forEach { option ->
                 val selected = option.id in current.choiceIds
                 val choose: () -> Unit = {
@@ -1922,14 +1941,14 @@ private fun QuestionForm(
                 Surface(
                     modifier = Modifier.fillMaxWidth().clickable(onClick = choose).testTag("question-option-${question.id}-${option.id}"),
                     shape = RoundedCornerShape(12.dp),
-                    color = if (selected) Color(0xFFFFE29A) else Color(0xFFFFF9EA)
+                    color = if (selected) MaterialTheme.colorScheme.secondaryContainer else MaterialTheme.colorScheme.surfaceVariant
                 ) {
                     Row(Modifier.fillMaxWidth().padding(horizontal = 13.dp, vertical = 11.dp), verticalAlignment = Alignment.CenterVertically) {
                         Column(Modifier.weight(1f)) {
-                            Text(option.label, color = Color(0xFF352A00), fontSize = 15.sp, fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal)
-                            if (option.description.isNotBlank()) Text(option.description, color = Color(0xFF6C5B00), fontSize = 13.sp)
+                            Text(option.label, color = MaterialTheme.colorScheme.onSurface, fontSize = 15.sp, fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal)
+                            if (option.description.isNotBlank()) Text(option.description, color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 13.sp)
                         }
-                        if (selected) Text("✓", color = Color(0xFF426800), fontWeight = FontWeight.Bold)
+                        if (selected) Text("✓", color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold)
                     }
                 }
             }
@@ -1943,11 +1962,11 @@ private fun QuestionForm(
                         draft = updateQuestionDraft(draft, current.copy(choiceIds = choices, text = if (!selected) current.text else ""))
                     }.testTag("question-option-${question.id}-other"),
                     shape = RoundedCornerShape(12.dp),
-                    color = if (selected) Color(0xFFFFE29A) else Color(0xFFFFF9EA)
+                    color = if (selected) MaterialTheme.colorScheme.secondaryContainer else MaterialTheme.colorScheme.surfaceVariant
                 ) {
                     Row(Modifier.fillMaxWidth().padding(horizontal = 13.dp, vertical = 11.dp)) {
-                        Text("Other", Modifier.weight(1f), color = Color(0xFF352A00), fontSize = 15.sp, fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal)
-                        if (selected) Text("✓", color = Color(0xFF426800), fontWeight = FontWeight.Bold)
+                        Text("Other", Modifier.weight(1f), color = MaterialTheme.colorScheme.onSurface, fontSize = 15.sp, fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal)
+                        if (selected) Text("✓", color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold)
                     }
                 }
             }
@@ -1970,10 +1989,10 @@ private fun QuestionForm(
                         advanceOrSend(draft, updated)
                     }),
                     colors = OutlinedTextFieldDefaults.colors(
-                        focusedTextColor = Color(0xFF352A00), unfocusedTextColor = Color(0xFF352A00),
-                        cursorColor = Color(0xFF6C5B00), focusedBorderColor = Color(0xFF6C5B00),
-                        unfocusedBorderColor = Color(0xFF9C8740), focusedPlaceholderColor = Color(0xFF6C5B00),
-                        unfocusedPlaceholderColor = Color(0xFF6C5B00)
+                        focusedTextColor = MaterialTheme.colorScheme.onSurface, unfocusedTextColor = MaterialTheme.colorScheme.onSurface,
+                        cursorColor = MaterialTheme.colorScheme.onSurfaceVariant, focusedBorderColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                        unfocusedBorderColor = MaterialTheme.colorScheme.outline, focusedPlaceholderColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                        unfocusedPlaceholderColor = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 )
                 if (localSuggestions.targetKey == suggestionTarget.key) {
@@ -2004,7 +2023,7 @@ private fun QuestionForm(
                     enabled = validQuestionAnswer(question, latest),
                     modifier = Modifier.testTag("question-submit")
                 ) { Text(if (retry && page == value.questions.lastIndex) "Retry" else if (question.type == "multi") "Done" else "Send") }
-            } else Text("Tap an answer", color = Color(0xFF6C5B00), fontSize = 13.sp)
+            } else Text("Tap an answer", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 13.sp)
         }
     }
 }

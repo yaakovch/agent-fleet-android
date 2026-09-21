@@ -344,7 +344,7 @@ internal fun retireSupersededQuestions(items: List<ConversationItem>): List<Conv
     val latestTimestamp = items.asSequence().map { it.timestamp }.filter { it.isNotBlank() }.maxOrNull().orEmpty()
     val latestTimestampIndex = if (latestTimestamp.isBlank()) -1 else items.indexOfLast { it.timestamp == latestTimestamp }
     return items.mapIndexed { index, value ->
-        if (value.kind != "question" || value.state == "complete") return@mapIndexed value
+        if (value.kind != "question" || value.state == "complete" || value.source == "codex_async_question") return@mapIndexed value
         val superseded = if (value.timestamp.isNotBlank() && latestTimestamp.isNotBlank()) {
             latestTimestamp > value.timestamp ||
                 (latestTimestamp == value.timestamp && latestTimestampIndex > index && items[latestTimestampIndex].id != value.id)
@@ -359,10 +359,12 @@ internal fun retireSupersededQuestions(items: List<ConversationItem>): List<Conv
     }
 }
 
-internal fun activePendingAction(items: List<ConversationItem>): ConversationItem? =
-    retireSupersededQuestions(items).lastOrNull {
+internal fun activePendingAction(items: List<ConversationItem>): ConversationItem? {
+    val pending = retireSupersededQuestions(items).filter {
         it.kind in setOf("question", "approval") && it.state != "complete"
     }
+    return pending.lastOrNull { it.source != "codex_async_question" } ?: pending.firstOrNull()
+}
 
 private fun mergeConversationItem(first: ConversationItem, second: ConversationItem): ConversationItem {
     if (first.kind == "task_list" && second.kind == "task_list") {
@@ -386,6 +388,8 @@ private fun mergeConversationItem(first: ConversationItem, second: ConversationI
     fun value(newer: String, older: String): String = newer.ifBlank { older }
     val state = when {
         question && (first.state == "complete" || second.state == "complete") -> "complete"
+        question && second.state == "pending" && first.state in setOf("running", "error") -> first.state
+        question && second.state in setOf("running", "error") -> second.state
         first.state == "error" || second.state == "error" -> "error"
         first.state == "complete" || second.state == "complete" -> "complete"
         first.state == "running" || second.state == "running" -> "running"
@@ -394,7 +398,8 @@ private fun mergeConversationItem(first: ConversationItem, second: ConversationI
     return second.copy(
         kind = if (question) "question" else "tool",
         timestamp = listOf(first.timestamp, second.timestamp).filter { it.isNotBlank() }.minOrNull().orEmpty(),
-        title = if (state == "complete" && question) "Answered" else value(first.title, second.title),
+        title = if (state == "complete" && question) "Answered" else if (question && second.state != "pending") value(second.title, first.title) else value(first.title, second.title),
+        source = value(second.source, first.source),
         text = value(second.text, first.text),
         detail = value(second.detail, first.detail),
         state = state,
@@ -409,7 +414,9 @@ private fun mergeConversationItem(first: ConversationItem, second: ConversationI
         startedAt = value(first.startedAt, second.startedAt),
         completedAt = value(second.completedAt, first.completedAt),
         questions = if (second.questions.isNotEmpty()) second.questions else first.questions,
-        answers = if (second.answers.isNotEmpty()) second.answers else first.answers,
+        answers = if (first.source == "codex_async_question" || second.source == "codex_async_question")
+            (first.answers + second.answers).associateBy { it.questionId }.values.toList()
+            else if (second.answers.isNotEmpty()) second.answers else first.answers,
         presentation = when {
             first.presentation == null -> second.presentation
             second.presentation == null -> first.presentation

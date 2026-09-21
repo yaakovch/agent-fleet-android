@@ -1356,6 +1356,159 @@ class AgentFleetComposeTest {
     }
 
     @Test
+    fun questionGroupsOfOneTwoFourAndEightSendOnlyAtTheEnd() {
+        val count = mutableStateOf(1)
+        val submissions = mutableListOf<List<ConversationAnswer>>()
+        compose.setContent {
+            androidx.compose.runtime.key(count.value) {
+                NativeFixture((1..count.value).map { question("q$it", "Choose setting $it") }, submissions::add)
+            }
+        }
+        listOf(1, 2, 4, 8).forEachIndexed { groupIndex, size ->
+            compose.runOnIdle { count.value = size }
+            (1..size).forEach { index ->
+                compose.onNodeWithTag("question-option-q$index-a").performScrollTo().performClick()
+                compose.runOnIdle { assertEquals(groupIndex + if (index == size) 1 else 0, submissions.size) }
+            }
+            compose.runOnIdle { assertEquals(size, submissions.last().size) }
+        }
+    }
+
+    @Test
+    fun asyncQuestionDoesNotStealComposerAndPreservesDismissedAnswers() {
+        val request = ConversationItem(
+            id = "async-question", kind = "question", timestamp = "2026-09-21T10:00:00Z", role = "assistant",
+            title = "Answer needed", text = "", detail = "", state = "pending", tool = "question",
+            attachments = emptyList(), choices = emptyList(), revision = "request-1", source = "codex_async_question",
+            questions = listOf(question("q1", "Choose first setting"), question("q2", "Choose second setting"))
+        )
+        val state = mutableStateOf(NativeSessionUiState("Async fixture", "fixture", "session", adapter = "codex",
+            connection = "Live", items = listOf(request)))
+        val submissions = mutableListOf<List<ConversationAnswer>>()
+        compose.setContent { NativeStateFixture(state.value, onQuestion = { value, answers ->
+            submissions.add(answers)
+            state.value = state.value.copy(items = listOf(value.copy(state = "running", title = "Sending…", answers = answers)))
+        }, inlineComposer = true) }
+        compose.onAllNodes(hasTestTag("question-async-question")).assertCountEquals(0)
+        compose.onNodeWithTag("native-pending-action").performClick()
+        compose.onNodeWithTag("question-option-q1-b").performClick()
+        compose.onNodeWithText("Close").performClick()
+        compose.onNodeWithTag("native-pending-action").performClick()
+        compose.onNodeWithTag("question-page").assertTextContains("2 of 2")
+        compose.onNodeWithTag("question-option-q2-a").performClick()
+        compose.onNodeWithText("Sending your answer and waiting for the agent to confirm it…").assertIsDisplayed()
+        compose.runOnIdle {
+            assertEquals(1, submissions.size)
+            assertEquals(listOf("b"), submissions.single().first().choiceIds)
+            state.value = state.value.copy(items = listOf(request.copy(state = "complete", answers = submissions.single())))
+        }
+        compose.onAllNodes(hasTestTag("question-async-question")).assertCountEquals(0)
+        compose.onAllNodes(hasTestTag("native-pending-action")).assertCountEquals(0)
+    }
+
+    @Test
+    fun multipleAsyncRequestsKeepIndependentDraftsAndComposer() {
+        fun request(id: String) = ConversationItem(
+            id = id, kind = "question", timestamp = "2026-09-21T10:00:00Z", role = "assistant",
+            title = "Answer needed", text = "", detail = "", state = "pending", tool = "question",
+            attachments = emptyList(), choices = emptyList(), revision = "r-$id", source = "codex_async_question",
+            questions = listOf(question("$id-1", "Choose first $id"), question("$id-2", "Choose second $id")))
+        val submissions = AtomicInteger()
+        compose.setContent { NativeStateFixture(NativeSessionUiState("Async requests", "fixture", "session",
+            adapter = "codex", connection = "Live", items = listOf(request("one"), request("two"))),
+            onQuestion = { _, _ -> submissions.incrementAndGet() }, inlineComposer = true) }
+        compose.onNodeWithTag("native-message-input").performTextInput("Keep this composer draft")
+        compose.onNodeWithTag("native-pending-action").performClick()
+        compose.onNodeWithTag("question-option-one-1-b").performClick()
+        compose.onNodeWithTag("native-question-open-two").performClick()
+        compose.onNodeWithTag("question-page").assertTextContains("1 of 2")
+        compose.onNodeWithTag("question-option-two-1-a").performClick()
+        compose.onNodeWithTag("native-question-open-one").performClick()
+        compose.onNodeWithTag("question-page").assertTextContains("2 of 2")
+        compose.onNodeWithText("Close").performClick()
+        compose.onNodeWithTag("native-message-input").assertTextContains("Keep this composer draft")
+        compose.onNodeWithTag("native-pending-action").performClick()
+        compose.onNodeWithTag("native-question-open-two").performClick()
+        compose.onNodeWithTag("question-page").assertTextContains("2 of 2")
+        compose.runOnIdle { assertEquals(0, submissions.get()) }
+    }
+
+    @Test
+    fun liveNativeQuestionsReachProviderAndContinue() {
+        // Optional isolated-provider acceptance probe. The external driver supplies
+        // an actual bridge snapshot and relays the tap payload to that same bridge.
+        val instrumentation = androidx.test.platform.app.InstrumentationRegistry.getInstrumentation()
+        fun shell(command: String): String = android.os.ParcelFileDescriptor.AutoCloseInputStream(
+            instrumentation.uiAutomation.executeShellCommand(command)).bufferedReader().use { it.readText() }
+        val prefix = "/sdcard/Download/agent-fleet-native-question"
+        val initial = shell("cat $prefix-snapshot.json").trim()
+        org.junit.Assume.assumeTrue("Requires the isolated Codex acceptance driver", initial.startsWith("{"))
+        val snapshot = com.termux.app.fleet.ConversationStreamParser.parseFrame(initial) as com.termux.app.fleet.ConversationFrame.Snapshot
+        val request = snapshot.items.single { it.kind == "question" && it.state == "pending" }
+        val state = mutableStateOf(NativeSessionUiState("Provider acceptance", "fixture", snapshot.session,
+            adapter = "codex", connection = "Live", items = snapshot.items, revision = snapshot.revision, providerState = requireNotNull(snapshot.providerState)))
+        val submissions = AtomicInteger()
+        val failure = java.util.concurrent.atomic.AtomicReference<Throwable?>()
+        val renderedView = java.util.concurrent.atomic.AtomicReference<android.view.View>()
+        compose.setContent {
+            renderedView.set(androidx.compose.ui.platform.LocalView.current)
+            NativeStateFixture(state.value, onQuestion = { value, answers ->
+            submissions.incrementAndGet()
+            state.value = state.value.copy(items = listOf(value.copy(state = "running", title = "Sending…", answers = answers)))
+            kotlin.concurrent.thread {
+                try {
+                    val payload = org.json.JSONObject().put("questionId", value.id).put("revision", value.revision)
+                        .put("answers", org.json.JSONArray(answers.map { answer -> org.json.JSONObject()
+                            .put("questionId", answer.questionId).put("choiceIds", org.json.JSONArray(answer.choiceIds)).put("text", answer.text) }))
+                    val pipes = instrumentation.uiAutomation.executeShellCommandRw("tee $prefix-answer.json")
+                    android.os.ParcelFileDescriptor.AutoCloseOutputStream(pipes[1]).use {
+                        it.write(payload.toString().toByteArray(Charsets.UTF_8))
+                    }
+                    android.os.ParcelFileDescriptor.AutoCloseInputStream(pipes[0]).use { it.readBytes() }
+                    val deadline = android.os.SystemClock.elapsedRealtime() + 80000
+                    var response = ""
+                    while (android.os.SystemClock.elapsedRealtime() < deadline) {
+                        response = shell("cat $prefix-response.json").trim()
+                        if (response.startsWith("{")) break
+                        Thread.sleep(100)
+                    }
+                    val received = org.json.JSONObject(response)
+                    com.termux.app.fleet.ConversationStreamParser.requireValidProtocolFrame(received.getJSONObject("receipt").toString())
+                    val continued = com.termux.app.fleet.ConversationStreamParser.parseFrame(received.getJSONObject("snapshot").toString()) as com.termux.app.fleet.ConversationFrame.Snapshot
+                    instrumentation.runOnMainSync { state.value = state.value.copy(items = continued.items,
+                        revision = continued.revision, liveEventSerial = state.value.liveEventSerial + 1) }
+                } catch (error: Throwable) { failure.set(error) }
+            }
+        }, inlineComposer = true) }
+        if (request.source == "codex_async_question") compose.onNodeWithTag("native-pending-action").performClick()
+        discoveryScreenshot("native-provider-prompt")
+        request.questions.forEachIndexed { index, question ->
+            compose.onNodeWithTag("question-option-${question.id}-${question.options[1].id}").performScrollTo().performClick()
+            if (index < request.questions.lastIndex) compose.runOnIdle { assertEquals(0, submissions.get()) }
+        }
+        discoveryScreenshot("native-provider-tapped")
+        compose.waitUntil(timeoutMillis = 90000) {
+            failure.get() != null || state.value.items.any { it.text.contains("ANSWERS_RECEIVED") }
+        }
+        failure.get()?.let { throw AssertionError("Provider delivery failed", it) }
+        compose.runOnIdle { assertEquals(1, submissions.get()) }
+        compose.onAllNodes(hasTestTag("native-pending-action")).assertCountEquals(0)
+        discoveryScreenshot("native-provider-received")
+        // Markdown prose is an Android TextView hosted inside Compose.
+        compose.runOnIdle {
+            fun visibleContinuation(view: android.view.View): Boolean {
+                if (view is android.widget.TextView && view.text.toString().contains("ANSWERS_RECEIVED: Codex continued.")) {
+                    val bounds = android.graphics.Rect()
+                    return view.isShown && view.getGlobalVisibleRect(bounds) && !bounds.isEmpty
+                }
+                return view is android.view.ViewGroup && (0 until view.childCount).any { visibleContinuation(view.getChildAt(it)) }
+            }
+            org.junit.Assert.assertTrue("Provider continuation must be visible", visibleContinuation(renderedView.get().rootView))
+        }
+        discoveryScreenshot("native-provider-continued")
+    }
+
+    @Test
     fun staleQuestionDoesNotReplaceTheComposerWithAnActionPrompt() {
         val newerTool = ConversationItem(
             id = "tool-after-question", kind = "tool", timestamp = "2026-07-16T01:01:00Z", role = "assistant",

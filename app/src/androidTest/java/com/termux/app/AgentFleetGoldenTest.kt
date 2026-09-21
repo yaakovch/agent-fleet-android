@@ -53,7 +53,12 @@ class AgentFleetGoldenTest {
     }
 
     @Test
-    fun darkPlanQuestionsMatchGolden() {
+    fun darkPlanQuestionsMatchGolden() = planQuestionsGolden(true)
+
+    @Test
+    fun lightPlanQuestionsMatchGolden() = planQuestionsGolden(false)
+
+    private fun planQuestionsGolden(dark: Boolean) {
         val question = ConversationItem(
             "question-group", "question", "2026-07-15T00:00:00Z", "assistant", "Plan questions", "", "", "pending", "codex",
             emptyList(), emptyList(), revision = "revision-1", questions = listOf(
@@ -69,10 +74,10 @@ class AgentFleetGoldenTest {
         setNative(NativeSessionUiState(
             "Plan fixture", "gaming", "wtmux-main", adapter = "codex", interactionMode = "plan", connection = "Live",
             items = listOf(question), focusQuestionId = question.id, focusQuestionSerial = 1
-        ))
+        ), darkTheme = dark)
         compose.onNodeWithTag("native-pending-action").performClick()
         compose.waitForIdle()
-        assertGolden("native-plan-question")
+        assertGolden(if (dark) "native-plan-question" else "native-plan-question-light")
     }
 
     @Test
@@ -183,7 +188,7 @@ class AgentFleetGoldenTest {
             cached = !available
         )
 
-    private fun setNative(state: NativeSessionUiState, inlineComposer: Boolean = false) {
+    private fun setNative(state: NativeSessionUiState, inlineComposer: Boolean = false, darkTheme: Boolean = true) {
         val fixtureState = if (state.providerState.reasonCode == "PROVIDER_STATE_UNAVAILABLE") {
             state.copy(providerState = ProviderState(
                 confidence = "verified",
@@ -197,7 +202,7 @@ class AgentFleetGoldenTest {
             ))
         } else state
         compose.setContent {
-            AgentFleetTheme(darkTheme = true) {
+            AgentFleetTheme(darkTheme = darkTheme) {
                 NativeSessionScreen(
                     state = fixtureState, aiComposer = true, onToggleTerminal = {}, onRetry = {}, onLoadOlder = {},
                     onApproval = { _, _ -> }, onQuestion = { _: ConversationItem, _: List<ConversationAnswer> -> },

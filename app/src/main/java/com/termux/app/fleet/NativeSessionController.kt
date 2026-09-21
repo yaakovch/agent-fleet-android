@@ -341,7 +341,7 @@ class NativeSessionController @JvmOverloads constructor(
 
     private fun updateComposerState() {
         val pendingAction = activePendingAction(uiState.value.items)
-        val pendingQuestion = pendingAction?.takeIf { it.kind == "question" }?.id.orEmpty()
+        val pendingQuestion = pendingAction?.takeIf { it.kind == "question" && it.source != "codex_async_question" }?.id.orEmpty()
         val native = enabled && uiState.value.viewMode == NativeViewMode.Native
         if (!activity.nativeInlineComposer) {
             AgentFleetComposer.updateNativeState(
@@ -358,7 +358,7 @@ class NativeSessionController @JvmOverloads constructor(
             enabled,
             native,
             uiState.value.viewMode == NativeViewMode.AutomaticTerminal,
-            aiComposer && pendingAction == null
+            aiComposer && (pendingAction == null || pendingAction.source == "codex_async_question")
         )
     }
 
@@ -970,6 +970,8 @@ class NativeSessionController @JvmOverloads constructor(
     }
 
     private fun respondQuestion(value: ConversationItem, answers: List<ConversationAnswer>) {
+        val currentState = uiState.value.items.firstOrNull { it.id == value.id }?.state
+        if (currentState == "running" || currentState == "complete") return
         val revision = value.revision ?: return
         val provider = uiState.value.providerState
         if (!provider.mutationsAllowed) {
@@ -1005,10 +1007,11 @@ class NativeSessionController @JvmOverloads constructor(
             "--event-position", provider.eventPosition.toString(),
             "--answers-b64", encoded,
             "--idempotency-key", UUID.randomUUID().toString()
-        )), timeoutSeconds = 30) { action ->
+        )), timeoutSeconds = 90) { action ->
             val delivered = action.exitCode == 0 && runCatching {
                 JSONObject(action.stdout.lineSequence().last { it.isNotBlank() }).let {
-                    it.optString("type") == "question.response" && it.optString("status") == "delivered"
+                    it.optInt("protocolVersion") == 2 && it.optString("type") == "question.response" &&
+                        it.optString("status") == "delivered" && it.optString("questionId") == value.id
                 }
             }.getOrDefault(false)
             val existing = uiState.value.items.firstOrNull { it.id == value.id } ?: value
@@ -1024,16 +1027,10 @@ class NativeSessionController @JvmOverloads constructor(
                 ))
                 updateComposerState()
             } else if (delivered) {
-                main.postDelayed({
-                    val current = uiState.value.items.firstOrNull { it.id == value.id }
-                    if (current?.state == "running") {
-                        uiState.value = uiState.value.copy(items = mergeConversationItems(
-                            uiState.value.items,
-                            listOf(current.copy(state = "error", title = "Answer unconfirmed—check again"))
-                        ))
-                        updateComposerState()
-                    }
-                }, 20_000)
+                uiState.value = uiState.value.copy(items = mergeConversationItems(
+                    uiState.value.items, listOf(existing.copy(state = "complete", title = "Answered", answers = answers))
+                ))
+                updateComposerState()
             }
         }
     }
