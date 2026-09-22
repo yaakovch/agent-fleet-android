@@ -12,6 +12,25 @@ import org.robolectric.RuntimeEnvironment
 
 @RunWith(RobolectricTestRunner::class)
 class ConversationStreamParserTest {
+    @Test fun sharedEarlierQuestionAttentionFixtureMatchesWindows() {
+        val cases = org.json.JSONObject(checkNotNull(javaClass.classLoader?.getResourceAsStream("native-question-attention-v1.json"))
+            .bufferedReader().use { it.readText() }).getJSONArray("cases")
+        repeat(cases.length()) { index ->
+            val case = cases.getJSONObject(index)
+            val frame = org.json.JSONObject().put("protocolVersion", 2).put("type", "conversation.snapshot")
+                .put("timestamp", "2026-09-22T10:00:00Z").put("session", "fixture").put("adapter", "codex")
+                .put("mode", "ai").put("interactionMode", "default").put("revision", "r1").put("items", case.getJSONArray("items"))
+                .put("nextCursor", org.json.JSONObject.NULL).put("hasMore", false)
+            val items = (ConversationStreamParser.parseFrame(frame.toString()) as ConversationFrame.Snapshot).items
+            val before = items.toList()
+            val partition = partitionPendingActions(items)
+            fun expected(name: String) = case.getJSONArray(name).let { values -> (0 until values.length()).map { values.getString(it) } }
+            assertEquals(case.getString("name"), expected("current"), partition.current.map { it.id })
+            assertEquals(case.getString("name"), expected("earlier"), partition.earlier.map { it.id })
+            assertEquals(before, items)
+        }
+    }
+
     @Test fun actionReceiptsMustMatchSessionRequestAndChoice() {
         for (approval in listOf(false, true)) {
             val receipt = org.json.JSONObject().put("protocolVersion", 2)

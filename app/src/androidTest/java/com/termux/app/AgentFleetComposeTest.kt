@@ -22,6 +22,7 @@ import androidx.compose.ui.test.assertIsSelected
 import androidx.compose.ui.test.assertTextContains
 import androidx.compose.ui.test.assertWidthIsAtLeast
 import androidx.compose.ui.test.hasTestTag
+import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onNodeWithTag
@@ -1123,6 +1124,70 @@ class AgentFleetComposeTest {
     }
 
     @Test
+    fun nativeColdLoadShowsLoadingUntilProviderStateArrives() {
+        val state = mutableStateOf(NativeSessionUiState("Loading fixture", "fixture", "session"))
+        compose.setContent { NativeStateFixture(state.value, inlineComposer = true, verifyUnavailableProvider = false) }
+        compose.onNodeWithText("Loading conversation…").assertIsDisplayed()
+        compose.onAllNodes(hasTestTag("native-provider-confidence")).assertCountEquals(0)
+        compose.onAllNodes(hasTestTag("native-provider-fallback")).assertCountEquals(0)
+        discoveryScreenshot("native-loading")
+        compose.runOnIdle {
+            state.value = state.value.copy(adapter = "codex", connection = "Live", providerStateKnown = true)
+        }
+        compose.onNodeWithText("Terminal-only provider state").assertIsDisplayed()
+        compose.runOnIdle {
+            state.value = state.value.copy(providerState = verifiedProviderState("codex"))
+        }
+        compose.onAllNodes(hasTestTag("native-provider-confidence")).assertCountEquals(0)
+        compose.onNodeWithTag("native-message-input").assertIsDisplayed()
+        discoveryScreenshot("native-loading-verified")
+    }
+
+    @Test
+    fun earlierQuestionsStayOptionalAndCanBeAnsweredOnceWithDraftRetention() {
+        val older = (1..7).map { index -> ConversationItem(
+            id = "earlier-$index", kind = "question", timestamp = "2026-09-06T10:00:00Z", role = "assistant",
+            title = "Answer needed", text = "", detail = "", state = "pending", tool = "question",
+            attachments = emptyList(), choices = emptyList(), revision = "request-$index", source = "codex_async_question",
+            questions = if (index == 1) (1..3).map { question("earlier-q$it", "Choose setting $it") }
+                else listOf(question("old-$index", "Earlier setting $index"))) }
+        val user = older.first().copy(id = "user", kind = "message", role = "user", source = "", state = "complete",
+            timestamp = "2026-09-22T10:00:00Z", text = "Continue the current task", questions = emptyList())
+        val current = older.last().copy(id = "current", timestamp = "2026-09-22T10:01:00Z",
+            questions = listOf(question("current-q", "Current setting")))
+        val state = mutableStateOf(NativeSessionUiState("Earlier questions", "fixture", "session", adapter = "codex",
+            connection = "Live", items = listOf(user, current) + older))
+        val submitted = mutableListOf<List<ConversationAnswer>>()
+        compose.setContent { NativeStateFixture(state.value, onQuestion = { value, answers ->
+            submitted.add(answers)
+            state.value = state.value.copy(items = state.value.items.map { if (it.id == value.id) it.copy(state = "complete", answers = answers) else it })
+        }, inlineComposer = true) }
+        compose.onNodeWithTag("native-message-input").performTextInput("Keep my draft")
+        compose.onNodeWithTag("native-earlier-questions-toggle").performScrollTo().assertIsDisplayed()
+        compose.onNodeWithTag("native-pending-action").assertIsDisplayed()
+        compose.onAllNodes(hasText("7 questions waiting")).assertCountEquals(0)
+        discoveryScreenshot("native-earlier-collapsed")
+        compose.onNodeWithTag("native-earlier-questions-toggle").performClick()
+        compose.onNodeWithTag("native-earlier-question-earlier-1").performScrollTo().performClick()
+        compose.onNodeWithText("Earlier question").assertIsDisplayed()
+        compose.onNodeWithTag("question-option-earlier-q1-b").performClick()
+        compose.onNodeWithText("Close").performClick()
+        compose.onNodeWithTag("native-earlier-question-earlier-1").performScrollTo().performClick()
+        compose.onNodeWithTag("question-page").assertTextContains("2 of 3")
+        discoveryScreenshot("native-earlier-resumed")
+        compose.onNodeWithTag("question-option-earlier-q2-a").performClick()
+        compose.onNodeWithTag("question-option-earlier-q3-b").performScrollTo().performClick()
+        compose.runOnIdle {
+            assertEquals(1, submitted.size)
+            assertEquals(listOf("b", "a", "b"), submitted.single().map { it.choiceIds.single() })
+        }
+        compose.onNodeWithTag("native-message-input").assertTextContains("Keep my draft")
+        compose.onNodeWithTag("native-earlier-questions-toggle").performScrollTo()
+        compose.onNodeWithText("▾ Earlier questions (6)").assertIsDisplayed()
+        discoveryScreenshot("native-earlier-answered")
+    }
+
+    @Test
     fun uncertainProviderStateIsVisiblyReadOnlyAndFallsBackToTerminal() {
         val stale = ProviderState(
             confidence = "stale",
@@ -1653,10 +1718,11 @@ class AgentFleetComposeTest {
         localSuggestionsAvailableOverride: Boolean? = null,
         localSuggestionModeOverride: LocalSuggestionMode? = null,
         localSuggestionDebugFakeOutput: String? = null,
+        verifyUnavailableProvider: Boolean = true,
         onLoadActivity: (ConversationItem, Boolean) -> Unit = { _, _ -> }
     ) {
-        val fixtureState = if (state.providerState.reasonCode == "PROVIDER_STATE_UNAVAILABLE") {
-            state.copy(providerState = verifiedProviderState(state.adapter))
+        val fixtureState = if (verifyUnavailableProvider && state.providerState.reasonCode == "PROVIDER_STATE_UNAVAILABLE") {
+            state.copy(providerState = verifiedProviderState(state.adapter), providerStateKnown = true)
         } else state
         AgentFleetTheme(darkTheme = true) {
             NativeSessionScreen(

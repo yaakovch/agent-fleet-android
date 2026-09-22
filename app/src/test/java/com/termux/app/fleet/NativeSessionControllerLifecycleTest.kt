@@ -14,6 +14,54 @@ import org.robolectric.RuntimeEnvironment
 @RunWith(RobolectricTestRunner::class)
 class NativeSessionControllerLifecycleTest {
     @Test
+    fun providerStateIsUnknownUntilAuthoritativeFrameArrives() {
+        val context: Context = RuntimeEnvironment.getApplication()
+        val controller = NativeSessionController(FakeHost(context), ComposeView(context))
+        val field = NativeSessionController::class.java.getDeclaredField("uiState").apply { isAccessible = true }
+        @Suppress("UNCHECKED_CAST")
+        val state = field.get(controller) as androidx.compose.runtime.MutableState<NativeSessionUiState>
+        assertFalse(state.value.providerStateKnown)
+        assertFalse(state.value.providerState.mutationsAllowed)
+        val apply = NativeSessionController::class.java.getDeclaredMethod("applyFrame", ConversationFrame::class.java).apply { isAccessible = true }
+        apply.invoke(controller, ConversationFrame.Snapshot("", "codex", "ai", "default", "snapshot", emptyList(), null, false, null, false))
+        assertTrue(state.value.providerStateKnown)
+        assertFalse(state.value.providerState.mutationsAllowed)
+        val restart = NativeSessionController::class.java.getDeclaredMethod("restartNow").apply { isAccessible = true }
+        restart.invoke(controller)
+        assertFalse(state.value.providerStateKnown)
+        controller.close()
+    }
+
+    @Test
+    fun answeredQuestionSurvivesReplacementSnapshotWithoutRetainingUnrelatedRows() {
+        val context: Context = RuntimeEnvironment.getApplication()
+        val controller = NativeSessionController(FakeHost(context), ComposeView(context))
+        val question = ConversationItem("question", "question", "2026-09-22T10:00:00Z", "", "Answer needed", "", "", "pending", "question", emptyList(), emptyList(), revision = "request-r1", source = "codex_async_question")
+        val apply = NativeSessionController::class.java.getDeclaredMethod("applyFrame", ConversationFrame::class.java).apply { isAccessible = true }
+        fun snapshot(items: List<ConversationItem>) = ConversationFrame.Snapshot("", "codex", "ai", "default", "snapshot", items, null, false, null, false)
+        apply.invoke(controller, snapshot(listOf(question)))
+        apply.invoke(controller, ConversationFrame.Event("", "codex", question.copy(state = "complete", title = "Answered")))
+        apply.invoke(controller, snapshot(emptyList()))
+        apply.invoke(controller, snapshot(listOf(question)))
+        val field = NativeSessionController::class.java.getDeclaredField("uiState").apply { isAccessible = true }
+        @Suppress("UNCHECKED_CAST")
+        val state = field.get(controller) as androidx.compose.runtime.MutableState<NativeSessionUiState>
+        assertEquals("complete", state.value.items.single().state)
+        apply.invoke(controller, snapshot(listOf(question.copy(revision = "different-request"))))
+        assertEquals("pending", state.value.items.single().state)
+        controller.close()
+    }
+
+    @Test
+    fun earlierAsyncQuestionDoesNotCaptureCurrentAttention() {
+        val question = ConversationItem("old", "question", "2026-09-06T10:00:00Z", "", "Answer needed", "", "", "pending", "question", emptyList(), emptyList(), source = "codex_async_question")
+        val user = question.copy(id = "user", kind = "message", role = "user", timestamp = "2026-09-22T10:00:00Z", state = "complete", source = "")
+        // The host appends old pending requests after its current message page.
+        assertEquals(null, activePendingAction(listOf(user, question)))
+        assertEquals("pending", question.state)
+    }
+
+    @Test
     fun composerVisibilityTracksForegroundNativeSurfaceWithoutSynthesizingAnEvent() {
         val context: Context = RuntimeEnvironment.getApplication()
         NativeSessionSettings.setEnabled(context, true)

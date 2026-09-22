@@ -211,7 +211,7 @@ class AgentFleetGoldenTest {
 
     private fun setNative(state: NativeSessionUiState, inlineComposer: Boolean = false, darkTheme: Boolean = true) {
         val fixtureState = if (state.providerState.reasonCode == "PROVIDER_STATE_UNAVAILABLE") {
-            state.copy(providerState = ProviderState(
+            state.copy(providerStateKnown = true, providerState = ProviderState(
                 confidence = "verified",
                 reasonCode = "PROVIDER_STATE_VERIFIED",
                 observedRevision = "golden-revision",

@@ -170,9 +170,11 @@ fun NativeSessionScreen(
     var dismissedActionId by rememberSaveable { mutableStateOf("") }
     var feedNearBottom by remember { mutableStateOf(true) }
     var viewerOpen by remember { mutableStateOf(false) }
-    val pendingActions = retireSupersededQuestions(state.items).filter { it.kind in setOf("question", "approval") && it.state != "complete" }
-    val pendingAction = pendingActions.firstOrNull { it.id == actionSheetId }
-        ?: pendingActions.lastOrNull { it.source != "codex_async_question" } ?: pendingActions.firstOrNull()
+    val actions = remember(state.items) { partitionPendingActions(retireSupersededQuestions(state.items)) }
+    val pendingActions = actions.current
+    val allPendingActions = pendingActions + actions.earlier
+    val pendingAction = pendingActions.lastOrNull { it.source != "codex_async_question" } ?: pendingActions.firstOrNull()
+    val sheetAction = allPendingActions.firstOrNull { it.id == actionSheetId }
     val answerStateHolder = androidx.compose.runtime.saveable.rememberSaveableStateHolder()
     val suggestionSurfaceActive = state.surfaceActive && state.suggestionFocused &&
         state.viewMode == NativeViewMode.Native
@@ -208,9 +210,8 @@ fun NativeSessionScreen(
         state.focusQuestionSerial,
         state.providerState.mutationsAllowed
     ) {
-        if (actionSheetId.isNotBlank() && pendingActions.none { it.id == actionSheetId }) actionSheetId = ""
+        if (actionSheetId.isNotBlank() && allPendingActions.none { it.id == actionSheetId }) actionSheetId = ""
         if (pendingAction == null) {
-            actionSheetId = ""
             dismissedActionId = ""
         } else if (!state.providerState.mutationsAllowed) {
             actionSheetId = ""
@@ -271,7 +272,7 @@ fun NativeSessionScreen(
                         Text("Open", color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold)
                     }
                 }
-            } else if (pendingAction != null) {
+            } else if (pendingAction != null && state.providerStateKnown) {
                 ProviderFallbackBar(
                     label = "Response is available in Terminal",
                     onOpenTerminal = onToggleTerminal
@@ -285,7 +286,7 @@ fun NativeSessionScreen(
                     state.interactionMode, state.items, state.revision, state.liveEventSerial,
                     suggestionSurfaceActive, localSuggestions, onComposerText, onAttach, onCamera
                 )
-            } else if (aiComposer && inlineComposer) {
+            } else if (aiComposer && inlineComposer && state.providerStateKnown) {
                 ProviderFallbackBar(
                     label = "Continue this session in Terminal",
                     onOpenTerminal = onToggleTerminal
@@ -307,6 +308,8 @@ fun NativeSessionScreen(
                 onDirectory = onDirectory,
                 onRefreshDirectory = onRefreshDirectory,
                 pinnedActionId = pendingAction?.id,
+                earlierQuestions = actions.earlier,
+                onOpenEarlierQuestion = { actionSheetId = it.id },
                 onScheduleContinue = onScheduleContinue,
                 onDismissAttention = onDismissAttention,
                 onNearBottomChanged = { feedNearBottom = it },
@@ -318,12 +321,12 @@ fun NativeSessionScreen(
         }
         }
     if (
-        pendingAction != null &&
+        sheetAction != null &&
         state.providerState.mutationsAllowed &&
-        actionSheetId == pendingAction.id
+        actionSheetId == sheetAction.id
     ) {
         Dialog(
-            onDismissRequest = { actionSheetId = ""; dismissedActionId = pendingAction.id },
+            onDismissRequest = { actionSheetId = ""; dismissedActionId = sheetAction.id },
             properties = DialogProperties(usePlatformDefaultWidth = false)
         ) {
             Surface(
@@ -334,14 +337,14 @@ fun NativeSessionScreen(
                 Column(Modifier.fillMaxSize()) {
                     Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
                         Column(Modifier.weight(1f)) {
-                            Text("Action needed", fontWeight = FontWeight.Bold, fontSize = 17.sp)
-                            Text(if (pendingAction.source == "codex_async_question") "Codex can keep working while you answer" else "Complete this to continue", fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Text(if (sheetAction in actions.earlier) "Earlier question" else "Action needed", fontWeight = FontWeight.Bold, fontSize = 17.sp)
+                            Text(if (sheetAction.source == "codex_async_question") "Codex can keep working while you answer" else "Complete this to continue", fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
-                        TextButton(onClick = { actionSheetId = ""; dismissedActionId = pendingAction.id }) { Text("Close") }
+                        TextButton(onClick = { actionSheetId = ""; dismissedActionId = sheetAction.id }) { Text("Close") }
                     }
-                    if (pendingActions.size > 1) {
+                    if (allPendingActions.size > 1) {
                         Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).testTag("native-question-picker")) {
-                            pendingActions.forEachIndexed { index, action ->
+                            allPendingActions.forEachIndexed { index, action ->
                                 TextButton(onClick = { actionSheetId = action.id }, modifier = Modifier.testTag("native-question-open-${action.id}")) {
                                     Text("${index + 1}. ${action.questions.firstOrNull()?.header?.ifBlank { null } ?: "Question"}")
                                 }
@@ -349,9 +352,9 @@ fun NativeSessionScreen(
                         }
                     }
                     Box(Modifier.weight(1f).padding(horizontal = 10.dp, vertical = 6.dp)) {
-                      answerStateHolder.SaveableStateProvider(pendingAction.id) {
+                      answerStateHolder.SaveableStateProvider(sheetAction.id) {
                         ConversationItemCard(
-                            pendingAction, onApproval, onQuestion, onToggleTerminal, onRetry,
+                            sheetAction, onApproval, onQuestion, onToggleTerminal, onRetry,
                             onOpenTool = { _, _ -> }, onOpenPlan = {},
                             localSuggestions = localSuggestions, conversationItems = state.items
                         )
@@ -952,6 +955,8 @@ private fun ConversationFeed(
     onDirectory: (String) -> Unit,
     onRefreshDirectory: () -> Unit,
     pinnedActionId: String?,
+    earlierQuestions: List<ConversationItem>,
+    onOpenEarlierQuestion: (ConversationItem) -> Unit,
     onScheduleContinue: (Long) -> Unit,
     onDismissAttention: () -> Unit,
     onNearBottomChanged: (Boolean) -> Unit,
@@ -983,7 +988,8 @@ private fun ConversationFeed(
             val compatibility = state.conversationView == ConversationView.Conversation && state.items.isNotEmpty() &&
                 state.items.none { it.messagePurpose.isNotBlank() || it.activitySummary != null } && state.sourceMode != "shell"
             val preceding = 1 + (if (state.attention != null) 1 else 0) +
-                (if (!state.providerState.mutationsAllowed && state.sourceMode != "shell") 1 else 0) + (if (compatibility) 1 else 0)
+                (if (state.providerStateKnown && !state.providerState.mutationsAllowed && state.sourceMode != "shell") 1 else 0) +
+                (if (earlierQuestions.isNotEmpty()) 1 else 0) + (if (compatibility) 1 else 0)
             listState.scrollToItem(index + preceding, anchorOffset)
         }
     }
@@ -1051,7 +1057,12 @@ private fun ConversationFeed(
                     LimitAttentionCard(state, attention, onScheduleContinue, onDismissAttention)
                 }
             }
-            if (!state.providerState.mutationsAllowed && state.sourceMode != "shell") {
+            if (earlierQuestions.isNotEmpty()) {
+                item("earlier-questions") {
+                    EarlierQuestions(earlierQuestions, state.providerState.mutationsAllowed, onOpenEarlierQuestion, onOpenTerminal)
+                }
+            }
+            if (state.providerStateKnown && !state.providerState.mutationsAllowed && state.sourceMode != "shell") {
                 item("provider-confidence") {
                     ProviderConfidenceCard(state.providerState, onOpenTerminal)
                 }
@@ -1121,7 +1132,7 @@ private fun ConversationFeed(
             if (state.items.isEmpty() && state.error == null) {
                 item("empty") {
                     Box(Modifier.fillMaxWidth().padding(vertical = 48.dp), contentAlignment = Alignment.Center) {
-                        Text(if (state.connection == "Live") "No visible conversation yet" else state.connection, color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 17.sp)
+                        Text(if (!state.providerStateKnown && state.sourceMode != "shell") "Loading conversation…" else if (state.connection == "Live") "No visible conversation yet" else state.connection, color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 17.sp)
                     }
                 }
             }
@@ -1184,6 +1195,33 @@ private fun ConversationFeed(
             actionIndex = viewerActionIndex.takeIf { it >= 0 },
             onDismiss = { viewerItemId = ""; viewerActionIndex = -1 }
         )
+    }
+}
+
+@Composable
+private fun EarlierQuestions(
+    questions: List<ConversationItem>,
+    canAnswer: Boolean,
+    onOpen: (ConversationItem) -> Unit,
+    onOpenTerminal: () -> Unit
+) {
+    var expanded by rememberSaveable { mutableStateOf(false) }
+    Column(Modifier.fillMaxWidth().testTag("native-earlier-questions")) {
+        TextButton(onClick = { expanded = !expanded }, modifier = Modifier.testTag("native-earlier-questions-toggle")) {
+            Text("${if (expanded) "▾" else "▸"} Earlier questions (${questions.size})")
+        }
+        if (expanded) {
+            Text("Unresolved questions from earlier exchanges. You can still answer them.",
+                Modifier.padding(horizontal = 12.dp), fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            questions.forEach { question ->
+                TextButton(onClick = { if (canAnswer) onOpen(question) else onOpenTerminal() },
+                    modifier = Modifier.fillMaxWidth().testTag("native-earlier-question-${question.id}")) {
+                    Text(question.questions.firstOrNull()?.prompt ?: question.title, maxLines = 2,
+                        overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
+                    Text(if (canAnswer) "Open" else "Terminal", Modifier.padding(start = 8.dp))
+                }
+            }
+        }
     }
 }
 

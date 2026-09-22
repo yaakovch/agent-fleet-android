@@ -209,6 +209,7 @@ data class NativeSessionUiState(
     val providerActivity: ProviderActivity? = null,
     val providerActivityAuthoritative: Boolean = false,
     val providerState: ProviderState = ProviderState.unavailable(),
+    val providerStateKnown: Boolean = providerState.reasonCode != "PROVIDER_STATE_UNAVAILABLE",
     val focusQuestionId: String = "",
     val focusQuestionSerial: Long = 0,
     val viewMode: NativeViewMode = NativeViewMode.Native,

@@ -2052,3 +2052,18 @@ Validate both client parsers with conversation-turns-v2.json, mixed host version
 and light/dark/large text. Preserve submission receipts across mode changes.
 Complete Android protected emulator and canonical signed publication gates;
 verify paired-host canary/rollout with sessions, configuration and rollback.
+
+### Native loading and earlier questions hotfix (2026-09-22)
+
+Reproduce controller snapshot completion loss and stale attention first. Fix host
+completion replay in all view/history paths, including UserMessage replies and
+bounded-cache eviction. Separate unknown provider state from authoritative
+unsupported state in both clients; preserve confirmed question receipts within
+the session and partition earlier async requests by the latest valid user-message
+timestamp. Validate cold loading, actual unsupported state, seven earlier requests,
+current requests, three-question answer delivery, draft retention, paging and
+reconnect. Keep timestamp ties ordered and unknown timestamps current. Embed the
+tested runtime, validate Windows parity and Android shared fixtures, then publish
+a clean pushed .100 candidate through app-release.sh with full protected API 36,
+signing, archive verification and HTTPS-served byte checks. Preserve rollback and
+leave the physical phone user-operated.

@@ -782,3 +782,16 @@ obsolete requests cancelled. No extra AI calls, idle polling or transcript files
 Windows delivers source parity without an installer publication; Android uses
 the signed in-app updater after emulator and release gates. Physical phone smoke
 is user-operated. This is the only intentional delivery difference.
+
+### Native loading and earlier questions hotfix (2026-09-22)
+
+The owner approved direct implementation and a signed in-app update after the
+two-bug diagnosis, then explicitly chose expandable Earlier questions. Until an
+authoritative provider frame arrives, show Loading conversation rather than an
+unsupported-provider warning and keep Native actions disabled. A real unsupported
+result must retain Terminal recovery. Questions with confirmed answers stay
+complete across snapshots and history. Unresolved async questions preceding a
+later user message move to Earlier questions, outside the current waiting count;
+they remain answerable and retain drafts. Assistant activity or age alone does
+not retire a question. Apply the same behavior in Windows and Android, without
+changing the wire schema or publishing a Windows installer.

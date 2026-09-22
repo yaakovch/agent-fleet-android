@@ -405,9 +405,7 @@ internal fun retireSupersededQuestions(items: List<ConversationItem>): List<Conv
 }
 
 internal fun activePendingAction(items: List<ConversationItem>): ConversationItem? {
-    val pending = retireSupersededQuestions(items).filter {
-        it.kind in setOf("question", "approval") && it.state != "complete"
-    }
+    val pending = partitionPendingActions(retireSupersededQuestions(items)).current
     return pending.lastOrNull { it.source != "codex_async_question" } ?: pending.firstOrNull()
 }
 

@@ -53,6 +53,7 @@ class NativeSessionController @JvmOverloads constructor(
     private val home = File(appRoot, "files/home")
     private val fleetRuntime = FleetRuntime(activity.nativeContext.applicationContext)
     private val uiState = mutableStateOf(NativeSessionUiState("Session", "", "", surfaceActive = false, conversationView = NativeSessionSettings.conversationView(activity.nativeContext)))
+    private val completedQuestions = CompletedQuestionMemory()
     @Volatile private var fleetSnapshot: FleetSnapshot? = null
     @Volatile private var visible = false
     @Volatile private var generation = 0
@@ -174,6 +175,9 @@ class NativeSessionController @JvmOverloads constructor(
         )
         enabled = intent?.getBooleanExtra(AgentFleetContract.EXTRA_NATIVE_SESSION, false) == true &&
             NativeSessionSettings.isEnabled(activity.nativeContext) && (localSession || (host.isNotBlank() && session.isNotBlank()))
+        if (uiState.value.hostId != host || uiState.value.internalSession != (if (localSession) "local" else session)) {
+            completedQuestions.clear()
+        }
         uiState.value = NativeSessionUiState(
             label.ifBlank { if (localSession) "Local shell" else "Session" },
             host,
@@ -813,6 +817,7 @@ class NativeSessionController @JvmOverloads constructor(
             providerActivity = null,
             providerActivityAuthoritative = false,
             providerState = ProviderState.unavailable(),
+            providerStateKnown = false,
             connection = "Connecting…"
         )
         if (shouldRunStream()) startStream()
@@ -854,7 +859,7 @@ class NativeSessionController @JvmOverloads constructor(
                     interactionMode = frame.interactionMode,
                     connection = "Live",
                     revision = frame.revision,
-                    items = mergeConversationItems(emptyList(), incoming),
+                    items = mergeConversationItems(emptyList(), completedQuestions.reconcile(incoming, uiState.value.items)),
                     nextCursor = frame.nextCursor,
                     hasMore = frame.hasMore,
                     loadingOlder = false,
@@ -864,6 +869,7 @@ class NativeSessionController @JvmOverloads constructor(
                     providerActivity = frame.providerActivity,
                     providerActivityAuthoritative = frame.hasProviderActivity,
                     providerState = frame.providerState ?: ProviderState.unavailable(),
+                    providerStateKnown = true,
                     error = null
                 )
                 if (frame.mode == "shell") refreshDirectories()
@@ -876,13 +882,14 @@ class NativeSessionController @JvmOverloads constructor(
                 } else {
                     val isNew = uiState.value.items.none { it.id == frame.item.id }
                     uiState.value = uiState.value.copy(
-                        items = mergeConversationItems(uiState.value.items, listOf(frame.item)),
+                        items = mergeConversationItems(uiState.value.items, completedQuestions.reconcile(listOf(frame.item), uiState.value.items)),
                         connection = "Live",
                         liveEventSerial = uiState.value.liveEventSerial + if (isNew) 1 else 0,
                         optimisticWorkStartedAt = optimisticWorkAfterEvent(
                             uiState.value.optimisticWorkStartedAt, frame.item
                         ),
-                        providerState = frame.providerState ?: uiState.value.providerState
+                        providerState = frame.providerState ?: uiState.value.providerState,
+                        providerStateKnown = frame.providerState != null || uiState.value.providerStateKnown
                     )
                     updateComposerState()
                 }
@@ -897,7 +904,7 @@ class NativeSessionController @JvmOverloads constructor(
                     )
                 }
                 if (frame.providerState != null) {
-                    uiState.value = uiState.value.copy(providerState = frame.providerState)
+                    uiState.value = uiState.value.copy(providerState = frame.providerState, providerStateKnown = true)
                 }
                 if (frame.status == "reload_required") restartNow()
                 else {
@@ -986,7 +993,11 @@ class NativeSessionController @JvmOverloads constructor(
             if (token != generation) return@runOneShot
             when (frame) {
                 is ConversationFrame.Snapshot -> {
-                    val merged = mergeConversationItems(uiState.value.items, frame.items, prepend = true)
+                    if (frame.session != uiState.value.internalSession) {
+                        uiState.value = uiState.value.copy(loadingOlder = false, olderLoadError = "History belongs to a different session. Retry loading this conversation.")
+                        return@runOneShot
+                    }
+                    val merged = mergeConversationItems(uiState.value.items, completedQuestions.reconcile(frame.items, uiState.value.items), prepend = true)
                     val limitReached = merged.size >= MAX_LOADED_ITEMS && frame.hasMore
                     uiState.value = uiState.value.copy(
                         items = merged,
@@ -1099,7 +1110,7 @@ class NativeSessionController @JvmOverloads constructor(
                 updateComposerState()
             } else if (delivered) {
                 uiState.value = uiState.value.copy(items = mergeConversationItems(
-                    uiState.value.items, listOf(existing.copy(state = "complete", title = "Answered", answers = answers))
+                    uiState.value.items, completedQuestions.reconcile(listOf(existing.copy(state = "complete", title = "Answered", answers = answers)), uiState.value.items)
                 ))
                 updateComposerState()
             }
