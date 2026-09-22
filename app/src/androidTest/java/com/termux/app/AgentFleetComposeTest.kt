@@ -498,7 +498,7 @@ class AgentFleetComposeTest {
         compose.onNodeWithText("Worked for 7m 40s").assertIsDisplayed()
         compose.runOnIdle { state.value = state.value.copy(conversationView = com.termux.app.fleet.ConversationView.Conversation) }
         compose.onNodeWithText("Worked for 7m 40s").assertDoesNotExist()
-        compose.onNodeWithText("Fixed.").assertIsDisplayed()
+        compose.onNodeWithTag("native-message-reply").assertIsDisplayed()
     }
 
     @Test
