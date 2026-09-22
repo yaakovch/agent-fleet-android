@@ -659,7 +659,7 @@ internal fun AgentFleetComposerContent(
                             contentDescription = if (planMode) "Plan mode message input" else "Message input"
                         },
                     placeholder = { Text(if (planMode) "Plan message…" else "Message…", fontSize = density.nativeBodySp.sp) },
-                    minLines = 4,
+                    minLines = 1,
                     maxLines = 7,
                     textStyle = MaterialTheme.typography.bodyMedium.copy(fontSize = density.nativeBodySp.sp),
                     shape = RoundedCornerShape(14.dp),

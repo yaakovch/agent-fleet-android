@@ -18,7 +18,7 @@ sealed class ConversationRow {
     }
 }
 
-fun buildConversationRows(items: List<ConversationItem>, hasMore: Boolean): List<ConversationRow> {
+fun buildConversationRows(items: List<ConversationItem>, hasMore: Boolean, view: ConversationView = ConversationView.Detailed): List<ConversationRow> {
     val rows = mutableListOf<ConversationRow>()
     val tools = mutableListOf<ConversationItem>()
     var toolStart = -1
@@ -30,7 +30,26 @@ fun buildConversationRows(items: List<ConversationItem>, hasMore: Boolean): List
         toolStart = -1
     }
     val hasTasks = items.any { it.kind == "task_list" }
-    items.forEachIndexed { index, value ->
+    val completed = items.filter { it.activitySummary?.state == "complete" }.map { it.turnId }.toSet()
+    val progress = items.filter { it.messagePurpose == "progress" }.associate { it.turnId to it.id }
+    val lastUser = items.filter { it.role == "user" && it.turnId.isNotBlank() }.associate { it.turnId to it.id }
+    val summaries = items.filter { it.activitySummary != null && it.turnId in lastUser }.associateBy { it.turnId }
+    val ordered = if (view == ConversationView.Detailed) items else items.flatMap { value ->
+        when {
+            value.activitySummary != null && value.turnId in summaries -> emptyList()
+            lastUser[value.turnId] == value.id && value.turnId in summaries -> listOf(value, summaries.getValue(value.turnId))
+            else -> listOf(value)
+        }
+    }
+    ordered.forEachIndexed { index, value ->
+        if (view == ConversationView.Conversation) {
+            if (value.kind == "status" && value.title in setOf("Working", "Done", "Turn Duration")) return@forEachIndexed
+            if (value.messagePurpose == "progress" && (value.turnId in completed || progress[value.turnId] != value.id)) return@forEachIndexed
+            if ((value.kind == "error" || value.state == "error") && value.turnId in completed) return@forEachIndexed
+            flush()
+            rows += ConversationRow.Item(value)
+            return@forEachIndexed
+        }
         if (hasTasks && value.kind == "status" && value.title in setOf("Working", "Done")) return@forEachIndexed
         if (value.kind == "tool") {
             if (tools.isEmpty()) toolStart = index
@@ -77,3 +96,17 @@ fun toolGroupState(group: ConversationRow.ToolGroup): String = when {
     group.calls.any { it.state == "running" || it.state == "pending" } -> "running"
     else -> "complete"
 }
+
+/** At most eight turns, 200 items per turn, and a conservative four MiB text budget. */
+fun boundedActivityPages(current: Map<String, ActivityPage>, id: String, page: ActivityPage): Map<String, ActivityPage> {
+    val pages = LinkedHashMap(current)
+    pages.remove(id)
+    pages[id] = page.copy(items = page.items.take(200))
+    fun bytes(): Long = pages.values.sumOf { value -> value.items.sumOf { item ->
+        4L * (item.id.length + item.title.length + item.text.length + item.detail.length + item.input.length + item.result.length +
+            item.presentation?.let { p -> (p.inputBlocks + p.resultBlocks).sumOf { it.content.length + it.title.length } }.orZero()) + 2048L
+    } }
+    while (pages.size > 8 || bytes() > 4L * 1024 * 1024) pages.remove(pages.keys.first())
+    return pages
+}
+private fun Int?.orZero(): Int = this ?: 0

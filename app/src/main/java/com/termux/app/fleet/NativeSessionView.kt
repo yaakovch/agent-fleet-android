@@ -140,7 +140,9 @@ fun NativeSessionScreen(
     localSuggestionDebugFakeOutput: String? = null,
     onRefreshModel: () -> Unit = {},
     onSetModel: (String, String, Boolean, Boolean) -> Unit = { _, _, _, _ -> },
-    onCancelModel: () -> Unit = {}
+    onCancelModel: () -> Unit = {},
+    onLoadActivity: (ConversationItem, Boolean) -> Unit = { _, _ -> },
+    onCancelActivity: () -> Unit = {}
 ) {
     val context = LocalContext.current
     val displayDensity by AgentFleetDisplayDensityStore.observe(context).collectAsState()
@@ -309,7 +311,9 @@ fun NativeSessionScreen(
                 onDismissAttention = onDismissAttention,
                 onNearBottomChanged = { feedNearBottom = it },
                 onViewerOpenChanged = { viewerOpen = it },
-                localSuggestions = localSuggestions
+                localSuggestions = localSuggestions,
+                onLoadActivity = onLoadActivity,
+                onCancelActivity = onCancelActivity
             )
         }
         }
@@ -464,6 +468,15 @@ private fun CompactSessionHeader(
                         contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp)
                     ) { Text("Actions", fontSize = 11.sp) }
                     DropdownMenu(expanded = actionMenu, onDismissRequest = { actionMenu = false }) {
+                        val context = LocalContext.current
+                        ConversationView.entries.forEach { view ->
+                            DropdownMenuItem(
+                                text = { Text("${if (state.conversationView == view) "✓ " else ""}${view.name}") },
+                                modifier = Modifier.testTag("native-view-${view.wire}"),
+                                enabled = state.items.none { it.kind in setOf("question", "approval") && it.state == "running" },
+                                onClick = { actionMenu = false; NativeSessionSettings.setConversationView(context, view) }
+                            )
+                        }
                         if (aiComposer) {
                             DropdownMenuItem(
                                 text = { Text("Ctrl+C") },
@@ -925,6 +938,8 @@ internal fun LocalSuggestionChoices(
     }
 }
 
+private class ConversationFeedHistory(var view: ConversationView, var rows: List<ConversationRow>)
+
 @Composable
 private fun ConversationFeed(
     state: NativeSessionUiState,
@@ -941,14 +956,36 @@ private fun ConversationFeed(
     onDismissAttention: () -> Unit,
     onNearBottomChanged: (Boolean) -> Unit,
     onViewerOpenChanged: (Boolean) -> Unit,
-    localSuggestions: NativeLocalSuggestionState
+    localSuggestions: NativeLocalSuggestionState,
+    onLoadActivity: (ConversationItem, Boolean) -> Unit,
+    onCancelActivity: () -> Unit
 ) {
     val listState = rememberLazyListState()
     val scope = rememberCoroutineScope()
-    val rows = remember(state.items, state.hasMore, pinnedActionId) {
+    val rows = remember(state.items, state.hasMore, pinnedActionId, state.conversationView) {
         buildConversationRows(state.items.filterNot {
             it.id == pinnedActionId || (it.kind == "question" && it.source == "codex_async_question" && it.state != "complete")
-        }, state.hasMore)
+        }, state.hasMore, state.conversationView)
+    }
+    val history = remember { ConversationFeedHistory(state.conversationView, rows) }
+    val oldRows = history.rows.asReversed()
+    val visibleKey = listState.layoutInfo.visibleItemsInfo.firstOrNull { visible -> oldRows.any { it.composeKey == visible.key } }?.key
+    val oldIndex = oldRows.indexOfFirst { it.composeKey == visibleKey }
+    val anchor = if (history.view != state.conversationView && listState.firstVisibleItemIndex > 1 && oldIndex >= 0) {
+        oldRows.withIndex().filter { it.value is ConversationRow.Item && (it.value as ConversationRow.Item).value.kind == "message" }
+            .minByOrNull { kotlin.math.abs(it.index - oldIndex) }?.value
+    } else null
+    val anchorOffset = if (anchor?.composeKey == visibleKey) listState.firstVisibleItemScrollOffset else 0
+    androidx.compose.runtime.SideEffect { history.view = state.conversationView; history.rows = rows }
+    LaunchedEffect(state.conversationView) {
+        val index = rows.asReversed().indexOfFirst { it.id == anchor?.id }
+        if (index >= 0) {
+            val compatibility = state.conversationView == ConversationView.Conversation && state.items.isNotEmpty() &&
+                state.items.none { it.messagePurpose.isNotBlank() || it.activitySummary != null } && state.sourceMode != "shell"
+            val preceding = 1 + (if (state.attention != null) 1 else 0) +
+                (if (!state.providerState.mutationsAllowed && state.sourceMode != "shell") 1 else 0) + (if (compatibility) 1 else 0)
+            listState.scrollToItem(index + preceding, anchorOffset)
+        }
     }
     var expandedToolIds by rememberSaveable { mutableStateOf(listOf<String>()) }
     var handledLiveSerial by remember { mutableStateOf(state.liveEventSerial) }
@@ -965,8 +1002,10 @@ private fun ConversationFeed(
         }
     }
 
+    var initialPositioned by rememberSaveable { mutableStateOf(false) }
     LaunchedEffect(state.revision) {
-        if (state.revision.isNotBlank()) {
+        if (state.revision.isNotBlank() && !initialPositioned) {
+            initialPositioned = true
             listState.scrollToItem(0)
             handledLiveSerial = state.liveEventSerial
             showNewMessages = false
@@ -1000,7 +1039,7 @@ private fun ConversationFeed(
 
     Box(Modifier.fillMaxSize().padding(padding).testTag("native-conversation-feed")) {
         LazyColumn(
-            modifier = Modifier.fillMaxSize(),
+            modifier = Modifier.fillMaxSize().testTag("native-message-list"),
             state = listState,
             reverseLayout = true,
             contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp),
@@ -1017,14 +1056,57 @@ private fun ConversationFeed(
                     ProviderConfidenceCard(state.providerState, onOpenTerminal)
                 }
             }
+            if (state.conversationView == ConversationView.Conversation && state.items.isNotEmpty() && state.items.none { it.messagePurpose.isNotBlank() || it.activitySummary != null } && state.sourceMode != "shell") {
+                item("turn-compatibility") { Text("Update this host for turn grouping and on-demand Activity.", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant) }
+            }
             items(rows.asReversed(), key = ConversationRow::composeKey) { row ->
                 when (row) {
-                    is ConversationRow.Item -> ConversationItemCard(
-                        row.value, onApproval, onQuestion, onOpenTerminal, onRetry,
-                        onOpenTool = { item, index -> viewerItemId = item.id; viewerActionIndex = index ?: -1 },
-                        onOpenPlan = { item -> viewerItemId = item.id; viewerActionIndex = -1 },
-                        localSuggestions = localSuggestions, conversationItems = state.items
-                    )
+                    is ConversationRow.Item -> {
+                        val value = row.value
+                        val summary = value.activitySummary
+                        val optional = state.conversationView == ConversationView.Conversation && summary == null &&
+                            value.kind !in setOf("message", "plan", "question", "approval", "error", "attachment", "fallback") && value.attachments.isEmpty() && value.state != "error"
+                        if (summary != null || optional) {
+                            val expanded = value.id in expandedToolIds
+                            Column(Modifier.fillMaxWidth().testTag("activity-${value.id}")) {
+                                TextButton(onClick = {
+                                    if (expanded) onCancelActivity()
+                                    expandedToolIds = if (expanded) expandedToolIds - value.id else expandedToolIds + value.id
+                                    if (!expanded && summary != null && state.activityPages[value.id] == null) onLoadActivity(value, false)
+                                }, modifier = Modifier.testTag("activity-toggle-${value.id}")) {
+                                    val counts = summary?.let { listOf(
+                                        if (it.toolCount > 0) "${it.toolCount} tools" else "",
+                                        if (it.changeCount > 0) "${it.changeCount} edits" else "",
+                                        if (it.progressCount > 0) "${it.progressCount} updates" else "",
+                                        if (it.otherCount > 0) "${it.otherCount} events" else ""
+                                    ).filter(String::isNotBlank).joinToString(" · ") }.orEmpty()
+                                    Text("${if (expanded) "▾" else "▸"} Activity${if (counts.isNotBlank()) " · $counts" else ""}${if (summary?.partial == true) " · partial" else ""}${if (summary?.state == "running") " · working" else ""}", fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                }
+                                if (expanded) {
+                                    val page = state.activityPages[value.id]
+                                    if (summary != null && page?.loading == true) Text("Loading activity…", Modifier.padding(12.dp))
+                                    if (summary != null && page?.error != null) Text(page.error, Modifier.padding(12.dp), color = MaterialTheme.colorScheme.error)
+                                    (if (optional) listOf(value) else page?.items.orEmpty()).forEach { detail ->
+                                        key(detail.id) {
+                                            ConversationItemCard(detail, onApproval, onQuestion, onOpenTerminal, onRetry,
+                                                onOpenTool = { item, index -> viewerItemId = item.id; viewerActionIndex = index ?: -1 },
+                                                onOpenPlan = { item -> viewerItemId = item.id; viewerActionIndex = -1 },
+                                                localSuggestions = localSuggestions, conversationItems = state.items)
+                                        }
+                                    }
+                                    if (page?.cursor != null) TextButton(onClick = { onLoadActivity(value, true) }, enabled = !page.loading) { Text("Load earlier activity") }
+                                    if (summary != null && (page == null || page.error != null || page.sourceCursor != summary.cursor)) {
+                                        TextButton(onClick = { onLoadActivity(value, false) }, enabled = page?.loading != true) { Text("Refresh activity") }
+                                    }
+                                }
+                            }
+                        } else ConversationItemCard(
+                            value, onApproval, onQuestion, onOpenTerminal, onRetry,
+                            onOpenTool = { item, index -> viewerItemId = item.id; viewerActionIndex = index ?: -1 },
+                            onOpenPlan = { item -> viewerItemId = item.id; viewerActionIndex = -1 },
+                            localSuggestions = localSuggestions, conversationItems = state.items
+                        )
+                    }
                     is ConversationRow.ToolGroup -> ToolGroupCard(
                         row,
                         expanded = row.calls.any { it.id in expandedToolIds },
@@ -1096,7 +1178,7 @@ private fun ConversationFeed(
             ) { Text("New messages ↓", fontSize = 15.sp) }
         }
     }
-    state.items.firstOrNull { it.id == viewerItemId }?.let { item ->
+    (state.items + state.activityPages.values.flatMap { it.items }).firstOrNull { it.id == viewerItemId }?.let { item ->
         ConversationViewerDialog(
             item = item,
             actionIndex = viewerActionIndex.takeIf { it >= 0 },
@@ -1288,7 +1370,7 @@ private fun ConversationItemCard(
 @Composable
 private fun MessageCard(value: ConversationItem) {
     val user = value.role == "user"
-    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = if (user) Arrangement.End else Arrangement.Start) {
+    Row(modifier = Modifier.fillMaxWidth().testTag("native-message-${value.id}"), horizontalArrangement = if (user) Arrangement.End else Arrangement.Start) {
         if (user) {
             Card(
                 modifier = Modifier.widthIn(max = 680.dp).fillMaxWidth(0.9f),
@@ -1697,6 +1779,7 @@ internal fun activeWorkStartedAt(adapter: String, items: List<ConversationItem>)
     fun time(value: ConversationItem): Long? = parseConversationTimestamp(value.startedAt.ifBlank { value.timestamp })
     fun lifecycleEnd(value: ConversationItem): Boolean =
         (value.kind == "status" && value.title in setOf("Done", "Turn Duration") && value.state != "running") ||
+            (value.activitySummary != null && value.activitySummary.state in setOf("complete", "error")) ||
             value.kind == "error" || value.state == "error" ||
             (value.kind in setOf("question", "approval") && value.state != "complete")
 
@@ -1715,11 +1798,12 @@ internal fun activeWorkStartedAt(adapter: String, items: List<ConversationItem>)
     val lastUser = items.indexOfLast { it.kind == "message" && it.role == "user" }
     if (lastUser < 0) return null
     val lastStop = items.indexOfLast { value ->
-        lifecycleEnd(value) || (value.kind == "message" && value.role == "assistant")
+        lifecycleEnd(value) || (value.kind == "message" && value.role == "assistant" && value.messagePurpose != "progress")
     }
     val lastContinuation = items.indexOfLast { value ->
         when (value.kind) {
-            "tool", "activity", "change" -> value.state != "error"
+            "activity" -> if (value.activitySummary != null) value.activitySummary.state == "running" else value.state != "error"
+            "tool", "change" -> value.state != "error"
             "task_list" -> value.tasks.any { it.state != "completed" }
             else -> false
         }
@@ -1733,12 +1817,15 @@ internal fun optimisticWorkAfterComposerSend(
 
 internal fun optimisticWorkAfterEvent(previous: Long?, value: ConversationItem): Long? {
     if (previous == null) return null
-    val authoritativeStart = value.kind == "status" && value.title == "Working" && value.state == "running"
+    val authoritativeStart = (value.kind == "status" && value.title == "Working" && value.state == "running") ||
+        value.activitySummary?.state == "running"
     val lifecycleEnd =
         (value.kind == "status" && value.title in setOf("Done", "Turn Duration") && value.state != "running") ||
+            (value.activitySummary != null && value.activitySummary.state in setOf("complete", "error")) ||
             value.kind == "error" || value.state == "error" ||
             (value.kind in setOf("question", "approval") && value.state != "complete")
-    return if (authoritativeStart || lifecycleEnd) null else previous
+    return if (authoritativeStart || lifecycleEnd ||
+        (value.kind == "message" && value.role == "assistant" && value.messagePurpose != "progress")) null else previous
 }
 
 internal fun reconcileOptimisticWork(
@@ -1747,8 +1834,9 @@ internal fun reconcileOptimisticWork(
     if (previous == null || activeWorkStartedAt(adapter, items) != null) return null
     val completedAt = items.asReversed().firstNotNullOfOrNull { value ->
         if (
-            value.kind == "status" && value.title in setOf("Done", "Turn Duration") &&
-            value.state != "running"
+            (value.kind == "status" && value.title in setOf("Done", "Turn Duration") && value.state != "running") ||
+            value.activitySummary?.state in setOf("complete", "error") ||
+            (value.kind == "message" && value.role == "assistant" && value.messagePurpose != "progress")
         ) parseConversationTimestamp(value.completedAt.ifBlank { value.timestamp }) else null
     }
     return if (completedAt != null && completedAt >= previous) null else previous

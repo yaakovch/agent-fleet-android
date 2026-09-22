@@ -52,7 +52,7 @@ class NativeSessionController @JvmOverloads constructor(
     private val prefix = File(appRoot, "files/usr")
     private val home = File(appRoot, "files/home")
     private val fleetRuntime = FleetRuntime(activity.nativeContext.applicationContext)
-    private val uiState = mutableStateOf(NativeSessionUiState("Session", "", "", surfaceActive = false))
+    private val uiState = mutableStateOf(NativeSessionUiState("Session", "", "", surfaceActive = false, conversationView = NativeSessionSettings.conversationView(activity.nativeContext)))
     @Volatile private var fleetSnapshot: FleetSnapshot? = null
     @Volatile private var visible = false
     @Volatile private var generation = 0
@@ -64,6 +64,18 @@ class NativeSessionController @JvmOverloads constructor(
     private val streamLaunchGate = ConversationStreamLaunchGate()
     @Volatile private var streamProcess: Process? = null
     private val oneShotProcesses = NativeOneShotProcessOwner()
+    private val activityProcesses = NativeOneShotProcessOwner()
+    private var activityRequest = 0
+    private var responsesInFlight = 0
+    private var viewRestartPending = false
+    private val viewListener = android.content.SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
+        if (key == "view") main.post {
+            val view = NativeSessionSettings.conversationView(activity.nativeContext)
+            if (view != uiState.value.conversationView) {
+                restartForView()
+            }
+        }
+    }
     @Volatile private var retryBlocked = false
     private var retryIndex = 0
     private var lastFallbackText = ""
@@ -83,6 +95,7 @@ class NativeSessionController @JvmOverloads constructor(
     }
 
     init {
+        NativeSessionSettings.preferences(activity.nativeContext).registerOnSharedPreferenceChangeListener(viewListener)
         composeView.setViewCompositionStrategy(nativeSessionCompositionStrategy(retainCompositionAcrossDetach))
         composeView.setContent {
             AgentFleetTheme {
@@ -92,6 +105,8 @@ class NativeSessionController @JvmOverloads constructor(
                     onToggleTerminal = ::toggleTerminal,
                     onRetry = ::restartNow,
                     onLoadOlder = ::loadOlder,
+                    onLoadActivity = ::loadActivity,
+                    onCancelActivity = ::cancelActivity,
                     onApproval = ::respondApproval,
                     onQuestion = ::respondQuestion,
                     onShellCommand = ::sendShellCommand,
@@ -167,7 +182,8 @@ class NativeSessionController @JvmOverloads constructor(
             sourceMode = if (localSession) "shell" else "ai",
             connection = if (localSession) "Live" else "Connecting…",
             cwd = if (localSession) home.absolutePath else "",
-            surfaceActive = visible
+            surfaceActive = visible,
+            conversationView = NativeSessionSettings.conversationView(activity.nativeContext)
         )
         updateComposerState()
         val requestedSurface = intent?.getStringExtra(AgentFleetContract.EXTRA_INITIAL_SURFACE)
@@ -233,6 +249,7 @@ class NativeSessionController @JvmOverloads constructor(
     }
 
     fun close() {
+        NativeSessionSettings.preferences(activity.nativeContext).unregisterOnSharedPreferenceChangeListener(viewListener)
         visible = false
         FleetSnapshotStore.removeObserver(this)
         generation++
@@ -412,7 +429,9 @@ class NativeSessionController @JvmOverloads constructor(
     }
 
     private fun applyFleetSnapshot(snapshot: FleetSnapshot) {
+        val previousViewArguments = conversationViewArguments()
         fleetSnapshot = snapshot
+        if (previousViewArguments != conversationViewArguments() && streamProcess != null) restartForView()
         val sessionId = "${uiState.value.hostId}:${uiState.value.internalSession}"
         val session = snapshot.sessions.firstOrNull { it.id == sessionId }
         val hiddenId = dismissedAttentionId
@@ -684,7 +703,7 @@ class NativeSessionController @JvmOverloads constructor(
             var stderrReader: Thread? = null
             try {
                 val launchedProcess = environment(
-                    ProcessBuilder(conversationCommand("stream", listOf("--limit", HISTORY_PAGE_SIZE.toString())))
+                    ProcessBuilder(conversationCommand("stream", listOf("--limit", HISTORY_PAGE_SIZE.toString()) + conversationViewArguments()))
                 ).start()
                 process = launchedProcess
                 val accepted = streamLaunchGate.promote(
@@ -769,6 +788,18 @@ class NativeSessionController @JvmOverloads constructor(
         main.postDelayed({ if (shouldRunStream() && token == generation && streamProcess == null) startStream() }, delay)
     }
 
+    private fun restartForView() {
+        if (responsesInFlight > 0) { viewRestartPending = true; return }
+        viewRestartPending = false
+        uiState.value = uiState.value.copy(conversationView = NativeSessionSettings.conversationView(activity.nativeContext), activityPages = emptyMap())
+        restartNow()
+    }
+
+    private fun responseCompleted() {
+        responsesInFlight = (responsesInFlight - 1).coerceAtLeast(0)
+        if (viewRestartPending && responsesInFlight == 0) restartForView()
+    }
+
     private fun restartNow() {
         generation++
         stopProcess()
@@ -788,6 +819,11 @@ class NativeSessionController @JvmOverloads constructor(
     }
 
     private fun stopProcess() {
+        responsesInFlight = 0
+        viewRestartPending = false
+        activityRequest++
+        activityProcesses.cancelAll()
+        uiState.value = uiState.value.copy(activityPages = uiState.value.activityPages.mapValues { (_, page) -> page.copy(loading = false) })
         oneShotProcesses.cancelAll()
         var process: Process? = null
         streamLaunchGate.cancel {
@@ -800,6 +836,7 @@ class NativeSessionController @JvmOverloads constructor(
 
     private fun applyFrame(frame: ConversationFrame) {
         when (frame) {
+            is ConversationFrame.Activity -> Unit
             is ConversationFrame.Snapshot -> {
                 if (frame.session != uiState.value.internalSession) return
                 retryIndex = 0
@@ -900,6 +937,39 @@ class NativeSessionController @JvmOverloads constructor(
         lastFallbackText = text
     }
 
+    private fun conversationViewArguments(): List<String> =
+        if (fleetSnapshot?.hosts?.firstOrNull { it.id == uiState.value.hostId }?.capabilities?.contains("conversation.turns.v1") == true)
+            listOf("--view", uiState.value.conversationView.wire) else emptyList()
+
+    private fun cancelActivity() {
+        activityRequest++
+        activityProcesses.cancelAll()
+        uiState.value = uiState.value.copy(activityPages = uiState.value.activityPages.mapValues { (_, page) ->
+            if (page.loading) page.copy(loading = false, error = "Activity loading was cancelled. Retry to load details.") else page
+        })
+    }
+
+    private fun loadActivity(item: ConversationItem, older: Boolean) {
+        val summary = item.activitySummary ?: return
+        val previous = uiState.value.activityPages[item.id]
+        if (previous?.loading == true) return
+        val cursor = if (older) previous?.cursor ?: return else summary.cursor
+        activityProcesses.cancelAll()
+        val request = ++activityRequest
+        val pages = uiState.value.activityPages.mapValues { (_, page) -> page.copy(loading = false) }
+        uiState.value = uiState.value.copy(activityPages = boundedActivityPages(pages, item.id,
+            ActivityPage(if (older) previous?.items.orEmpty() else emptyList(), sourceCursor = summary.cursor, loading = true)))
+        runOneShot(conversationCommand("activity", listOf("--turn-id", summary.turnId, "--cursor", cursor, "--limit", "25")), owner = activityProcesses) { action ->
+            if (request != activityRequest) return@runOneShot
+            val frame = runCatching { ConversationStreamParser.parseFrame(action.stdout.lineSequence().first { it.isNotBlank() }) }.getOrNull()
+            val page = if (action.exitCode == 0 && frame is ConversationFrame.Activity && frame.session == uiState.value.internalSession && frame.turnId == summary.turnId) {
+                ActivityPage(mergeConversationItems(frame.items, if (older) previous?.items.orEmpty() else emptyList()),
+                    if (frame.hasMore) frame.nextCursor else null, summary.cursor)
+            } else (previous ?: ActivityPage()).copy(loading = false, error = "Activity could not be loaded. Reconnect and retry.")
+            uiState.value = uiState.value.copy(activityPages = boundedActivityPages(uiState.value.activityPages, item.id, page))
+        }
+    }
+
     private fun loadOlder() {
         val cursor = uiState.value.nextCursor ?: return
         if (uiState.value.loadingOlder) return
@@ -911,7 +981,7 @@ class NativeSessionController @JvmOverloads constructor(
         val requestLimit = minOf(HISTORY_PAGE_SIZE, remaining)
         uiState.value = uiState.value.copy(loadingOlder = true, olderLoadError = null)
         val token = generation
-        runOneShot(conversationCommand("stream", listOf("--cursor", cursor, "--limit", requestLimit.toString(), "--no-follow"))) { action ->
+        runOneShot(conversationCommand("stream", listOf("--cursor", cursor, "--limit", requestLimit.toString(), "--no-follow") + conversationViewArguments())) { action ->
             val frame = runCatching { ConversationStreamParser.parseFrame(action.stdout.lineSequence().first { it.isNotBlank() }) }.getOrNull()
             if (token != generation) return@runOneShot
             when (frame) {
@@ -952,6 +1022,7 @@ class NativeSessionController @JvmOverloads constructor(
         val running = value.copy(state = "running", title = "Sending approval…")
         uiState.value = uiState.value.copy(items = mergeConversationItems(uiState.value.items, listOf(running)))
         updateComposerState()
+        responsesInFlight++
         runOneShot(conversationCommand("approve", listOf(
             "--approval", value.id,
             "--choice", choice.id,
@@ -968,6 +1039,7 @@ class NativeSessionController @JvmOverloads constructor(
             )
             uiState.value = uiState.value.copy(items = mergeConversationItems(uiState.value.items, listOf(updated)))
             updateComposerState()
+            responseCompleted()
         }
     }
 
@@ -1003,6 +1075,7 @@ class NativeSessionController @JvmOverloads constructor(
         val running = value.copy(state = "running", title = "Sending answer…", answers = answers, text = "")
         uiState.value = uiState.value.copy(items = mergeConversationItems(uiState.value.items, listOf(running)))
         updateComposerState()
+        responsesInFlight++
         runOneShot(conversationCommand("answer", listOf(
             "--question", value.id,
             "--revision", revision,
@@ -1030,6 +1103,7 @@ class NativeSessionController @JvmOverloads constructor(
                 ))
                 updateComposerState()
             }
+            responseCompleted()
         }
     }
 
@@ -1115,13 +1189,13 @@ class NativeSessionController @JvmOverloads constructor(
         return value.filterNot { it.isISOControl() }.take(360).ifBlank { fallback }
     }
 
-    private fun runOneShot(command: List<String>, timeoutSeconds: Long = 12, onResult: (ActionResult) -> Unit) {
+    private fun runOneShot(command: List<String>, timeoutSeconds: Long = 12, owner: NativeOneShotProcessOwner = oneShotProcesses, onResult: (ActionResult) -> Unit) {
         val token = generation
-        val ticket = oneShotProcesses.begin(timeoutSeconds, TimeUnit.SECONDS)
+        val ticket = owner.begin(timeoutSeconds, TimeUnit.SECONDS)
         thread(name = "native-session-action", isDaemon = true) {
             val output = runCatching {
                 val process = environment(ProcessBuilder(command)).redirectErrorStream(false).start()
-                val result = oneShotProcesses.collect(ticket, process)
+                val result = owner.collect(ticket, process)
                 val outputTooLarge = result.stdoutTruncated || result.stderrTruncated
                 val discardOutput = result.cancelled || result.timedOut || outputTooLarge
                 ActionResult(

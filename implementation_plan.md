@@ -2040,3 +2040,15 @@ APK integrity, 75 release/runtime regressions and backup/rollback rehearsal.
 Shared contract generation check passed for both client repositories. The signed
 release orchestrator must record its remaining gates and publication result in
 the wtmux handoff `docs/integration/NATIVE_QUESTIONS_REFRESH_2026-09-21.md`.
+
+
+## Native Conversation implementation (2026-09-22)
+
+The approved two-release plan is recorded in wtmux. The first release fixes
+question/approval launcher forwarding; the second adds Conversation/Detailed.
+Shared runtime git-6b4e7c9 provides contract 1.11.0/21 and components 82/74/45.
+Validate both client parsers with conversation-turns-v2.json, mixed host versions,
+1,001-tool turns, activity cancellation/paging, draft/scroll/expansion preservation
+and light/dark/large text. Preserve submission receipts across mode changes.
+Complete Android protected emulator and canonical signed publication gates;
+verify paired-host canary/rollout with sessions, configuration and rollback.

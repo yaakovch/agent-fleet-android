@@ -60,6 +60,16 @@ data class ToolPresentation(
     val resultBlocks: List<ToolPresentationBlock>
 )
 
+enum class ConversationView(val wire: String) { Conversation("conversation"), Detailed("detailed") }
+data class ActivitySummary(
+    val turnId: String, val state: String, val toolCount: Long, val changeCount: Long,
+    val progressCount: Long, val otherCount: Long, val partial: Boolean, val latestProgress: String, val cursor: String
+)
+data class ActivityPage(
+    val items: List<ConversationItem> = emptyList(), val cursor: String? = null,
+    val sourceCursor: String = "", val loading: Boolean = false, val error: String? = null
+)
+
 data class ConversationItem(
     val id: String,
     val kind: String,
@@ -86,10 +96,15 @@ data class ConversationItem(
     val turnId: String = "",
     val taskListId: String = "",
     val updateMode: String = "",
-    val tasks: List<ConversationTask> = emptyList()
+    val tasks: List<ConversationTask> = emptyList(),
+    val messagePurpose: String = "",
+    val activitySummary: ActivitySummary? = null
 )
 
 sealed class ConversationFrame {
+    data class Activity(val session: String, val turnId: String, val items: List<ConversationItem>,
+                        val nextCursor: String?, val hasMore: Boolean) : ConversationFrame()
+
     data class Snapshot(
         val session: String,
         val adapter: String,
@@ -206,5 +221,7 @@ data class NativeSessionUiState(
     val directoryTruncated: Boolean = false,
     val modelControl: FleetModelControlState? = null,
     val modelControlLoading: Boolean = false,
-    val modelControlError: String? = null
+    val modelControlError: String? = null,
+    val conversationView: ConversationView = ConversationView.Conversation,
+    val activityPages: Map<String, ActivityPage> = emptyMap()
 )

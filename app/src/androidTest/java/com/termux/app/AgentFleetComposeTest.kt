@@ -28,6 +28,7 @@ import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
+import androidx.compose.ui.test.performScrollToKey
 import androidx.compose.ui.test.performScrollToNode
 import androidx.compose.ui.test.performSemanticsAction
 import androidx.compose.ui.test.performTextInput
@@ -1532,6 +1533,50 @@ class AgentFleetComposeTest {
     }
 
     @Test
+    fun switchingNativeViewAndReconnectKeepTheVisibleMessage() {
+        val messages = (0..30).map { index -> ConversationItem("anchor-$index", "message", "now", if (index % 2 == 0) "user" else "assistant", "",
+            "Message $index stays readable across view changes.", "", "complete", "", emptyList(), emptyList(), messagePurpose = "unknown") }
+        val state = mutableStateOf(NativeSessionUiState("Reading position", "gaming", "fixture", adapter = "codex", connection = "Live", revision = "initial", items = messages))
+        compose.setContent { NativeStateFixture(state.value, inlineComposer = true) }
+        compose.onNodeWithTag("native-message-list").performScrollToKey("item:anchor-12")
+        val before = compose.onNodeWithTag("native-message-anchor-12").fetchSemanticsNode().boundsInRoot.top
+        compose.runOnIdle { state.value = state.value.copy(conversationView = com.termux.app.fleet.ConversationView.Detailed, revision = "reconnected") }
+        compose.waitForIdle()
+        val after = compose.onNodeWithTag("native-message-anchor-12").fetchSemanticsNode().boundsInRoot.top
+        assertTrue("The visible message should keep its position", kotlin.math.abs(before - after) < 8f)
+    }
+
+    @Test
+    fun conversationActivityPreservesExpansionAndDraftAcrossViewChanges() {
+        val base = ConversationItem("user", "message", "now", "user", "", "Review the change", "", "complete", "", emptyList(), emptyList(), turnId = "turn", messagePurpose = "user")
+        val activity = base.copy(id = "activity", kind = "activity", role = "", text = "", messagePurpose = "",
+            activitySummary = com.termux.app.fleet.ActivitySummary("turn", "complete", 1001, 2, 2, 0, false, "", "cursor"))
+        val tool = base.copy(id = "detail", kind = "tool", role = "assistant", title = "Read source", text = "", messagePurpose = "",
+            input = "rg fixture", result = "Matched source", action = "read", target = "source")
+        val final = base.copy(id = "final", role = "assistant", text = "The change is ready.", messagePurpose = "final")
+        val state = mutableStateOf(NativeSessionUiState("Conversation", "gaming", "fixture", adapter = "codex", connection = "Live", items = listOf(base, activity, final)))
+        val loads = AtomicInteger()
+        compose.setContent { NativeStateFixture(state.value, inlineComposer = true, onLoadActivity = { item, _ ->
+            loads.incrementAndGet()
+            state.value = state.value.copy(activityPages = mapOf(item.id to com.termux.app.fleet.ActivityPage(listOf(tool), sourceCursor = "cursor")))
+        }) }
+        compose.onNodeWithTag("native-message-input").performTextInput("Keep this draft")
+        compose.onAllNodes(hasTestTag("tool-details-detail")).assertCountEquals(0)
+        discoveryScreenshot("native-conversation-collapsed")
+        compose.onNodeWithTag("activity-toggle-activity").performScrollTo().performClick()
+        compose.onNodeWithTag("tool-details-detail").performScrollTo().assertIsDisplayed()
+        compose.runOnIdle { state.value = state.value.copy(liveEventSerial = 1) }
+        compose.onNodeWithTag("tool-details-detail").performScrollTo().assertIsDisplayed()
+        compose.runOnIdle { assertEquals(1, loads.get()) }
+        discoveryScreenshot("native-conversation-expanded")
+        compose.runOnIdle { state.value = state.value.copy(conversationView = com.termux.app.fleet.ConversationView.Detailed, items = listOf(base, tool, final)) }
+        compose.onNodeWithTag("native-message-input").assertTextContains("Keep this draft")
+        compose.runOnIdle { state.value = state.value.copy(conversationView = com.termux.app.fleet.ConversationView.Conversation, items = listOf(base, activity, final)) }
+        compose.onNodeWithTag("tool-details-detail").performScrollTo().assertIsDisplayed()
+        compose.onNodeWithTag("native-message-input").assertTextContains("Keep this draft")
+    }
+
+    @Test
     fun groupedToolsTasksAndDetailsExposeUsefulSemantics() {
         val tools = (1..10).map { index ->
             ConversationItem(
@@ -1554,7 +1599,7 @@ class AgentFleetComposeTest {
                 ConversationTask("3", "Verify", "Verifying", "Emulator", "pending")
             )
         )
-        compose.setContent { NativeStateFixture(NativeSessionUiState("Fixture", "gaming", "wtmux-main", adapter = "codex", connection = "Live", items = tools + tasks)) }
+        compose.setContent { NativeStateFixture(NativeSessionUiState("Fixture", "gaming", "wtmux-main", adapter = "codex", connection = "Live", items = tools + tasks, conversationView = com.termux.app.fleet.ConversationView.Detailed)) }
         compose.onNodeWithTag("tool-group-tool-1").assertIsDisplayed()
         compose.onNodeWithText("Show").performClick()
         compose.onNodeWithTag("tool-details-tool-1").performScrollTo().assertIsDisplayed().performClick()
@@ -1603,7 +1648,8 @@ class AgentFleetComposeTest {
         applyStatusBarInset: Boolean = true,
         localSuggestionsAvailableOverride: Boolean? = null,
         localSuggestionModeOverride: LocalSuggestionMode? = null,
-        localSuggestionDebugFakeOutput: String? = null
+        localSuggestionDebugFakeOutput: String? = null,
+        onLoadActivity: (ConversationItem, Boolean) -> Unit = { _, _ -> }
     ) {
         val fixtureState = if (state.providerState.reasonCode == "PROVIDER_STATE_UNAVAILABLE") {
             state.copy(providerState = verifiedProviderState(state.adapter))
@@ -1630,7 +1676,8 @@ class AgentFleetComposeTest {
                 applyStatusBarInset = applyStatusBarInset,
                 localSuggestionsAvailableOverride = localSuggestionsAvailableOverride,
                 localSuggestionModeOverride = localSuggestionModeOverride,
-                localSuggestionDebugFakeOutput = localSuggestionDebugFakeOutput
+                localSuggestionDebugFakeOutput = localSuggestionDebugFakeOutput,
+                onLoadActivity = onLoadActivity
             )
         }
     }

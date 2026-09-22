@@ -12,7 +12,7 @@ object ConversationStreamParser {
         val root = JSONObject(line)
         require(root.getInt("protocolVersion") == 2)
         when (root.getString("type")) {
-            "conversation.snapshot", "conversation.event", "conversation.status", "conversation.heartbeat", "conversation.error" -> parseFrame(line)
+            "conversation.activity", "conversation.snapshot", "conversation.event", "conversation.status", "conversation.heartbeat", "conversation.error" -> parseFrame(line)
             "directory.snapshot" -> parseDirectory(line)
             "question.response" -> {
                 root.requireConversationFields(setOf("protocolVersion", "type", "timestamp", "session", "questionId", "status"))
@@ -53,8 +53,14 @@ object ConversationStreamParser {
             "conversation.snapshot" -> {
                 root.requireConversationFields(
                     setOf("protocolVersion", "type", "session", "adapter", "mode", "interactionMode", "revision", "items", "nextCursor", "hasMore"),
-                    setOf("timestamp", "providerActivity", "providerState")
+                    setOf("timestamp", "providerActivity", "providerState", "view", "capabilities")
                 )
+                if (root.has("view")) require(root.getString("view") in setOf("conversation", "detailed"))
+                if (root.has("capabilities")) {
+                    val capabilities = root.getJSONArray("capabilities")
+                    require(capabilities.length() <= 1)
+                    if (capabilities.length() == 1) require(capabilities.getString(0) == "conversation.turns.v1")
+                }
                 val items = root.getJSONArray("items").also { require(it.length() <= 200) }
                 val parsedItems = List(items.length()) { parseItem(items.getJSONObject(it)) }
                     .also { requireUniqueNonEmpty(it.map(ConversationItem::id)) }
@@ -71,6 +77,17 @@ object ConversationStreamParser {
                 hasProviderActivity = root.has("providerActivity"),
                 providerState = providerState(root)
             )
+            }
+            "conversation.activity" -> {
+                root.requireConversationFields(setOf("protocolVersion", "type", "timestamp", "session", "adapter", "turnId", "items", "nextCursor", "hasMore"))
+                safe(root.getString("timestamp"), 64)
+                safe(root.getString("adapter"), 32)
+                val values = root.getJSONArray("items").also { require(it.length() <= 200) }
+                val items = List(values.length()) { parseItem(values.getJSONObject(it)) }
+                requireUniqueNonEmpty(items.map(ConversationItem::id))
+                require(items.all { it.turnId == root.getString("turnId") })
+                ConversationFrame.Activity(safe(root.getString("session"), 160), safe(root.getString("turnId"), 160), items,
+                    if (root.isNull("nextCursor")) null else safe(root.getString("nextCursor"), 512), root.getBoolean("hasMore"))
             }
             "conversation.event" -> {
                 root.requireConversationFields(
@@ -131,12 +148,24 @@ object ConversationStreamParser {
         )
     }
 
+    private fun parseActivitySummary(value: JSONObject): ActivitySummary {
+        value.requireConversationFields(setOf("turnId", "state", "toolCount", "changeCount", "progressCount", "otherCount", "partial", "latestProgress", "cursor"))
+        fun count(key: String): Long {
+            val raw = value.get(key)
+            require(raw is Number && raw.toDouble() % 1.0 == 0.0)
+            return value.getLong(key).also { require(it in 0..9_007_199_254_740_991L) }
+        }
+        return ActivitySummary(safe(value.getString("turnId"), 160), value.getString("state").also { require(it in setOf("running", "complete", "error", "unknown")) },
+            count("toolCount"), count("changeCount"), count("progressCount"), count("otherCount"), value.getBoolean("partial"),
+            safe(value.getString("latestProgress"), 240), safe(value.getString("cursor"), 512))
+    }
+
     private fun parseItem(value: JSONObject): ConversationItem {
         value.requireConversationFields(
             setOf("id", "kind", "timestamp", "role", "title", "text", "detail", "state", "tool", "attachments", "choices"),
             setOf(
                 "revision", "action", "target", "input", "result", "startedAt", "completedAt", "questions", "answers",
-                "presentation", "source", "turnId", "taskListId", "updateMode", "tasks"
+                "presentation", "source", "turnId", "taskListId", "updateMode", "tasks", "messagePurpose", "activitySummary"
             )
         )
         val kind = safe(value.getString("kind"), 32)
@@ -211,6 +240,10 @@ object ConversationStreamParser {
             presentation = presentation?.let(::parsePresentation),
             source = safe(value.optString("source"), 64),
             turnId = safe(value.optString("turnId"), 160),
+            messagePurpose = value.optString("messagePurpose").also { require(!value.has("messagePurpose") || it in setOf("user", "progress", "final", "unknown")) },
+            activitySummary = if (!value.has("activitySummary")) null else parseActivitySummary(value.getJSONObject("activitySummary")).also {
+                require(value.getString("kind") == "activity" && value.getString("turnId") == it.turnId)
+            },
             taskListId = safe(value.optString("taskListId"), 160),
             updateMode = safe(value.optString("updateMode"), 16).also { require(it in setOf("", "replace", "merge")) },
             tasks = if (tasks == null) emptyList() else List(tasks.length()) { index ->

@@ -102,7 +102,8 @@ class AgentFleetGoldenTest {
             )
         )
         setNative(NativeSessionUiState(
-            "Structured work", "gaming", "wtmux-main", adapter = "codex", connection = "Live", items = tools + tasks
+            "Structured work", "gaming", "wtmux-main", adapter = "codex", connection = "Live", items = tools + tasks,
+            conversationView = com.termux.app.fleet.ConversationView.Detailed
         ))
         assertGolden("native-structured-work")
     }
@@ -173,6 +174,26 @@ class AgentFleetGoldenTest {
             inlineComposer = true
         )
         assertGolden("native-reading-first")
+    }
+
+    @Test fun conversationDarkMatchesGolden() = turnConversationGolden(true, false)
+    @Test fun conversationLightMatchesGolden() = turnConversationGolden(false, false)
+    @Test fun conversationLargeTextMatchesGolden() = turnConversationGolden(true, true)
+
+    private fun turnConversationGolden(dark: Boolean, large: Boolean) {
+        val context = androidx.test.core.app.ApplicationProvider.getApplicationContext<android.content.Context>()
+        val original = com.termux.app.fleet.AgentFleetDisplayDensityStore.load(context)
+        try {
+            if (large) com.termux.app.fleet.AgentFleetDisplayDensityStore.save(context, original.copy(nativeBodySp = 20))
+            val user = ConversationItem("turn-user", "message", "now", "user", "", "Make Native view easier to read.", "", "complete", "", emptyList(), emptyList(), turnId = "turn", messagePurpose = "user")
+            val activity = user.copy(id = "activity", kind = "activity", role = "", text = "", messagePurpose = "",
+                activitySummary = com.termux.app.fleet.ActivitySummary("turn", "complete", 1001, 3, 2, 1, false, "", "cursor"))
+            val final = user.copy(id = "turn-final", role = "assistant", messagePurpose = "final", text = "Native view now puts your messages and my replies first.\n\nOpen Activity to inspect tools and edits. Use Actions to switch to Detailed whenever you want the full timeline.")
+            setNative(NativeSessionUiState("Native conversation", "gaming", "fixture", adapter = "codex", connection = "Live", items = listOf(user, activity, final)), inlineComposer = true, darkTheme = dark)
+            assertGolden(if (large) "native-conversation-large" else if (dark) "native-conversation-dark" else "native-conversation-light")
+        } finally {
+            com.termux.app.fleet.AgentFleetDisplayDensityStore.save(context, original)
+        }
     }
 
     private fun drawerRemote(name: String, label: String, pinned: Boolean = false, available: Boolean = true, used: Long) =

@@ -8,7 +8,7 @@ data class GeneratedStructuralShape(
 )
 
 object GeneratedAgentFleetContracts {
-    const val CONTRACT_PACKAGE_VERSION = "1.10.0"
+    const val CONTRACT_PACKAGE_VERSION = "1.11.0"
     val protocolVersions: Map<String, Int> = mapOf("control" to 1, "conversation" to 2, "workspace-layout" to 1, "release-set" to 1, "supervisor" to 1, "transport" to 1, "host-runtime" to 1, "diagnostics" to 2, "provider-confidence" to 1)
     val objectShapes: Map<String, GeneratedStructuralShape> = mapOf(
         "activation-journal-v1:#" to GeneratedStructuralShape(listOf("candidate", "current", "failureCode", "phase", "previous", "schemaVersion", "transactionId", "updatedAt"), listOf(), true),
@@ -73,6 +73,8 @@ object GeneratedAgentFleetContracts {
         "control-v1:#/\$defs/sessionRenameParams" to GeneratedStructuralShape(listOf("expectedRevision", "hostId", "idempotencyKey", "name", "sessionId"), listOf(), true),
         "control-v1:#/\$defs/snapshotParams" to GeneratedStructuralShape(listOf(), listOf("includeIdentityGraph", "includeSessionTitles"), true),
         "control-v1:#/\$defs/successResponse" to GeneratedStructuralShape(listOf("ok", "protocolVersion", "requestId", "result", "timestamp", "type"), listOf(), true),
+        "conversation-v2:#/\$defs/activity" to GeneratedStructuralShape(listOf("adapter", "hasMore", "items", "nextCursor", "protocolVersion", "session", "timestamp", "turnId", "type"), listOf(), true),
+        "conversation-v2:#/\$defs/activitySummary" to GeneratedStructuralShape(listOf("changeCount", "cursor", "latestProgress", "otherCount", "partial", "progressCount", "state", "toolCount", "turnId"), listOf(), true),
         "conversation-v2:#/\$defs/answer" to GeneratedStructuralShape(listOf("choiceIds", "questionId", "text"), listOf(), true),
         "conversation-v2:#/\$defs/approvalResponse" to GeneratedStructuralShape(listOf("approvalId", "choice", "protocolVersion", "session", "status", "timestamp", "type"), listOf(), true),
         "conversation-v2:#/\$defs/choice" to GeneratedStructuralShape(listOf("id", "label"), listOf(), true),
@@ -82,7 +84,7 @@ object GeneratedAgentFleetContracts {
         "conversation-v2:#/\$defs/error/properties/error" to GeneratedStructuralShape(listOf("code", "message"), listOf(), true),
         "conversation-v2:#/\$defs/event" to GeneratedStructuralShape(listOf("adapter", "item", "protocolVersion", "session", "timestamp", "type"), listOf("providerState"), true),
         "conversation-v2:#/\$defs/heartbeat" to GeneratedStructuralShape(listOf("adapter", "interactionMode", "protocolVersion", "session", "status", "timestamp", "type"), listOf("providerActivity", "providerState"), true),
-        "conversation-v2:#/\$defs/item" to GeneratedStructuralShape(listOf("attachments", "choices", "detail", "id", "kind", "role", "state", "text", "timestamp", "title", "tool"), listOf("action", "answers", "completedAt", "input", "presentation", "questions", "result", "revision", "source", "startedAt", "target", "taskListId", "tasks", "turnId", "updateMode"), true),
+        "conversation-v2:#/\$defs/item" to GeneratedStructuralShape(listOf("attachments", "choices", "detail", "id", "kind", "role", "state", "text", "timestamp", "title", "tool"), listOf("action", "activitySummary", "answers", "completedAt", "input", "messagePurpose", "presentation", "questions", "result", "revision", "source", "startedAt", "target", "taskListId", "tasks", "turnId", "updateMode"), true),
         "conversation-v2:#/\$defs/presentation" to GeneratedStructuralShape(listOf("inputBlocks", "previewLines", "resultBlocks", "subtitle", "title", "version"), listOf(), true),
         "conversation-v2:#/\$defs/presentationBlock" to GeneratedStructuralShape(listOf("content", "kind", "title"), listOf(), true),
         "conversation-v2:#/\$defs/providerActivity" to GeneratedStructuralShape(listOf("elapsedSeconds", "label", "observedAt"), listOf(), true),
@@ -91,7 +93,7 @@ object GeneratedAgentFleetContracts {
         "conversation-v2:#/\$defs/question" to GeneratedStructuralShape(listOf("allowOther", "header", "id", "options", "prompt", "required", "type"), listOf(), true),
         "conversation-v2:#/\$defs/questionOption" to GeneratedStructuralShape(listOf("description", "id", "label"), listOf(), true),
         "conversation-v2:#/\$defs/questionResponse" to GeneratedStructuralShape(listOf("protocolVersion", "questionId", "session", "status", "timestamp", "type"), listOf(), true),
-        "conversation-v2:#/\$defs/snapshot" to GeneratedStructuralShape(listOf("adapter", "hasMore", "interactionMode", "items", "mode", "nextCursor", "protocolVersion", "revision", "session", "type"), listOf("providerActivity", "providerState", "timestamp"), true),
+        "conversation-v2:#/\$defs/snapshot" to GeneratedStructuralShape(listOf("adapter", "hasMore", "interactionMode", "items", "mode", "nextCursor", "protocolVersion", "revision", "session", "type"), listOf("capabilities", "providerActivity", "providerState", "timestamp", "view"), true),
         "conversation-v2:#/\$defs/status" to GeneratedStructuralShape(listOf("adapter", "interactionMode", "protocolVersion", "session", "status", "timestamp", "type"), listOf("providerActivity", "providerState"), true),
         "conversation-v2:#/\$defs/task" to GeneratedStructuralShape(listOf("activeTitle", "detail", "id", "state", "title"), listOf(), true),
         "diagnostics-v1:#" to GeneratedStructuralShape(listOf("checks", "components", "generatedAt", "schemaVersion"), listOf(), true),
