@@ -33,6 +33,18 @@ object ConversationStreamParser {
         }
     }
 
+    fun matchesActionReceipt(output: String, session: String, requestId: String, choice: String? = null): Boolean =
+        runCatching {
+            val line = output.lineSequence().last { it.isNotBlank() }
+            requireValidProtocolFrame(line)
+            val receipt = JSONObject(line)
+            receipt.getString("session") == session &&
+                if (choice == null) receipt.getString("type") == "question.response" &&
+                    receipt.getString("questionId") == requestId
+                else receipt.getString("type") == "approval.response" &&
+                    receipt.getString("approvalId") == requestId && receipt.getString("choice") == choice
+        }.getOrDefault(false)
+
     fun parseFrame(line: String): ConversationFrame {
         require(line.length >= 2 && line.toByteArray(Charsets.UTF_8).size <= MAX_FRAME_BYTES) { "Conversation frame is invalid" }
         val root = JSONObject(line)

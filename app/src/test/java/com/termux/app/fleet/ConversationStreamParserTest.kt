@@ -12,6 +12,24 @@ import org.robolectric.RuntimeEnvironment
 
 @RunWith(RobolectricTestRunner::class)
 class ConversationStreamParserTest {
+    @Test fun actionReceiptsMustMatchSessionRequestAndChoice() {
+        for (approval in listOf(false, true)) {
+            val receipt = org.json.JSONObject().put("protocolVersion", 2)
+                .put("type", if (approval) "approval.response" else "question.response")
+                .put("timestamp", "2026-09-22T00:00:00Z").put("session", "session")
+                .put(if (approval) "approvalId" else "questionId", "request").put("status", "delivered")
+            if (approval) receipt.put("choice", "allow")
+            val choice = if (approval) "allow" else null
+            assertTrue(ConversationStreamParser.matchesActionReceipt(receipt.toString(), "session", "request", choice))
+            assertFalse(ConversationStreamParser.matchesActionReceipt(receipt.toString(), "other", "request", choice))
+            assertFalse(ConversationStreamParser.matchesActionReceipt(receipt.toString(), "session", "other", choice))
+            assertFalse(ConversationStreamParser.matchesActionReceipt("{}", "session", "request", choice))
+            if (approval) assertFalse(ConversationStreamParser.matchesActionReceipt(receipt.toString(), "session", "request", "deny"))
+            receipt.put("status", "queued")
+            assertFalse(ConversationStreamParser.matchesActionReceipt(receipt.toString(), "session", "request", choice))
+        }
+    }
+
     @Test fun sharedAsyncQuestionFixtureSurvivesNewActivity() {
         val fixture = org.json.JSONObject(checkNotNull(javaClass.classLoader?.getResourceAsStream("native-question-behavior-v1.json"))
             .bufferedReader().use { it.readText() })

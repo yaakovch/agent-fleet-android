@@ -940,6 +940,7 @@ class NativeSessionController @JvmOverloads constructor(
     }
 
     private fun respondApproval(value: ConversationItem, choice: ConversationChoice) {
+        if (uiState.value.items.firstOrNull { it.id == value.id }?.state in setOf("running", "complete")) return
         val revision = value.revision ?: return
         val provider = uiState.value.providerState
         if (!provider.mutationsAllowed) {
@@ -958,7 +959,8 @@ class NativeSessionController @JvmOverloads constructor(
             "--event-position", provider.eventPosition.toString(),
             "--idempotency-key", UUID.randomUUID().toString()
         ))) { action ->
-            val delivered = action.exitCode == 0 && runCatching { JSONObject(action.stdout.lineSequence().last { it.isNotBlank() }).optString("status") == "delivered" }.getOrDefault(false)
+            val delivered = action.exitCode == 0 && ConversationStreamParser.matchesActionReceipt(
+                action.stdout, uiState.value.internalSession, value.id, choice.id)
             val updated = value.copy(
                 state = if (delivered) "complete" else "error",
                 title = if (delivered) "Approval sent" else "Approval not sent",
@@ -1008,12 +1010,8 @@ class NativeSessionController @JvmOverloads constructor(
             "--answers-b64", encoded,
             "--idempotency-key", UUID.randomUUID().toString()
         )), timeoutSeconds = 90) { action ->
-            val delivered = action.exitCode == 0 && runCatching {
-                JSONObject(action.stdout.lineSequence().last { it.isNotBlank() }).let {
-                    it.optInt("protocolVersion") == 2 && it.optString("type") == "question.response" &&
-                        it.optString("status") == "delivered" && it.optString("questionId") == value.id
-                }
-            }.getOrDefault(false)
+            val delivered = action.exitCode == 0 && ConversationStreamParser.matchesActionReceipt(
+                action.stdout, uiState.value.internalSession, value.id)
             val existing = uiState.value.items.firstOrNull { it.id == value.id } ?: value
             if (!delivered && existing.state != "complete") {
                 uiState.value = uiState.value.copy(items = mergeConversationItems(

@@ -310,3 +310,66 @@ Conversation Markdown prose is hosted in Android TextViews. Compose text matcher
 do not inspect those views; use the actual view hierarchy for visible-content
 assertions and retain the rendered screenshot. A missing Compose text node alone
 is not evidence that the conversation text is absent from the screen.
+
+
+## Packaged Native controller acceptance
+
+`NativeQuestionControllerTest` uses the actual NativeSessionController,
+packaged launcher, pinned OpenSSH, host runtime and isolated Codex process.
+`scripts/debug/native-controller-probe.py` supplies a synthetic Responses endpoint
+that validates all three selected answers before generating continuation. No API
+account or physical phone is used. Start/prepare/verify/stop the fixture explicitly;
+reserve/register HTTP 9802 and SSH 9803 through ports_list before starting it.
+Use the protected runner with this focused class and a guarded emulator push of
+`fixture.json` to `/sdcard/Download/agent-fleet-controller-fixture.json`.
+The private fixture key permits only that isolated session's stream/answer calls.
+Keep SSH StrictModes enabled: authorized_keys lives in a protected home directory,
+not underneath the world-writable /tmp ancestor.
+
+Capture prompt, each tap and visible continuation, then require `verify` to prove
+one actual launcher submission, one matching bridge receipt and one provider
+output containing exactly the selected answers. Bind these to the installed APK
+hash/revision/version and emulator identity in the flow receipt. A fixture-free
+full run skips this connected class and does not replace the focused acceptance.
+Remove the emulator fixture JSON after acceptance and use `stop` to terminate only
+its isolated processes and delete its ephemeral authorization/key files.
+
+A Kotlin daemon left in another network namespace can leave compilation waiting
+on an unreachable loopback socket. For that invocation, use
+`-Pkotlin.compiler.execution.strategy=in-process`; for the protected runner,
+set `GRADLE_OPTS=-Dorg.gradle.project.kotlin.compiler.execution.strategy=in-process`.
+Bash does not reliably preserve dotted environment-variable names for child
+commands, so do not pass this through a dotted ORG_GRADLE_PROJECT variable.
+Keep the normal Java-17 launcher and emulator safety checks.
+
+The Windows AVD may not reach a WSL fixture through its LAN address or the
+emulator host alias. Preserve pinned SSH and use a loopback-only transparent TCP
+relay plus isolated `adb -P 9801 -s emulator-5554 reverse tcp:9804 tcp:9804` after
+verifying API 36/x86_64/qemu. The fixture sees the emulator address 127.0.0.1:9804;
+SSH still terminates on the WSL fixture at 127.0.0.1:9803. Reserve/register both
+listeners, keep SSH StrictModes and forced-session restrictions, verify the
+retrieved host key, and remove the reverse mapping and relay during cleanup.
+This is a network tunnel, not an answer-callback or provider substitution.
+
+The checked-in tunnel consists of `native-controller-tcp-relay.mjs` (Windows
+Node listener) and `native-controller-tcp-relay.py` (WSL stdio/TCP leg). Start the
+fixture with `start --root <private-new-directory> --source <clean-runtime-source>
+--listen-address 127.0.0.1`, then `prepare --root <same-directory> --models-cache
+<metadata-only-models_cache.json> --address 127.0.0.1 --ssh-port 9804`. The `start`
+listener is SSH 9803; `prepare --ssh-port` describes the emulator-facing endpoint.
+From Windows, run Node with these arguments (quote paths containing spaces):
+
+```text
+node <Windows-path-to-native-controller-tcp-relay.mjs> <Linux-path-to-native-controller-tcp-relay.py> 9803 9804 Ubuntu
+```
+
+Record the emitted Windows PID for targeted cleanup. In WSL, obtain a Windows
+path with `wslpath -w`; pass it as a subprocess argument rather than interpolating
+a UNC path into a shell command. Before every manual artifact pull, fixture push,
+or reverse mapping, verify the same isolated server/serial is API 36, x86_64 and
+qemu=1. Successful focused runs retain test results but do not automatically pull
+all PlatformTestStorage files: pull `/sdcard/Android/media/com.yaakovch.fleet/.`
+to the report's `device-output` directory before another run uninstalls the app.
+Remove only `/sdcard/Download/agent-fleet-controller-fixture.json` afterward.
+Remove the reverse mapping, stop the recorded relay process after checking its
+command line, run the fixture's `stop`, and update/validate the ports registry.
