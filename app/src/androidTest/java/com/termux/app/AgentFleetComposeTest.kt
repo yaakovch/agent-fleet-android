@@ -487,14 +487,18 @@ class AgentFleetComposeTest {
             attachments = emptyList(), choices = emptyList(),
             startedAt = "2026-07-19T00:01:00Z", completedAt = "2026-07-19T00:08:40Z"
         )
-        val state = NativeSessionUiState(
+        val state = mutableStateOf(NativeSessionUiState(
             "Completed fixture", "gaming", "wtmux-main", adapter = "codex", connection = "Live",
-            items = listOf(user, working, reply, done)
-        )
+            items = listOf(user, working, reply, done),
+            conversationView = com.termux.app.fleet.ConversationView.Detailed
+        ))
 
-        compose.setContent { NativeStateFixture(state) }
+        compose.setContent { NativeStateFixture(state.value) }
 
         compose.onNodeWithText("Worked for 7m 40s").assertIsDisplayed()
+        compose.runOnIdle { state.value = state.value.copy(conversationView = com.termux.app.fleet.ConversationView.Conversation) }
+        compose.onNodeWithText("Worked for 7m 40s").assertDoesNotExist()
+        compose.onNodeWithText("Fixed.").assertIsDisplayed()
     }
 
     @Test
