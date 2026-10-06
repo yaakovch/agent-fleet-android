@@ -101,6 +101,12 @@ Generate candidate screenshot references for review:
 bash scripts/debug/android-check.sh update-goldens
 ```
 
+After an explicitly verified test-emulator reboot, wait for the isolated ADB
+server to report that emulator as `device` and for `sys.boot_completed=1` before
+invoking the runner again. During reconnect, a missing serial can cause the runner
+to attempt a second copy of the same AVD; the SDK refuses that duplicate. Keep
+all readiness checks on the reserved ADB port and verified emulator serial.
+
 Golden references use a flat display viewport. The managed Pixel 7 image
 enables two device-model overlays that add a camera cutout and a taller status
 bar. `AgentFleetGoldenTest` temporarily disables only those enabled Pixel 7

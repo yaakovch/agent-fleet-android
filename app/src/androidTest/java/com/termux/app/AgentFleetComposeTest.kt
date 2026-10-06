@@ -106,6 +106,7 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.SemanticsActions
 import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.dp
+import org.junit.Assert
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Rule
@@ -1124,6 +1125,55 @@ class AgentFleetComposeTest {
     }
 
     @Test
+    fun nativeFileTapUsesTheSelectedReferenceAndPreservesComposerDraft() {
+        val opened = AtomicReference<String>()
+        var rootView: android.view.View? = null
+        val message = ConversationItem(
+            id = "host-file-message", kind = "message", timestamp = "2026-10-06T10:00:00Z", role = "assistant",
+            title = "", text = "[Host report](file:///tmp/report%20with%20spaces.txt)", detail = "", state = "complete", tool = "codex",
+            attachments = emptyList(), choices = emptyList()
+        )
+        compose.setContent {
+            rootView = androidx.compose.ui.platform.LocalView.current.rootView
+            NativeStateFixture(
+                NativeSessionUiState("Host file fixture", "origin-host", "managed-origin", adapter = "codex", connection = "Live", items = listOf(message)),
+                inlineComposer = true, onOpenHostFile = { opened.set(it) }
+            )
+        }
+        compose.onNodeWithTag("native-message-input").performTextInput("Preserve this composer draft")
+        compose.waitForIdle()
+        fun findLink(view: android.view.View): android.widget.TextView? {
+            if (view is android.widget.TextView && view.text.toString() == "Host report") return view
+            if (view is android.view.ViewGroup) for (index in 0 until view.childCount) {
+                findLink(view.getChildAt(index))?.let { return it }
+            }
+            return null
+        }
+        var x = 0f
+        var y = 0f
+        compose.runOnIdle {
+            val link = checkNotNull(findLink(checkNotNull(rootView))) { "Native file link was not rendered" }
+            val location = IntArray(2)
+            link.getLocationOnScreen(location)
+            val layout = link.layout
+            x = location[0] + link.totalPaddingLeft + (layout.getPrimaryHorizontal(0) + layout.getPrimaryHorizontal(link.text.length)) / 2
+            y = location[1] + link.totalPaddingTop + (layout.getLineTop(0) + layout.getLineBottom(0)) / 2f
+        }
+        val automation = androidx.test.platform.app.InstrumentationRegistry.getInstrumentation().uiAutomation
+        val now = android.os.SystemClock.uptimeMillis()
+        val down = android.view.MotionEvent.obtain(now, now, android.view.MotionEvent.ACTION_DOWN, x, y, 0)
+        val up = android.view.MotionEvent.obtain(now, now + 50, android.view.MotionEvent.ACTION_UP, x, y, 0)
+        try {
+            Assert.assertTrue(automation.injectInputEvent(down, true))
+            Assert.assertTrue(automation.injectInputEvent(up, true))
+        } finally { down.recycle(); up.recycle() }
+        compose.waitUntil(10_000) { opened.get() != null }
+        Assert.assertEquals("file:///tmp/report%20with%20spaces.txt", opened.get())
+        compose.onNodeWithTag("native-message-input").assertTextContains("Preserve this composer draft")
+        discoveryScreenshot("native-host-file-tap")
+    }
+
+    @Test
     fun nativeColdLoadShowsLoadingUntilProviderStateArrives() {
         val state = mutableStateOf(NativeSessionUiState("Loading fixture", "fixture", "session"))
         compose.setContent { NativeStateFixture(state.value, inlineComposer = true, verifyUnavailableProvider = false) }
@@ -1719,7 +1769,8 @@ class AgentFleetComposeTest {
         localSuggestionModeOverride: LocalSuggestionMode? = null,
         localSuggestionDebugFakeOutput: String? = null,
         verifyUnavailableProvider: Boolean = true,
-        onLoadActivity: (ConversationItem, Boolean) -> Unit = { _, _ -> }
+        onLoadActivity: (ConversationItem, Boolean) -> Unit = { _, _ -> },
+        onOpenHostFile: (String) -> Unit = {}
     ) {
         val fixtureState = if (verifyUnavailableProvider && state.providerState.reasonCode == "PROVIDER_STATE_UNAVAILABLE") {
             state.copy(providerState = verifiedProviderState(state.adapter), providerStateKnown = true)
@@ -1747,7 +1798,8 @@ class AgentFleetComposeTest {
                 localSuggestionsAvailableOverride = localSuggestionsAvailableOverride,
                 localSuggestionModeOverride = localSuggestionModeOverride,
                 localSuggestionDebugFakeOutput = localSuggestionDebugFakeOutput,
-                onLoadActivity = onLoadActivity
+                onLoadActivity = onLoadActivity,
+                onOpenHostFile = onOpenHostFile
             )
         }
     }
