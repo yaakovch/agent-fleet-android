@@ -2307,8 +2307,9 @@ internal fun MarkdownText(value: String) {
 @Composable
 private fun MarkwonText(value: String, textSizeSp: Int) {
     val context = LocalContext.current
-    val markwon = remember(context) { nativeMarkdownMarkwon(context) }
     val color = MaterialTheme.colorScheme.onSurface
+    val linkColor = MaterialTheme.colorScheme.primary.toArgbCompat()
+    val markwon = remember(context, linkColor) { nativeMarkdownMarkwon(context, linkColor) }
     val onFile = LocalHostFileHandler.current
     AndroidView(
         modifier = Modifier.fillMaxWidth(),
@@ -2321,6 +2322,7 @@ private fun MarkwonText(value: String, textSizeSp: Int) {
         },
         update = { view ->
             view.setTextColor(color.toArgbCompat())
+            view.setLinkTextColor(linkColor)
             view.setTextSize(TypedValue.COMPLEX_UNIT_SP, textSizeSp.toFloat())
             view.includeFontPadding = false
             view.setTag(com.termux.R.id.host_file_handler, onFile)
@@ -2341,6 +2343,7 @@ private fun MarkwonText(value: String, textSizeSp: Int) {
 @Composable
 private fun HostFilePlainText(value: String, modifier: Modifier, color: Color, wrap: Boolean) {
     val onFile = LocalHostFileHandler.current
+    val linkColor = MaterialTheme.colorScheme.primary.toArgbCompat()
     AndroidView(modifier = modifier, factory = { TextView(it).apply {
         setTextIsSelectable(true)
         typeface = android.graphics.Typeface.MONOSPACE
@@ -2348,6 +2351,7 @@ private fun HostFilePlainText(value: String, modifier: Modifier, color: Color, w
         includeFontPadding = false
     } }, update = { view ->
         view.setTextColor(color.toArgbCompat())
+        view.setLinkTextColor(linkColor)
         view.setHorizontallyScrolling(!wrap)
         val text = android.text.SpannableString(value)
         HostFileReferences.extract(value).forEach { reference ->
@@ -2360,11 +2364,16 @@ private fun HostFilePlainText(value: String, modifier: Modifier, color: Color, w
     })
 }
 
-private val nativeMarkdownCache = WeakHashMap<android.content.Context, WeakReference<Markwon>>()
+private data class CachedNativeMarkdown(val linkColor: Int?, val reference: WeakReference<Markwon>)
+private val nativeMarkdownCache = WeakHashMap<android.content.Context, CachedNativeMarkdown>()
 
-internal fun nativeMarkdownMarkwon(context: android.content.Context): Markwon = synchronized(nativeMarkdownCache) {
-    nativeMarkdownCache[context]?.get() ?: Markwon.builder(context)
+internal fun nativeMarkdownMarkwon(context: android.content.Context, linkColor: Int? = null): Markwon = synchronized(nativeMarkdownCache) {
+    nativeMarkdownCache[context]?.takeIf { it.linkColor == linkColor }?.reference?.get() ?: Markwon.builder(context)
         .usePlugin(object : AbstractMarkwonPlugin() {
+            override fun configureTheme(builder: io.noties.markwon.core.MarkwonTheme.Builder) {
+                if (linkColor != null) builder.linkColor(linkColor)
+            }
+
             override fun configureConfiguration(builder: MarkwonConfiguration.Builder) {
                 builder.linkResolver(LinkResolver { view, destination ->
                     val target = HostFileReferences.target(destination, true)
@@ -2389,7 +2398,7 @@ internal fun nativeMarkdownMarkwon(context: android.content.Context): Markwon = 
             }
         })
         .build()
-        .also { nativeMarkdownCache[context] = WeakReference(it) }
+        .also { nativeMarkdownCache[context] = CachedNativeMarkdown(linkColor, WeakReference(it)) }
 }
 
 private sealed interface NativeMarkdownBlock {

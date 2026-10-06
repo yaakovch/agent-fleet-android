@@ -1155,6 +1155,11 @@ class AgentFleetComposeTest {
             val link = checkNotNull(findLink(checkNotNull(rootView))) { "Native file link was not rendered" }
             val location = IntArray(2)
             link.getLocationOnScreen(location)
+            val styled = link.text as android.text.Spanned
+            val span = styled.getSpans(0, styled.length, android.text.style.ClickableSpan::class.java).single()
+            val paint = android.text.TextPaint(link.paint).apply { linkColor = link.linkTextColors.defaultColor }
+            span.updateDrawState(paint)
+            Assert.assertTrue("Native link needs readable contrast on the dark surface", android.graphics.Color.luminance(paint.color) > 0.3)
             val layout = link.layout
             x = location[0] + link.totalPaddingLeft + (layout.getPrimaryHorizontal(0) + layout.getPrimaryHorizontal(link.text.length)) / 2
             y = location[1] + link.totalPaddingTop + (layout.getLineTop(0) + layout.getLineBottom(0)) / 2f
