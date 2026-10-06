@@ -140,7 +140,8 @@ data class FleetDownloadState(
     val received: Long,
     val total: Long,
     val path: String? = null,
-    val message: String
+    val message: String,
+    val sha256: String? = null
 )
 
 class FleetDownloadCancellation {

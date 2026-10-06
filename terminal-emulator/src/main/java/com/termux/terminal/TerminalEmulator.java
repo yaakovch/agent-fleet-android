@@ -266,6 +266,10 @@ public final class TerminalEmulator {
     private byte mUtf8ToFollow, mUtf8Index;
     private final byte[] mUtf8InputBuffer = new byte[4];
     private int mLastEmittedCodePoint = -1;
+    private String mCurrentHyperlink;
+    // Weak keys release targets when their cells leave screen/history. Existing labels
+    // retain their exact target; exhaustion disables new hidden targets.
+    private final java.util.WeakHashMap<String, java.lang.ref.WeakReference<String>> mHyperlinkPool = new java.util.WeakHashMap<>();
 
     public final TerminalColors mColors = new TerminalColors();
 
@@ -1503,6 +1507,7 @@ public final class TerminalEmulator {
         state.mSavedEffect = mEffect;
         state.mSavedForeColor = mForeColor;
         state.mSavedBackColor = mBackColor;
+        state.mSavedHyperlink = mCurrentHyperlink;
         state.mSavedDecFlags = mCurrentDecSetFlags;
         state.mUseLineDrawingG0 = mUseLineDrawingG0;
         state.mUseLineDrawingG1 = mUseLineDrawingG1;
@@ -1516,6 +1521,7 @@ public final class TerminalEmulator {
         mEffect = state.mSavedEffect;
         mForeColor = state.mSavedForeColor;
         mBackColor = state.mSavedBackColor;
+        mCurrentHyperlink = state.mSavedHyperlink;
         int mask = (DECSET_BIT_AUTOWRAP | DECSET_BIT_ORIGIN_MODE);
         mCurrentDecSetFlags = (mCurrentDecSetFlags & ~mask) | (state.mSavedDecFlags & mask);
         mUseLineDrawingG0 = state.mUseLineDrawingG0;
@@ -2027,6 +2033,25 @@ public final class TerminalEmulator {
         }
 
         switch (value) {
+            case 8: {
+                int separator = textParameter.indexOf(';');
+                String target = separator < 0 ? "" : textParameter.substring(separator + 1);
+                mCurrentHyperlink = null;
+                if (!target.isEmpty() && target.length() <= 2048 && !target.matches(".*[\\x00-\\x1f\\x7f-\\x9f].*")) {
+                    java.lang.ref.WeakReference<String> existing = mHyperlinkPool.get(target);
+                    String canonical = existing == null ? null : existing.get();
+                    if (canonical != null) mCurrentHyperlink = canonical;
+                    else {
+                        int characters = 0;
+                        for (String key : mHyperlinkPool.keySet()) characters += key.length();
+                        if (mHyperlinkPool.size() < 512 && characters + target.length() <= 65536) {
+                            mHyperlinkPool.put(target, new java.lang.ref.WeakReference<>(target));
+                            mCurrentHyperlink = target;
+                        }
+                    }
+                }
+                break;
+            }
             case 0: // Change icon name and window title to T.
             case 1: // Change icon name to T.
             case 2: // Change window title to T.
@@ -2504,7 +2529,7 @@ public final class TerminalEmulator {
         // so was mCursorCol changed after the offsetDueToCombiningChar conditional by another thread?
         // TODO: Check if there are thread synchronization issues with mCursorCol and mCursorRow, possibly causing others bugs too.
         if (column < 0) column = 0;
-        mScreen.setChar(column, mCursorRow, codePoint, getStyle());
+        mScreen.setChar(column, mCursorRow, codePoint, getStyle(), mCurrentHyperlink);
 
         if (autoWrap && displayWidth > 0)
             mAboutToAutoWrap = (mCursorCol == mRightMargin - displayWidth);
@@ -2544,6 +2569,7 @@ public final class TerminalEmulator {
 
     /** Reset terminal state so user can interact with it regardless of present state. */
     public void reset() {
+        mCurrentHyperlink = mSavedStateMain.mSavedHyperlink = mSavedStateAlt.mSavedHyperlink = null;
         setCursorStyle();
         mArgIndex = 0;
         mContinueSequence = false;
@@ -2610,6 +2636,7 @@ public final class TerminalEmulator {
     /** http://www.vt100.net/docs/vt510-rm/DECSC */
     static final class SavedScreenState {
         /** Saved state of the cursor position, Used to implement the save/restore cursor position escape sequences. */
+        String mSavedHyperlink;
         int mSavedCursorRow, mSavedCursorCol;
         int mSavedEffect, mSavedForeColor, mSavedBackColor;
         int mSavedDecFlags;

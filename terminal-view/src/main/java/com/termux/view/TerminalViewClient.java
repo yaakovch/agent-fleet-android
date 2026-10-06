@@ -27,6 +27,8 @@ public interface TerminalViewClient {
      * On a single tap on the terminal if terminal mouse reporting not enabled.
      */
     void onSingleTapUp(MotionEvent e);
+    /** Consume a managed host file before forwarding a tap to a mouse-aware TUI. */
+    default boolean onHostFileTap(TerminalView view, MotionEvent event, String hyperlink) { return false; }
 
     boolean shouldBackButtonBeMappedToEscape();
 

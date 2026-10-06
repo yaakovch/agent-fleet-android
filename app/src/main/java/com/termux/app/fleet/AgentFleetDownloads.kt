@@ -40,7 +40,7 @@ internal fun cleanupAgentFleetDownloadDirectory(context: Context, directory: Fil
         ?.forEach(File::deleteRecursively)
 }
 
-internal fun publishAgentFleetDownload(context: Context, source: File, requestedName: String): AgentFleetPublishedDownload {
+internal fun publishAgentFleetDownload(context: Context, source: File, requestedName: String, expectedSha256: String? = null): AgentFleetPublishedDownload {
     require(source.isFile && source.canRead()) { "The downloaded file is unavailable." }
     require(requestedName.isNotBlank() && requestedName.length <= 255 && '/' !in requestedName && '\\' !in requestedName) {
         "The downloaded file name is invalid."
@@ -66,6 +66,12 @@ internal fun publishAgentFleetDownload(context: Context, source: File, requested
                 output.fd.sync()
             }
         } ?: error("Android Downloads did not open the file.")
+        if (expectedSha256 != null) {
+            val digest = java.security.MessageDigest.getInstance("SHA-256")
+            var received = 0L
+            resolver.openInputStream(uri)?.use { input -> val buffer = ByteArray(64 * 1024); while (true) { val count = input.read(buffer); if (count < 0) break; received += count; digest.update(buffer, 0, count) } } ?: error("Saved file could not be verified.")
+            require(received == source.length() && digest.digest().joinToString("") { "%02x".format(it) } == expectedSha256) { "Saved file failed integrity verification." }
+        }
         val published = ContentValues().apply { put(MediaStore.MediaColumns.IS_PENDING, 0) }
         require(resolver.update(uri, published, null, null) == 1) { "Android Downloads did not publish the file." }
         val actualName = resolver.query(uri, arrayOf(MediaStore.MediaColumns.DISPLAY_NAME), null, null, null)?.use { cursor ->

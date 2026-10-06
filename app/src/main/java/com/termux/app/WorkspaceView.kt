@@ -833,7 +833,7 @@ private fun EmbeddedTerminal(session: FleetSession, broker: WorkspaceTerminalBro
             modifier = Modifier.fillMaxSize(),
             factory = { androidContext ->
                 TerminalView(androidContext, null).apply {
-                    setTerminalViewClient(WorkspaceTerminalViewClient())
+                    setTerminalViewClient(WorkspaceTerminalViewClient { reference -> com.termux.app.fleet.HostFilePreviewActivity.open(androidContext, session, reference) })
                     setTextSize(26)
                     setBackgroundColor(AndroidColor.BLACK)
                     isFocusableInTouchMode = true
@@ -843,6 +843,7 @@ private fun EmbeddedTerminal(session: FleetSession, broker: WorkspaceTerminalBro
             },
             update = { terminalView ->
                 view = terminalView
+                terminalView.setTerminalViewClient(WorkspaceTerminalViewClient { reference -> com.termux.app.fleet.HostFilePreviewActivity.open(terminalView.context, session, reference) })
                 terminalView.attachSession(terminal)
                 terminalView.updateSize()
                 terminalView.onScreenUpdated()

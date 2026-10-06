@@ -139,10 +139,20 @@ public final class TerminalView extends View {
         mGestureRecognizer = new GestureAndScaleRecognizer(context, new GestureAndScaleRecognizer.Listener() {
 
             boolean scrolledWithFinger;
+            boolean hostFileTapConsumed;
 
             @Override
             public boolean onUp(MotionEvent event) {
                 mScrollRemainder = 0.0f;
+                hostFileTapConsumed = false;
+                if (mEmulator != null && !event.isFromSource(InputDevice.SOURCE_MOUSE) && !isSelectingText() && !scrolledWithFinger) {
+                    int[] location = getColumnAndRow(event, true);
+                    TerminalEmulator displayed = displayedEmulator();
+                    String hyperlink = displayed.getScreen().getHyperlinkAt(location[1], location[0]);
+                    if (mClient.onHostFileTap(TerminalView.this, event, hyperlink)) {
+                        hostFileTapConsumed = true; scrolledWithFinger = false; return true;
+                    }
+                }
                 if (mEmulator != null && mEmulator.isMouseTrackingActive() && !event.isFromSource(InputDevice.SOURCE_MOUSE) && !isSelectingText() && !scrolledWithFinger) {
                     // Quick event processing when mouse tracking is active - do not wait for check of double tapping
                     // for zooming.
@@ -156,6 +166,7 @@ public final class TerminalView extends View {
 
             @Override
             public boolean onSingleTapUp(MotionEvent event) {
+                if (hostFileTapConsumed) { hostFileTapConsumed = false; return true; }
                 if (mEmulator == null) return true;
 
                 if (isSelectingText()) {
@@ -641,7 +652,7 @@ public final class TerminalView extends View {
             mLocalScrollbackEmulator.getScreen().getActiveTranscriptRows() > 0;
     }
 
-    private TerminalEmulator displayedEmulator() {
+    public TerminalEmulator displayedEmulator() {
         return mLocalScrollbackActive && mLocalScrollbackEmulator != null ? mLocalScrollbackEmulator : mEmulator;
     }
 

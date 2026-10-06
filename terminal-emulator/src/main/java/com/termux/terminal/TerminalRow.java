@@ -47,6 +47,8 @@ public final class TerminalRow {
     boolean mLineWrap;
     /** The style bits of each cell in the row. See {@link TextStyle}. */
     final long[] mStyle;
+    private String[] mHyperlinks;
+    public String getHyperlinkAt(int column) { return mHyperlinks == null || column < 0 || column >= mColumns ? null : mHyperlinks[column]; }
     /** If this row might contain chars with width != 1, used for deactivating fast path */
     boolean mHasNonOneWidthOrSurrogateChars;
 
@@ -65,6 +67,7 @@ public final class TerminalRow {
         final int x2 = line.findStartOfColumn(sourceX2);
         boolean startingFromSecondHalfOfWideChar = (sourceX1 > 0 && line.wideDisplayCharacterStartingAt(sourceX1 - 1));
         final char[] sourceChars = (this == line) ? Arrays.copyOf(line.mText, line.mText.length) : line.mText;
+        final String[] sourceLinks = line.mHyperlinks == null ? null : Arrays.copyOf(line.mHyperlinks, line.mColumns);
         int latestNonCombiningWidth = 0;
         for (int i = x1; i < x2; i++) {
             char sourceChar = sourceChars[i];
@@ -80,7 +83,7 @@ public final class TerminalRow {
                 sourceX1 += latestNonCombiningWidth;
                 latestNonCombiningWidth = w;
             }
-            setChar(destinationX, codePoint, line.getStyle(sourceX1));
+            setChar(destinationX, codePoint, line.getStyle(sourceX1), sourceLinks == null ? null : sourceLinks[sourceX1]);
         }
     }
 
@@ -144,6 +147,7 @@ public final class TerminalRow {
     public void clear(long style) {
         Arrays.fill(mText, ' ');
         Arrays.fill(mStyle, style);
+        if (mHyperlinks != null) Arrays.fill(mHyperlinks, null);
         mSpaceUsed = (short) mColumns;
         mHasNonOneWidthOrSurrogateChars = false;
     }
@@ -156,6 +160,10 @@ public final class TerminalRow {
         mStyle[columnToSet] = style;
 
         final int newCodePointDisplayWidth = WcWidth.width(codePoint);
+        if (mHyperlinks != null && newCodePointDisplayWidth > 0) {
+            mHyperlinks[columnToSet] = null;
+            if (newCodePointDisplayWidth == 2 && columnToSet + 1 < mColumns) mHyperlinks[columnToSet + 1] = null;
+        }
 
         // Fast path when we don't have any chars with width != 1
         if (!mHasNonOneWidthOrSurrogateChars) {
@@ -274,6 +282,14 @@ public final class TerminalRow {
         for (int charIndex = 0, charLen = getSpaceUsed(); charIndex < charLen; charIndex++)
             if (mText[charIndex] != ' ') return false;
         return true;
+    }
+
+    public void setChar(int column, int codePoint, long style, String hyperlink) {
+        setChar(column, codePoint, style);
+        int width = WcWidth.width(codePoint);
+        if (width <= 0) return;
+        if (hyperlink != null && mHyperlinks == null) mHyperlinks = new String[mColumns];
+        if (mHyperlinks != null) for (int index = column; index < Math.min(mColumns, column + width); index++) mHyperlinks[index] = hyperlink;
     }
 
     public final long getStyle(int column) {

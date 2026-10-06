@@ -38,7 +38,7 @@ class NativeMarkdownLinkPolicyTest {
 
     @Test
     fun privilegedMarkdownSchemesNeverReachAndroidIntentRouting() {
-        listOf("file:///private/example", "javascript:example", "intent:example", "wtmux://pair").forEach { url ->
+        listOf("file://foreign/private/example", "javascript:example", "intent:example", "wtmux://pair").forEach { url ->
             val activity = activity()
             val view = renderLink(activity, url)
             val text = view.text as Spanned
@@ -46,6 +46,17 @@ class NativeMarkdownLinkPolicyTest {
             assertEquals("Open", text.toString())
             assertNull(url, shadowOf(activity).nextStartedActivity)
         }
+    }
+
+    @Test fun hostFileLinksUseTheBoundHandlerWithoutAnExternalIntent() {
+        val activity = activity()
+        val view = renderLink(activity, "file:///private/example")
+        var selected = ""
+        view.setTag(com.termux.R.id.host_file_handler, { reference: String -> selected = reference })
+        val text = view.text as Spanned
+        text.getSpans(0, text.length, ClickableSpan::class.java).single().onClick(view)
+        assertEquals("file:///private/example", selected)
+        assertNull(shadowOf(activity).nextStartedActivity)
     }
 
     @Test

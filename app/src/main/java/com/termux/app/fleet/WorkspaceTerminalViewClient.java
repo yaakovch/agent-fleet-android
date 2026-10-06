@@ -8,6 +8,14 @@ import com.termux.terminal.TerminalSession;
 import com.termux.view.TerminalViewClient;
 
 public final class WorkspaceTerminalViewClient implements TerminalViewClient {
+    private final java.util.function.Consumer<String> fileHandler;
+    public WorkspaceTerminalViewClient() { this.fileHandler = null; }
+    public WorkspaceTerminalViewClient(java.util.function.Consumer<String> fileHandler) { this.fileHandler = fileHandler; }
+    @Override public boolean onHostFileTap(com.termux.view.TerminalView view, MotionEvent event, String hyperlink) {
+        String target = HostFileTerminalLinks.at(view, event, hyperlink);
+        if (fileHandler == null || target == null) return false;
+        fileHandler.accept(target); return true;
+    }
     @Override public float onScale(float scale) { return Math.max(0.5f, Math.min(2.5f, scale)); }
     @Override public void onSingleTapUp(MotionEvent event) {}
     @Override public boolean shouldBackButtonBeMappedToEscape() { return false; }

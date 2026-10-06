@@ -298,13 +298,14 @@ public final class TerminalBuffer {
 
                 int currentOldCol = 0;
                 long styleAtCol = 0;
+                String hyperlinkAtCol = null;
                 for (int i = 0; i < lastNonSpaceIndex; i++) {
                     // Note that looping over java character, not cells.
                     char c = oldLine.mText[i];
                     int codePoint = (Character.isHighSurrogate(c)) ? Character.toCodePoint(c, oldLine.mText[++i]) : c;
                     int displayWidth = WcWidth.width(codePoint);
                     // Use the last style if this is a zero-width character:
-                    if (displayWidth > 0) styleAtCol = oldLine.getStyle(currentOldCol);
+                    if (displayWidth > 0) { styleAtCol = oldLine.getStyle(currentOldCol); hyperlinkAtCol = oldLine.getHyperlinkAt(currentOldCol); }
 
                     // Line wrap as necessary:
                     if (currentOutputExternalColumn + displayWidth > mColumns) {
@@ -320,7 +321,7 @@ public final class TerminalBuffer {
 
                     int offsetDueToCombiningChar = ((displayWidth <= 0 && currentOutputExternalColumn > 0) ? 1 : 0);
                     int outputColumn = currentOutputExternalColumn - offsetDueToCombiningChar;
-                    setChar(outputColumn, currentOutputExternalRow, codePoint, styleAtCol);
+                    setChar(outputColumn, currentOutputExternalRow, codePoint, styleAtCol, hyperlinkAtCol);
 
                     if (displayWidth > 0) {
                         if (oldCursorRow == externalOldRow && oldCursorColumn == currentOldCol) {
@@ -457,6 +458,29 @@ public final class TerminalBuffer {
 
     public long getStyleAt(int externalRow, int column) {
         return allocateFullLineIfNecessary(externalToInternalRow(externalRow)).getStyle(column);
+    }
+
+    public void setChar(int column, int row, int codePoint, long style, String hyperlink) {
+        if (row < 0 || row >= mScreenRows || column < 0 || column >= mColumns) throw new IllegalArgumentException("Invalid hyperlink cell");
+        allocateFullLineIfNecessary(externalToInternalRow(row)).setChar(column, codePoint, style, hyperlink);
+    }
+
+    public String getHyperlinkAt(int row, int column) {
+        if (row < -mActiveTranscriptRows || row >= mScreenRows || column < 0 || column >= mColumns) return null;
+        TerminalRow line = mLines[externalToInternalRow(row)];
+        return line == null ? null : line.getHyperlinkAt(column);
+    }
+
+    /** Raw UTF-16 text and offsets retain spaces when mapping a tap to a link. */
+    public String getLineTextAt(int row) {
+        if (row < -mActiveTranscriptRows || row >= mScreenRows) return "";
+        TerminalRow line = mLines[externalToInternalRow(row)];
+        return line == null ? "" : new String(line.mText, 0, line.getSpaceUsed());
+    }
+    public int getColumnTextOffset(int row, int column) {
+        if (row < -mActiveTranscriptRows || row >= mScreenRows || column < 0 || column >= mColumns) return -1;
+        TerminalRow line = mLines[externalToInternalRow(row)];
+        return line == null ? -1 : line.findStartOfColumn(column);
     }
 
     /** Support for http://vt100.net/docs/vt510-rm/DECCARA and http://vt100.net/docs/vt510-rm/DECCARA */

@@ -108,6 +108,7 @@ class NativeSessionController @JvmOverloads constructor(
                     onLoadOlder = ::loadOlder,
                     onLoadActivity = ::loadActivity,
                     onCancelActivity = ::cancelActivity,
+                    onOpenHostFile = { openHostFile(it) },
                     onApproval = ::respondApproval,
                     onQuestion = ::respondQuestion,
                     onShellCommand = ::sendShellCommand,
@@ -455,6 +456,13 @@ class NativeSessionController @JvmOverloads constructor(
 
     private fun currentFleetSession(): FleetSession? = fleetSnapshot?.sessions?.firstOrNull {
         it.hostId == uiState.value.hostId && it.internalName == uiState.value.internalSession
+    }
+
+    fun openHostFile(reference: String): Boolean {
+        if (HostFileReferences.target(reference, true) == null) return false
+        val session = currentFleetSession() ?: return false
+        HostFilePreviewActivity.open(activity.nativeContext, session, reference)
+        return true
     }
 
     private fun refreshModelControl(includeCatalog: Boolean, showLoading: Boolean) {

@@ -2067,3 +2067,22 @@ tested runtime, validate Windows parity and Android shared fixtures, then publis
 a clean pushed .100 candidate through app-release.sh with full protected API 36,
 signing, archive verification and HTTPS-served byte checks. Preserve rollback and
 leave the physical phone user-operated.
+
+
+### Host file links and previews — approved implementation (2026-10-06)
+
+Follow the approved host plan at
+`/home/sapir_cz/projects/wtmux-host-files-20261006/implementation_plan.md`, section
+“Host File Links And Previews”. Implement Windows first, complete Android parity,
+and mirror contract package 1.12.0 and host-file behavior fixtures. Validate
+origin binding, reference parsing, changed-file rejection, transfer verification,
+HTML isolation, lifecycle cleanup and exact Save publication. Build the bundled
+PDF viewer and Companion assets from one Windows source. Embed review runtimes
+from the tested clean host commit in both clients; keep registry and trusted keys.
+
+Run the full client quality gates and protected API 36 Android suite. Build local
+Windows, Android and VSIX review artifacts and record identities, SHA-256 hashes,
+commands and limitations in the host review handoff. Packaged Windows viewer
+validation must use extracted package assets with an isolated data profile; the
+normal app launch provisions a live WSL runtime and exceeds this review scope.
+No publish, push, remote host operation or physical phone operation is authorized.

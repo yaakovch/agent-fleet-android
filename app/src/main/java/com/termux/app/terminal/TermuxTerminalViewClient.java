@@ -198,6 +198,12 @@ public class TermuxTerminalViewClient extends TermuxTerminalViewClientBase {
     }
 
     @Override
+    public boolean onHostFileTap(com.termux.view.TerminalView view, MotionEvent event, String hyperlink) {
+        String target = com.termux.app.fleet.HostFileTerminalLinks.at(view, event, hyperlink);
+        return target != null && mActivity.openAgentFleetHostFile(target);
+    }
+
+    @Override
     public boolean shouldBackButtonBeMappedToEscape() {
         return mActivity.getProperties().isBackKeyTheEscapeKey();
     }

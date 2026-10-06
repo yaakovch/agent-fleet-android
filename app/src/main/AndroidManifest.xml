@@ -81,6 +81,8 @@
             android:resizeableActivity="true"
             android:theme="@style/Theme.AgentFleet" />
 
+        <activity android:name=".app.fleet.HostFilePreviewActivity" android:exported="false" android:theme="@style/Theme.AgentFleet" />
+
         <activity
             android:name=".app.migration.AgentFleetMigrationActivity"
             android:excludeFromRecents="true"

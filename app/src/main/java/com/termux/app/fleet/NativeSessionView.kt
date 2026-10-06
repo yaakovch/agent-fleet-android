@@ -109,6 +109,7 @@ import java.lang.ref.WeakReference
 import java.text.SimpleDateFormat
 
 private val LocalAgentFleetDisplayDensity = staticCompositionLocalOf { AgentFleetDisplayDensity() }
+private val LocalHostFileHandler = staticCompositionLocalOf<(String) -> Unit> { {} }
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -142,7 +143,8 @@ fun NativeSessionScreen(
     onSetModel: (String, String, Boolean, Boolean) -> Unit = { _, _, _, _ -> },
     onCancelModel: () -> Unit = {},
     onLoadActivity: (ConversationItem, Boolean) -> Unit = { _, _ -> },
-    onCancelActivity: () -> Unit = {}
+    onCancelActivity: () -> Unit = {},
+    onOpenHostFile: (String) -> Unit = {}
 ) {
     val context = LocalContext.current
     val displayDensity by AgentFleetDisplayDensityStore.observe(context).collectAsState()
@@ -224,6 +226,7 @@ fun NativeSessionScreen(
     }
     CompositionLocalProvider(
         LocalAgentFleetDisplayDensity provides displayDensity,
+        LocalHostFileHandler provides onOpenHostFile,
         LocalDensity provides nativeDensity
     ) {
         Scaffold(
@@ -1740,7 +1743,9 @@ private fun ToolSemanticSection(block: ToolPresentationBlock, showHeading: Boole
             val shouldWrap = wrap || block.kind in setOf("terminal", "text", "markdown")
             val bodyModifier = if (shouldWrap) Modifier.fillMaxWidth().padding(11.dp)
             else Modifier.horizontalScroll(rememberScrollState()).padding(11.dp)
-            if (block.kind == "diff") {
+            if (HostFileReferences.extract(block.content).isNotEmpty()) {
+                HostFilePlainText(block.content, bodyModifier, foreground, shouldWrap)
+            } else if (block.kind == "diff") {
                 Text(diffText(block.content), bodyModifier, fontFamily = FontFamily.Monospace, fontSize = 13.sp, lineHeight = 18.sp, softWrap = shouldWrap)
             } else {
                 Text(
@@ -2286,7 +2291,7 @@ private fun ShellCommandBar(onCommand: (String) -> Unit, onKey: (String) -> Unit
 }
 
 @Composable
-private fun MarkdownText(value: String) {
+internal fun MarkdownText(value: String) {
     val density = LocalAgentFleetDisplayDensity.current
     val blocks = remember(value) { splitMarkdownBlocks(value) }
     Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(5.dp)) {
@@ -2304,6 +2309,7 @@ private fun MarkwonText(value: String, textSizeSp: Int) {
     val context = LocalContext.current
     val markwon = remember(context) { nativeMarkdownMarkwon(context) }
     val color = MaterialTheme.colorScheme.onSurface
+    val onFile = LocalHostFileHandler.current
     AndroidView(
         modifier = Modifier.fillMaxWidth(),
         factory = {
@@ -2317,9 +2323,41 @@ private fun MarkwonText(value: String, textSizeSp: Int) {
             view.setTextColor(color.toArgbCompat())
             view.setTextSize(TypedValue.COMPLEX_UNIT_SP, textSizeSp.toFloat())
             view.includeFontPadding = false
+            view.setTag(com.termux.R.id.host_file_handler, onFile)
             markwon.setMarkdown(view, value)
+            val text = android.text.SpannableString(view.text)
+            for (reference in HostFileReferences.extract(text.toString())) {
+                if (text.getSpans(reference.start, reference.end, android.text.style.ClickableSpan::class.java).isNotEmpty()) continue
+                text.setSpan(object : android.text.style.ClickableSpan() {
+                    override fun onClick(widget: View) { onFile(reference.target) }
+                }, reference.start, reference.end, android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+            }
+            view.text = text
+            view.movementMethod = android.text.method.LinkMovementMethod.getInstance()
         }
     )
+}
+
+@Composable
+private fun HostFilePlainText(value: String, modifier: Modifier, color: Color, wrap: Boolean) {
+    val onFile = LocalHostFileHandler.current
+    AndroidView(modifier = modifier, factory = { TextView(it).apply {
+        setTextIsSelectable(true)
+        typeface = android.graphics.Typeface.MONOSPACE
+        setTextSize(TypedValue.COMPLEX_UNIT_SP, 13f)
+        includeFontPadding = false
+    } }, update = { view ->
+        view.setTextColor(color.toArgbCompat())
+        view.setHorizontallyScrolling(!wrap)
+        val text = android.text.SpannableString(value)
+        HostFileReferences.extract(value).forEach { reference ->
+            text.setSpan(object : android.text.style.ClickableSpan() {
+                override fun onClick(widget: View) { onFile(reference.target) }
+            }, reference.start, reference.end, android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+        }
+        view.text = text
+        view.movementMethod = android.text.method.LinkMovementMethod.getInstance()
+    })
 }
 
 private val nativeMarkdownCache = WeakHashMap<android.content.Context, WeakReference<Markwon>>()
@@ -2329,7 +2367,12 @@ internal fun nativeMarkdownMarkwon(context: android.content.Context): Markwon = 
         .usePlugin(object : AbstractMarkwonPlugin() {
             override fun configureConfiguration(builder: MarkwonConfiguration.Builder) {
                 builder.linkResolver(LinkResolver { view, destination ->
-                    ShareUtils.openURL(view.context, destination)
+                    val target = HostFileReferences.target(destination, true)
+                    if (target != null) {
+                        @Suppress("UNCHECKED_CAST")
+                        val handler = view.getTag(com.termux.R.id.host_file_handler) as? ((String) -> Unit)
+                        handler?.invoke(target)
+                    } else ShareUtils.openURL(view.context, destination)
                 })
             }
 
@@ -2337,7 +2380,7 @@ internal fun nativeMarkdownMarkwon(context: android.content.Context): Markwon = 
                 val allowedLinkFactory = builder.requireFactory(Link::class.java)
                 builder.setFactory(Link::class.java, SpanFactory { configuration, properties ->
                     val destination = CoreProps.LINK_DESTINATION.require(properties)
-                    if (ExternalUrlPolicy.classify(destination).action == ExternalUrlPolicy.Action.BLOCK) {
+                    if (HostFileReferences.target(destination, true) == null && ExternalUrlPolicy.classify(destination).action == ExternalUrlPolicy.Action.BLOCK) {
                         null
                     } else {
                         allowedLinkFactory.getSpans(configuration, properties)
@@ -2406,14 +2449,7 @@ private fun CopyableMarkdownCode(block: NativeMarkdownBlock.Code, index: Int) {
                     contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp)
                 ) { Text("Copy", color = Color(0xFFD7E1EA), fontSize = 12.sp) }
             }
-            Text(
-                block.content,
-                Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
-                color = Color(0xFFD7E1EA),
-                fontFamily = FontFamily.Monospace,
-                fontSize = 13.sp,
-                lineHeight = 19.sp
-            )
+            HostFilePlainText(block.content, Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), Color(0xFFD7E1EA), wrap = false)
         }
     }
 }

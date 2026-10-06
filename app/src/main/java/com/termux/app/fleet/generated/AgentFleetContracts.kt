@@ -8,8 +8,8 @@ data class GeneratedStructuralShape(
 )
 
 object GeneratedAgentFleetContracts {
-    const val CONTRACT_PACKAGE_VERSION = "1.11.0"
-    val protocolVersions: Map<String, Int> = mapOf("control" to 1, "conversation" to 2, "workspace-layout" to 1, "release-set" to 1, "supervisor" to 1, "transport" to 1, "host-runtime" to 1, "diagnostics" to 2, "provider-confidence" to 1)
+    const val CONTRACT_PACKAGE_VERSION = "1.12.0"
+    val protocolVersions: Map<String, Int> = mapOf("control" to 1, "conversation" to 2, "workspace-layout" to 1, "release-set" to 1, "supervisor" to 1, "transport" to 1, "host-runtime" to 1, "diagnostics" to 2, "provider-confidence" to 1, "linked-file" to 1)
     val objectShapes: Map<String, GeneratedStructuralShape> = mapOf(
         "activation-journal-v1:#" to GeneratedStructuralShape(listOf("candidate", "current", "failureCode", "phase", "previous", "schemaVersion", "transactionId", "updatedAt"), listOf(), true),
         "activation-journal-v1:#/\$defs/componentSequences" to GeneratedStructuralShape(listOf("androidApp", "clientRuntime", "contracts", "hostRuntime", "providerAdapters", "windowsApp"), listOf(), true),
@@ -128,6 +128,7 @@ object GeneratedAgentFleetContracts {
         "identity-graph-v1:#/\$defs/endpoint" to GeneratedStructuralShape(listOf("address", "authentication", "id", "identityState", "network", "physicalHostId", "port", "sshEngine", "sshHostKeySha256", "tailscaleNodeId"), listOf(), true),
         "identity-graph-v1:#/\$defs/executionTarget" to GeneratedStructuralShape(listOf("fingerprint", "id", "kind", "label", "physicalHostId"), listOf(), true),
         "identity-graph-v1:#/\$defs/physicalHost" to GeneratedStructuralShape(listOf("id", "legacyMachineId", "name", "platform"), listOf(), true),
+        "linked-file-v1:#" to GeneratedStructuralShape(listOf("mediaKind", "modifiedAt", "name", "protocolVersion", "revision", "size"), listOf(), true),
         "machine-v1:#" to GeneratedStructuralShape(listOf("fallback", "hostCommand", "id", "linuxUsername", "name", "platform", "projectsRoot", "roles", "schemaVersion", "tailscaleNode", "transport", "wslDistro"), listOf(), true),
         "machine-v1:#/properties/fallback" to GeneratedStructuralShape(listOf("ip", "sshHost"), listOf(), true),
         "machine-v2:#" to GeneratedStructuralShape(listOf("aliases", "endpoints", "executionTargets", "fallback", "fleetId", "hostCommand", "id", "linuxUsername", "name", "physicalHostId", "platform", "projectsRoot", "roles", "schemaVersion", "tailscaleNode", "transport", "wslDistro"), listOf(), true),

@@ -403,6 +403,10 @@ public final class TermuxActivity extends ComponentActivity implements ServiceCo
         return mAgentFleetNativeSession != null && mAgentFleetNativeSession.isManagedSession();
     }
 
+    public boolean openAgentFleetHostFile(String reference) {
+        return isAgentFleetManagedSession() && mAgentFleetNativeSession.openHostFile(reference);
+    }
+
     /** Close only this local terminal tab. A remote tmux session remains alive. */
     public void closeAgentFleetSessionTab() {
         TerminalSession session = getCurrentSession();

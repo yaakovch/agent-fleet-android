@@ -506,20 +506,61 @@ class FleetRuntime(private val context: Context) {
         entry: FleetRepositoryEntry,
         cancellation: FleetDownloadCancellation,
         onProgress: (FleetDownloadState) -> Unit
-    ): FleetDownloadState {
+    ): FleetDownloadState = downloadManagedFile(session, entry, cancellation, null, null, onProgress)
+
+    internal fun fetchHostFile(session: FleetSession, reference: String, metadata: HostFileMetadata,
+        cancellation: FleetDownloadCancellation, directory: File, onProgress: (FleetDownloadState) -> Unit): FleetDownloadState {
+        require(HostFileReferences.target(reference, true) != null) { "The host file reference is invalid." }
+        return downloadManagedFile(session, FleetRepositoryEntry(metadata.name, reference, "file", metadata.size, metadata.modifiedAt, false, false), cancellation, metadata.revision, directory, onProgress)
+    }
+
+    internal fun inspectHostFile(session: FleetSession, reference: String, cancellation: FleetDownloadCancellation): HostFileMetadata {
+        require(HostFileReferences.target(reference, true) != null) { "The host file reference is invalid." }
+        val bash = executable("bash") ?: error("Bash is missing from the terminal runtime.")
+        val wtmux = executable("wtmux") ?: error("wtmux is not installed.")
+        val process = ProcessBuilder(bash.absolutePath, wtmux.absolutePath, "file", "inspect", "--host", session.hostId,
+            "--session", session.internalName, "--path", reference).directory(userHome).apply { configureEnvironment(environment()) }.start()
+        cancellation.bind(process)
+        val output = ByteArrayOutputStream()
+        val exceeded = AtomicBoolean(false)
+        val reader = thread(name = "host-file-inspection", isDaemon = true) {
+            runCatching { process.inputStream.use { input -> val buffer = ByteArray(1024); while (true) {
+                val count = input.read(buffer); if (count < 0) break
+                if (output.size() + count > 8192) { exceeded.set(true); process.destroyForciblyCompat(); break }
+                output.write(buffer, 0, count)
+            } } }
+        }
+        val errors = thread(name = "host-file-inspection-errors", isDaemon = true) { runCatching { process.errorStream.use { input -> val buffer = ByteArray(1024); while (input.read(buffer) >= 0) { } } } }
+        try {
+            val deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(30)
+            while (!process.waitForCompat(200, TimeUnit.MILLISECONDS)) {
+                if (cancellation.isCancelled() || System.nanoTime() > deadline) { process.terminateAndReapCompat(); error("Host inspection interrupted. Retry to fetch the current file.") }
+            }
+            reader.join(2000); errors.join(2000)
+            require(!exceeded.get() && !reader.isAlive) { "Host inspection returned an invalid response." }
+            val value = JSONObject(String(output.toByteArray(), Charsets.UTF_8))
+            require(process.exitValue() == 0) { value.optJSONObject("error")?.optString("message") ?: "Host file is unavailable. Retry to fetch the current file." }
+            return HostFileMetadata.parse(value)
+        } finally { cancellation.unbind(process); process.terminateAndReapCompat() }
+    }
+
+    private fun downloadManagedFile(session: FleetSession, entry: FleetRepositoryEntry, cancellation: FleetDownloadCancellation,
+        expectedRevision: String?, privateDirectory: File?, onProgress: (FleetDownloadState) -> Unit): FleetDownloadState {
         require(entry.kind == "file" && entry.size != null && entry.size in 0..MAX_FILE_BYTES) { "File is not downloadable." }
-        require(validRepositoryPath(entry.relativePath, false)) { "Repository file path is invalid." }
+        require(if (expectedRevision == null) validRepositoryPath(entry.relativePath, false) else HostFileReferences.target(entry.relativePath, true) != null) { "File path is invalid." }
         val wtmux = executable("wtmux") ?: throw FleetUnavailableException("wtmux is not installed.")
         val bash = executable("bash") ?: throw FleetUnavailableException("Bash is missing from the terminal runtime.")
-        val downloads = createAgentFleetDownloadDirectory(context)
+        val downloads = privateDirectory ?: createAgentFleetDownloadDirectory(context)
         var activeProcess: Process? = null
         return try {
             onProgress(FleetDownloadState(entry.name, entry.relativePath, "running", 0, entry.size, message = "Starting download…"))
-            val process = ProcessBuilder(
-                bash.absolutePath, wtmux.absolutePath, "file", "download",
+            val arguments = mutableListOf(
+                bash.absolutePath, wtmux.absolutePath, "file", if (expectedRevision == null) "download" else "fetch",
                 "--host", session.hostId, "--session", session.internalName, "--path", entry.relativePath,
                 "--output-dir", downloads.absolutePath, "--yes", "--json", "--json-progress"
-            ).directory(userHome).apply { configureEnvironment(environment()) }.start()
+            )
+            if (expectedRevision != null) arguments.addAll(listOf("--expected-revision", expectedRevision))
+            val process = ProcessBuilder(arguments).directory(userHome).apply { configureEnvironment(environment()) }.start()
             activeProcess = process
             cancellation.bind(process)
             val output = ByteArrayOutputStream()
@@ -604,6 +645,9 @@ class FleetRuntime(private val context: Context) {
             require(resultFile.parentFile == root && resultFile.name == resultName && resultFile.isFile) {
                 "Downloaded file was not written safely to Android Downloads."
             }
+            val expectedSha256 = result.getString("sha256")
+            require(result.getLong("size") == entry.size && verifyHostFileArtifact(resultFile, entry.size, expectedSha256)) { "Host file failed integrity verification." }
+            if (privateDirectory != null) return FleetDownloadState(resultName, entry.relativePath, "completed", entry.size, entry.size, resultFile.absolutePath, "Verified current host file", expectedSha256)
             val published = publishAgentFleetDownload(context, resultFile, resultName)
             FleetDownloadState(
                 published.name, entry.relativePath, "completed", published.size, published.size,
@@ -615,7 +659,7 @@ class FleetRuntime(private val context: Context) {
                 if (process.isAliveCompat()) process.terminateAndReapCompat()
                 else process.closePipesCompat()
             }
-            cleanupAgentFleetDownloadDirectory(context, downloads)
+            if (privateDirectory == null) cleanupAgentFleetDownloadDirectory(context, downloads)
         }
     }
 
