@@ -72,6 +72,7 @@ import com.termux.app.fleet.FleetSnapshot
 import com.termux.app.fleet.NativeSessionScreen
 import com.termux.app.fleet.NativeSessionRegistry
 import com.termux.app.fleet.NativeSessionUiState
+import com.termux.app.fleet.NativeViewMode
 import com.termux.app.fleet.ProviderActivity
 import com.termux.app.fleet.ProviderComponent
 import com.termux.app.fleet.ProviderState
@@ -295,7 +296,8 @@ class AgentFleetComposeTest {
     @Test
     fun terminalChromeUsesTwoReadableRowsAndActions() {
         val state = NativeSessionUiState(
-            "Working fixture", "gaming", "wtmux-main", adapter = "codex", connection = "Live"
+            "Working fixture", "gaming", "wtmux-main", adapter = "codex", connection = "Live",
+            viewMode = NativeViewMode.ManualTerminal
         )
         var controlC = 0
         compose.setContent {
@@ -648,7 +650,7 @@ class AgentFleetComposeTest {
     }
 
     @Test
-    fun fleetAlertSettingsExposeSixIndependentForegroundControlsAndPause() {
+    fun fleetAlertSettingsExposeFiveActionableControlsAndPause() {
         val settings = mutableStateOf(FleetAlertSettings())
         val pauses = AtomicInteger()
         compose.setContent {
@@ -660,8 +662,9 @@ class AgentFleetComposeTest {
         }
         compose.onNodeWithTag("nav-more").performClick()
         compose.onNodeWithTag("more-screen").performScrollToNode(hasTestTag("fleet-alert-settings"))
-        listOf("hardLimits", "deliveryFailures", "deliverySuccess", "hostState", "versionDrift", "pairing")
+        listOf("hardLimits", "deliveryFailures", "deliverySuccess", "versionDrift", "pairing")
             .forEach { compose.onNodeWithTag("fleet-alert-$it").assertIsDisplayed() }
+        compose.onNodeWithTag("fleet-alert-hostState").assertDoesNotExist()
         compose.onNodeWithTag("fleet-alert-deliverySuccess")
             .assertContentDescriptionEquals("Delivery success")
         compose.onNodeWithTag("fleet-alert-deliverySuccess").performClick()
@@ -1277,6 +1280,7 @@ class AgentFleetComposeTest {
             attachments = emptyList(), choices = emptyList()
         )
         val submissions = mutableListOf<Pair<String, Boolean>>()
+        val fresh = mutableStateOf(false)
         compose.setContent {
             AgentFleetTheme(darkTheme = true) {
                 AgentFleetComposerContent(
@@ -1285,7 +1289,8 @@ class AgentFleetComposeTest {
                         target = "gaming:project:wtmux-main",
                         visible = true,
                         items = listOf(assistant),
-                        revision = "revision-1"
+                        revision = "revision-1",
+                        mutationsAllowed = fresh.value
                     ),
                     attachments = emptyList(),
                     uploading = false,
@@ -1316,7 +1321,10 @@ class AgentFleetComposeTest {
         org.junit.Assert.assertTrue(insert.center.y < send.center.y)
         org.junit.Assert.assertTrue(input.width > attach.width * 2)
 
-        compose.onNodeWithTag("agent-fleet-composer-send").performClick()
+        compose.onNodeWithTag("agent-fleet-composer-send").assertIsNotEnabled().performClick()
+        compose.onNodeWithTag("agent-fleet-composer-insert").assertIsNotEnabled().performClick()
+        compose.runOnIdle { assertTrue(submissions.isEmpty()); fresh.value = true }
+        compose.onNodeWithTag("agent-fleet-composer-send").assertIsEnabled().performClick()
         compose.runOnIdle { assertEquals(listOf("Use the safe rollout" to true), submissions) }
         LocalSuggestionRuntime.shutdown(ApplicationProvider.getApplicationContext())
     }
