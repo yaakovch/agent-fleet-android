@@ -20,11 +20,13 @@ class WrappedHostFileTapTest {
     @Test fun actualTapsOpenEveryAbsoluteAndRelativeSegmentInLiveAndHistory() {
         val cases = listOf(
             "  Open (/home/user/projects/very-long-project/\r\n  reports/wrapped-report.md)" to "/home/user/projects/very-long-project/reports/wrapped-report.md",
-            "  Open (reports/very-long-\r\n  report.md)" to "reports/very-long-report.md"
+            "  Open (reports/very-long-\r\n  report.md)" to "reports/very-long-report.md",
+            "  Open (/tmp/\r\n  报告🐱)" to "/tmp/报告🐱"
         )
         val context = ApplicationProvider.getApplicationContext<android.content.Context>()
         ActivityScenario.launch<WrappedLinksTestActivity>(Intent(context, WrappedLinksTestActivity::class.java)).use { scenario ->
             for ((output, destination) in cases) for (history in listOf(false, true)) {
+                val caseName = if (destination.startsWith("/tmp/")) "unicode" else if (destination.startsWith('/')) "absolute" else "relative"
                 Fixture.reset(); Fixture.expectedReference = destination
                 Fixture.body = "Complete wrapped reference from origin host: $destination".toByteArray()
                 scenario.onActivity { it.show(output.replace("\r\n", if (history) "\n" else "\r\n"), history = history) }
@@ -33,7 +35,7 @@ class WrappedHostFileTapTest {
                 for (row in 0..1) {
                     var position = 0f to 0f
                     scenario.onActivity { position = it.tapPosition(row, if (row == 0) 9 else 3) }
-                    PlatformTestStorageRegistry.getInstance().openOutputFile("terminal-before-${if (destination.startsWith('/')) "absolute" else "relative"}-${if (history) "history" else "live"}-$row.png").use { InstrumentationRegistry.getInstrumentation().uiAutomation.takeScreenshot().compress(android.graphics.Bitmap.CompressFormat.PNG, 100, it) }
+                    PlatformTestStorageRegistry.getInstance().openOutputFile("terminal-before-$caseName-${if (history) "history" else "live"}-$row.png").use { InstrumentationRegistry.getInstrumentation().uiAutomation.takeScreenshot().compress(android.graphics.Bitmap.CompressFormat.PNG, 100, it) }
                     val automation = InstrumentationRegistry.getInstrumentation().uiAutomation
                     val time = android.os.SystemClock.uptimeMillis()
                     for (action in listOf(MotionEvent.ACTION_DOWN, MotionEvent.ACTION_UP)) {
@@ -48,9 +50,22 @@ class WrappedHostFileTapTest {
                     Assert.assertEquals("origin-session|origin-host|managed-origin", Fixture.origins.last())
                     scenario.onActivity { Assert.assertEquals(destination, it.selected) }
                     val screenshot = automation.takeScreenshot()
-                    PlatformTestStorageRegistry.getInstance().openOutputFile("wrapped-${if (destination.startsWith('/')) "absolute" else "relative"}-${if (history) "history" else "live"}-$row.png").use { screenshot.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, it) }
+                    PlatformTestStorageRegistry.getInstance().openOutputFile("wrapped-$caseName-${if (history) "history" else "live"}-$row.png").use { screenshot.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, it) }
                     compose.onNodeWithText("Close").performClick()
                     InstrumentationRegistry.getInstrumentation().waitForIdleSync()
+                }
+                if (caseName == "unicode") {
+                    var position = 0f to 0f
+                    scenario.onActivity { position = it.tapPosition(1, 8) }
+                    val automation = InstrumentationRegistry.getInstrumentation().uiAutomation
+                    val time = android.os.SystemClock.uptimeMillis()
+                    for (action in listOf(MotionEvent.ACTION_DOWN, MotionEvent.ACTION_UP)) {
+                        val event = MotionEvent.obtain(time, time + if (action == MotionEvent.ACTION_UP) 50 else 0, action, position.first, position.second, 0)
+                        event.source = InputDevice.SOURCE_TOUCHSCREEN
+                        Assert.assertTrue(automation.injectInputEvent(event, true)); event.recycle()
+                    }
+                    InstrumentationRegistry.getInstrumentation().waitForIdleSync()
+                    Assert.assertEquals("Closing punctuation must stay outside the wide Unicode link", 2, Fixture.fetches.get())
                 }
             }
         }
