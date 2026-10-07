@@ -139,6 +139,25 @@ class FleetRuntime(private val context: Context) {
     private val bridgeOptionSupportLock = Any()
     private var bridgeOptionSupport: BridgeOptionSupport? = null
 
+    fun sessionIdentity(host: String, session: String): VerifiedSessionIdentity {
+        require(host.matches(Regex("[A-Za-z0-9._-]{1,160}")) && session.matches(Regex("[A-Za-z0-9._-]{1,128}")))
+        val bash = executable("bash") ?: error("Bash is unavailable")
+        val wtmux = executable("wtmux") ?: error("wtmux is unavailable")
+        val prefix = File(home, "files/usr")
+        val userHome = File(home, "files/home")
+        val owner = NativeOneShotProcessOwner(stdoutLimitBytes = 128 * 1024, stderrLimitBytes = 8192)
+        val ticket = owner.begin(10, TimeUnit.SECONDS)
+        val builder = ProcessBuilder(bash.absolutePath, wtmux.absolutePath, "session", "identity", "--host", host, "--session", session)
+            .directory(userHome).redirectErrorStream(false)
+        builder.environment()["HOME"] = userHome.absolutePath
+        builder.environment()["PREFIX"] = prefix.absolutePath
+        builder.environment()["PATH"] = listOf(File(userHome, ".local/bin"), File(prefix, "bin"), File(prefix, "bin/applets")).joinToString(":")
+        enableTermuxExec(builder.environment(), prefix)
+        val result = owner.collect(ticket, builder.start())
+        require(result.exitCode == 0 && !result.stdoutTruncated && !result.timedOut && !result.cancelled)
+        return parseSessionIdentity(result.stdout.trim(), host, session)
+    }
+
     fun loadSnapshot(): FleetSnapshot {
         if (ClientSupervisorSettings.usesSharedControl(context)) {
             return FleetControlSupervisor.loadSnapshot(context)

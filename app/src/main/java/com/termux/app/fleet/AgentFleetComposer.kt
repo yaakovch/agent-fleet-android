@@ -56,6 +56,9 @@ object AgentFleetComposer {
     private val uploadOwner = AgentFleetComposerUploadOwner()
     private val externalImageRequests = AgentFleetExternalImageRequestOwner()
 
+    internal fun savedBindingForTarget(target: String): SavedSessionBinding? =
+        targetRoutes[target]?.let { SavedSessionStates.find(it.host, it.session) }
+
     private class ComposerTargetState {
         val attachments = mutableStateListOf<String>()
         var uploading by mutableStateOf(false)
@@ -590,6 +593,10 @@ internal fun AgentFleetComposerContent(
     val context = LocalContext.current
     val density by AgentFleetDisplayDensityStore.observe(context).collectAsState()
     var text by rememberSaveable(target) { mutableStateOf("") }
+    val savedBinding = LocalSavedSessionBinding.current ?: AgentFleetComposer.savedBindingForTarget(target)
+    val savedMessage by savedBinding?.message?.collectAsState() ?: remember { mutableStateOf("") }
+    LaunchedEffect(savedBinding, savedMessage) { if (savedBinding != null) text = savedMessage }
+    fun changeText(value: String) { text = value; savedBinding?.updateMessage(value) }
     val localSuggestions = remember(target, localSuggestionsAvailableOverride, localSuggestionModeOverride, localSuggestionDebugFakeOutput) {
         NativeLocalSuggestionState(context, localSuggestionsAvailableOverride, localSuggestionDebugFakeOutput, localSuggestionModeOverride)
     }
@@ -640,6 +647,17 @@ internal fun AgentFleetComposerContent(
                     shape = RoundedCornerShape(14.dp)
                 ) { Text("Answer needed · Tap to open", fontSize = density.nativeBodySp.sp) }
             }
+            if (text.isNotEmpty()) TextButton(onClick = { text = ""; savedBinding?.clearMessage() }, modifier = Modifier.testTag("agent-fleet-clear-draft")) { Text("Clear draft") }
+            val saveError by savedBinding?.saveError?.collectAsState() ?: remember { mutableStateOf("") }
+            if (saveError.isNotEmpty()) Text(saveError, color = MaterialTheme.colorScheme.error)
+            val savedState by savedBinding?.state?.collectAsState() ?: remember { mutableStateOf(null) }
+            val liveQuestions by savedBinding?.liveQuestions?.collectAsState() ?: remember { mutableStateOf(emptyMap<String, String>()) }
+            savedState?.questions?.filter { liveQuestions[it.requestId] != it.form }?.forEach { draft ->
+                Row {
+                    TextButton(onClick = { changeText(draft.answers.joinToString("\n") { it.text.ifEmpty { it.choiceIds.joinToString(", ") } }) }) { Text("Recover saved answer") }
+                    TextButton(onClick = { savedBinding?.clearQuestion(draft.requestId, draft.form) }) { Text("Clear") }
+                }
+            }
             val composed = buildAgentFleetComposerText(text, attachments)
             val hasContent = composed.isNotEmpty()
             Row(
@@ -651,7 +669,7 @@ internal fun AgentFleetComposerContent(
                     value = text,
                     onValueChange = {
                         if (it.length <= MAX_MESSAGE_CHARS && '\u0000' !in it) {
-                            text = it
+                            changeText(it)
                             if (it.isNotBlank()) localSuggestions.clear()
                         }
                     },
@@ -693,7 +711,7 @@ internal fun AgentFleetComposerContent(
                     TextButton(
                         onClick = {
                             if (onComposerText(composed, false)) {
-                                text = ""
+                                text = ""; savedBinding?.clearMessage()
                                 localSuggestions.clear()
                             }
                         },
@@ -704,7 +722,7 @@ internal fun AgentFleetComposerContent(
                     Button(
                         onClick = {
                             if (onComposerText(composed, true)) {
-                                text = ""
+                                text = ""; savedBinding?.clearMessage()
                                 localSuggestions.clear()
                             }
                         },

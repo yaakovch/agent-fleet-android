@@ -15,6 +15,8 @@ import androidx.compose.ui.test.junit4.createEmptyComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.performTextInput
 import androidx.compose.ui.test.assertIsEnabled
+import androidx.compose.ui.test.assertTextContains
+import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollToIndex
 import androidx.lifecycle.Lifecycle
 import androidx.test.core.app.ActivityScenario
@@ -101,8 +103,26 @@ class NativeStartupAcceptanceTest {
                     cold += SystemClock.elapsedRealtime() - started
                 }
             }
+            val draft = "Retain Android draft ${SystemClock.elapsedRealtime()}"
             ActivityScenario.launch<TermuxActivity>(intent).use { scenario ->
                 awaitVisible(scenario, "NATIVE_STARTUP_READY")
+                compose.onNodeWithTag("agent-fleet-message-input").performTextInput(draft)
+                await { SavedSessionStates.find(descriptor.hostId, descriptor.internalName)?.ready?.value == true }
+                SavedSessionStates.flush()
+                SavedSessionStates.writer.submit {}.get(5, java.util.concurrent.TimeUnit.SECONDS)
+            }
+            val persisted = SavedSessionBinding(File(context.filesDir, "session-state-v1"))
+            val saved = SavedSessionStates.find(descriptor.hostId, descriptor.internalName)!!.state.value!!
+            persisted.install(saved.identity, saved.executionTarget)
+            assertEquals("Draft must survive a fresh disk-backed binding", draft, persisted.message.value)
+            ActivityScenario.launch<TermuxActivity>(intent).use { scenario ->
+                awaitVisible(scenario, "NATIVE_STARTUP_READY")
+                await(10_000) {
+                    val binding = SavedSessionStates.find(descriptor.hostId, descriptor.internalName)
+                    binding?.ready?.value == true && binding.message.value == draft
+                }
+                compose.waitForIdle()
+                compose.onNodeWithTag("agent-fleet-message-input").assertTextContains(draft)
                 repeat(samples) {
                     tapText("Terminal")
                     await { textNode("Native") != null }
@@ -111,6 +131,11 @@ class NativeStartupAcceptanceTest {
                     awaitVisible(scenario, "NATIVE_STARTUP_READY", 500)
                     warm += SystemClock.elapsedRealtime() - started
                 }
+                compose.onNodeWithTag("agent-fleet-clear-draft").performClick()
+                SavedSessionStates.writer.submit {}.get(5, java.util.concurrent.TimeUnit.SECONDS)
+                val cleared = SavedSessionBinding(File(context.filesDir, "session-state-v1"))
+                cleared.install(saved.identity, saved.executionTarget)
+                assertEquals("Explicit Clear must be durable", "", cleared.message.value)
                 screenshot("native-startup-warm.png")
                 val old = service.getAgentFleetWorkspaceSession(descriptor.id)!!.terminalSession
                 val oldHandle = old.mHandle
@@ -145,12 +170,48 @@ class NativeStartupAcceptanceTest {
                 await { AgentFleetComposer.nativeStateForTest().mutationsAllowed }
                 compose.onNodeWithTag("agent-fleet-composer-send").assertIsEnabled()
                 tapText("Send")
-                await { AgentFleetComposer.nativeStateForTest().items.any { "INPUT_RECEIVED: $input" in it.text } }
+                await(15_000) { AgentFleetComposer.nativeStateForTest().items.any { "INPUT_RECEIVED: $input" in it.text } }
                 compose.onNodeWithTag("native-message-list").performScrollToIndex(0)
                 awaitVisible(scenario, "INPUT_RECEIVED: $input")
+                SavedSessionStates.flush()
+                SavedSessionStates.writer.submit {}.get(5, java.util.concurrent.TimeUnit.SECONDS)
+                val delivered = SavedSessionBinding(File(context.filesDir, "session-state-v1"))
+                delivered.install(saved.identity, saved.executionTarget)
+                assertEquals("Successful Send must clear the durable draft", "", delivered.message.value)
                 assertEquals(descriptor.id, service.getAgentFleetWorkspaceSessionId(service.getAgentFleetWorkspaceSession(descriptor.id)?.terminalSession))
                 assertEquals(1, service.termuxSessions.count { it.executionCommand?.commandDescription == AgentFleetContract.WORKSPACE_SESSION_PREFIX + descriptor.id })
                 screenshot("native-startup-recovered.png")
+                tapText("Terminal")
+                tapText("Actions")
+                compose.onNodeWithTag("terminal-history-open").assertIsEnabled().performClick()
+                await(15_000) {
+                    var active = false
+                    scenario.onActivity { active = it.terminalView.isLocalScrollbackActive }
+                    active
+                }
+                var readingRevision = ""
+                scenario.onActivity { readingRevision = it.terminalView.displayedEmulator().screen.transcriptText }
+                screenshot("terminal-history-reading.png")
+                instrumentation.runOnMainSync {
+                    service.getAgentFleetWorkspaceSession(descriptor.id)!!.terminalSession.write("history-background-${SystemClock.elapsedRealtime()}\r")
+                }
+                SystemClock.sleep(1_000)
+                scenario.onActivity { assertEquals("Background output must keep the reading snapshot", readingRevision, it.terminalView.displayedEmulator().screen.transcriptText) }
+                tapText("Actions")
+                compose.onNodeWithTag("terminal-history-refresh").performClick()
+                await(15_000) {
+                    var refreshed = false
+                    scenario.onActivity { refreshed = it.terminalView.isLocalScrollbackActive && it.terminalView.displayedEmulator().screen.transcriptText != readingRevision }
+                    refreshed
+                }
+                screenshot("terminal-history-refreshed.png")
+                tapText("Actions")
+                compose.onNodeWithTag("terminal-history-live").performClick()
+                scenario.onActivity {
+                    assertFalse(it.terminalView.isLocalScrollbackActive)
+                    assertTrue(it.currentSession!!.isRunning)
+                    assertSame(it.currentSession!!.emulator, it.terminalView.displayedEmulator())
+                }
             }
             fun p95(values: List<Long>) = values.sorted()[if (samples == 20) 18 else 0]
             assertTrue("Warm p95 ${p95(warm)} ms exceeded 500 ms", p95(warm) <= 500)
@@ -159,7 +220,11 @@ class NativeStartupAcceptanceTest {
                 it.write(JSONObject().put("host", descriptor.hostId).put("session", descriptor.internalName)
                     .put("warmMillis", JSONArray(warm)).put("coldMillis", JSONArray(cold))
                     .put("warmP95Millis", p95(warm)).put("coldP95Millis", p95(cold))
-                    .put("notificationTapped", true).put("recoveredSshInput", true).toString(2).toByteArray())
+                    .put("notificationTapped", true).put("recoveredSshInput", true)
+                    .put("activityReentryRestoredDraft", true).put("diskBindingRestoredDraft", true)
+                    .put("clearDurable", true).put("successfulSendCleared", true)
+                    .put("historyEntryTapped", true).put("historyStableWhileReading", true)
+                    .put("historyRefreshTapped", true).put("historyReturnToLiveTapped", true).toString(2).toByteArray())
             }
         } catch (error: Throwable) {
             screenshot("native-startup-failure.png")

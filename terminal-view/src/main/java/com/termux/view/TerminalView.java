@@ -54,6 +54,18 @@ public final class TerminalView extends View {
     /** A read-only, prefetched tmux pane rendered with the same renderer as the live terminal. */
     private TerminalEmulator mLocalScrollbackEmulator;
     private boolean mLocalScrollbackActive;
+    public interface LocalHistoryListener {
+        void onRequested();
+        void onClosed();
+        default void onOpened() {}
+    }
+    private LocalHistoryListener mLocalHistoryListener;
+    public void setLocalHistoryListener(LocalHistoryListener listener) { mLocalHistoryListener = listener; }
+    private void leaveLocalHistory() {
+        boolean wasActive = mLocalScrollbackActive;
+        mLocalScrollbackActive = false;
+        if (wasActive && mLocalHistoryListener != null) mLocalHistoryListener.onClosed();
+    }
 
     /** The currently displayed terminal session, whose emulator is {@link #mEmulator}. */
     public TerminalSession mTermSession;
@@ -589,11 +601,16 @@ public final class TerminalView extends View {
     /** Perform a scroll, either from dragging the screen or by scrolling a mouse wheel. */
     void doScroll(MotionEvent event, int rowsDown) {
         if (rowsDown == 0) return;
+        if (rowsDown < 0 && !mLocalScrollbackActive && mEmulator.isAlternateBufferActive() && mLocalHistoryListener != null)
+            mLocalHistoryListener.onRequested();
         if (mLocalScrollbackActive || (rowsDown < 0 && mEmulator.isAlternateBufferActive() && canEnterLocalScrollback())) {
-            if (!mLocalScrollbackActive) mLocalScrollbackActive = true;
+            if (!mLocalScrollbackActive) {
+                mLocalScrollbackActive = true;
+                if (mLocalHistoryListener != null) mLocalHistoryListener.onOpened();
+            }
             int transcriptRows = mLocalScrollbackEmulator.getScreen().getActiveTranscriptRows();
             mTopRow = Math.min(0, Math.max(-transcriptRows, mTopRow + rowsDown));
-            if (rowsDown > 0 && mTopRow == 0) mLocalScrollbackActive = false;
+            if (rowsDown > 0 && mTopRow == 0) leaveLocalHistory();
             if (!awakenScrollBars()) invalidate();
             return;
         }
@@ -618,20 +635,69 @@ public final class TerminalView extends View {
     public boolean setLocalScrollback(byte[] ansi, int columns, int rows) {
         if (mEmulator == null || mLocalScrollbackActive || ansi == null || ansi.length == 0 ||
             columns != mEmulator.mColumns || rows != mEmulator.mRows) return false;
+        return installPreparedScrollback(prepareLocalScrollback(ansi, columns, rows, localScrollbackColors()));
+    }
+
+    /** Copy presentation on the UI thread; parsing never touches the live PTY. */
+    public int[] localScrollbackColors() {
+        return mEmulator == null ? null : mEmulator.mColors.mCurrentColors.clone();
+    }
+
+    public static final class PreparedScrollback {
+        private final TerminalEmulator emulator;
+        private PreparedScrollback(TerminalEmulator emulator) { this.emulator = emulator; }
+    }
+
+    /** Build an isolated, read-only emulator on a worker. */
+    public static PreparedScrollback prepareLocalScrollback(byte[] ansi, int columns, int rows, int[] colors) {
+        if (ansi == null || ansi.length == 0 || ansi.length > 4 * 1024 * 1024 ||
+            columns < 4 || columns > 1000 || rows < 4 || rows > 1000) return null;
         TerminalEmulator local = new TerminalEmulator(NO_OP_OUTPUT, columns, rows, 1, 1, 5000, null);
-        System.arraycopy(mEmulator.mColors.mCurrentColors, 0, local.mColors.mCurrentColors, 0,
-            mEmulator.mColors.mCurrentColors.length);
+        if (colors != null && colors.length == local.mColors.mCurrentColors.length) {
+            System.arraycopy(colors, 0, local.mColors.mCurrentColors, 0, colors.length);
+        }
         byte[] normalized = normalizeCapturedAnsi(ansi);
         local.append(normalized, normalized.length);
         byte[] hideCursor = "\033[?25l".getBytes(java.nio.charset.StandardCharsets.UTF_8);
         local.append(hideCursor, hideCursor.length);
-        if (local.getScreen().getActiveTranscriptRows() <= 0) return false;
-        mLocalScrollbackEmulator = local;
+        return new PreparedScrollback(local);
+    }
+
+    public boolean installPreparedScrollback(PreparedScrollback prepared) {
+        return installPreparedScrollback(prepared, false);
+    }
+
+    /** Only an explicit Refresh may replace the snapshot currently being read. */
+    public boolean installPreparedScrollback(PreparedScrollback prepared, boolean refreshVisible) {
+        if (prepared == null || mEmulator == null || (mLocalScrollbackActive && !refreshVisible) ||
+            prepared.emulator.mColumns != mEmulator.mColumns || prepared.emulator.mRows != mEmulator.mRows) return false;
+        mLocalScrollbackEmulator = prepared.emulator;
+        if (mLocalScrollbackActive) {
+            mTopRow = Math.max(-prepared.emulator.getScreen().getActiveTranscriptRows(), mTopRow);
+            invalidate();
+        }
         return true;
     }
 
+    public boolean enterPreparedLocalHistory() {
+        if (mEmulator == null || !mEmulator.isAlternateBufferActive() || !canEnterLocalScrollback()) return false;
+        if (!mLocalScrollbackActive) {
+            mLocalScrollbackActive = true;
+            mTopRow = -Math.min(1, mLocalScrollbackEmulator.getScreen().getActiveTranscriptRows());
+            if (mLocalHistoryListener != null) mLocalHistoryListener.onOpened();
+        }
+        invalidate();
+        return true;
+    }
+
+    public void returnToLiveTerminal() {
+        leaveLocalHistory();
+        mTopRow = 0;
+        invalidate();
+    }
+
     public void clearLocalScrollback() {
-        mLocalScrollbackActive = false;
+        leaveLocalHistory();
         mLocalScrollbackEmulator = null;
         mTopRow = 0;
         invalidate();
@@ -648,8 +714,7 @@ public final class TerminalView extends View {
     private boolean canEnterLocalScrollback() {
         return mLocalScrollbackEmulator != null &&
             mLocalScrollbackEmulator.mColumns == mEmulator.mColumns &&
-            mLocalScrollbackEmulator.mRows == mEmulator.mRows &&
-            mLocalScrollbackEmulator.getScreen().getActiveTranscriptRows() > 0;
+            mLocalScrollbackEmulator.mRows == mEmulator.mRows;
     }
 
     public TerminalEmulator displayedEmulator() {
@@ -854,7 +919,7 @@ public final class TerminalView extends View {
             mClient.logInfo(LOG_TAG, "onKeyDown(keyCode=" + keyCode + ", isSystem()=" + event.isSystem() + ", event=" + event + ")");
         if (mEmulator == null) return true;
         if (mLocalScrollbackActive) {
-            mLocalScrollbackActive = false;
+            leaveLocalHistory();
             mTopRow = 0;
             invalidate();
         }
@@ -937,7 +1002,7 @@ public final class TerminalView extends View {
 
         if (mTermSession == null) return;
         if (mLocalScrollbackActive) {
-            mLocalScrollbackActive = false;
+            leaveLocalHistory();
             mTopRow = 0;
             invalidate();
         }
@@ -1088,7 +1153,7 @@ public final class TerminalView extends View {
                 mTerminalCursorBlinkerRunnable.setEmulator(mEmulator);
 
             mTopRow = 0;
-            mLocalScrollbackActive = false;
+            leaveLocalHistory();
             mLocalScrollbackEmulator = null;
             scrollTo(0, 0);
             invalidate();

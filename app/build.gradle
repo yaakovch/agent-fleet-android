@@ -38,6 +38,7 @@ android {
         implementation "androidx.preference:preference:1.1.1"
         implementation "androidx.viewpager:viewpager:1.0.0"
         implementation "androidx.activity:activity-compose:1.7.2"
+        implementation "androidx.profileinstaller:profileinstaller:1.4.1"
         implementation "androidx.compose.foundation:foundation"
         implementation "androidx.compose.material3:material3"
         implementation "androidx.compose.runtime:runtime"
@@ -111,11 +112,42 @@ android {
         release {
             minifyEnabled true
             shrinkResources false // Reproducible builds
-            proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
+            proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
         }
 
         debug {
             signingConfig signingConfigs.debug
+        }
+        benchmark {
+            initWith release
+            debuggable false
+            minifyEnabled false
+            signingConfig signingConfigs.debug
+            matchingFallbacks = ['release']
+        }
+        measure {
+            initWith release
+            debuggable false
+            signingConfig signingConfigs.debug
+            matchingFallbacks = ['release']
+        }
+        measureWithoutFleetProfiles {
+            initWith measure
+            matchingFallbacks = ['release']
+        }
+    }
+
+    sourceSets {
+        release { baselineProfiles.srcDir 'src/fleetProfiles' }
+        benchmark { baselineProfiles.srcDir 'src/fleetProfiles' }
+        measure {
+            baselineProfiles.srcDir 'src/fleetProfiles'
+            java.srcDirs = ['src/benchmark/java']
+            manifest.srcFile 'src/benchmark/AndroidManifest.xml'
+        }
+        measureWithoutFleetProfiles {
+            java.srcDirs = ['src/benchmark/java']
+            manifest.srcFile 'src/benchmark/AndroidManifest.xml'
         }
     }
 

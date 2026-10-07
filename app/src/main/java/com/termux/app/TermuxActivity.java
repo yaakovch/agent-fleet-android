@@ -352,6 +352,7 @@ public final class TermuxActivity extends ComponentActivity implements ServiceCo
             current.putExtra(AgentFleetContract.EXTRA_INITIAL_SURFACE,
                 remembered.surfaceFor(managedSessionId(current)) == DrawerSessionSurface.Terminal ?
                     AgentFleetContract.SURFACE_TERMINAL : AgentFleetContract.SURFACE_NATIVE);
+            current.putExtra(AgentFleetContract.EXTRA_NOTIFICATION_ENTRY, intent.getBooleanExtra(AgentFleetContract.EXTRA_NOTIFICATION_ENTRY, false));
             updateAgentFleetInputMode(current);
             selectAgentFleetTarget(current, 0);
             restoreAgentFleetSessionIfNeeded();
@@ -492,6 +493,8 @@ public final class TermuxActivity extends ComponentActivity implements ServiceCo
         session.write(sequence);
         return true;
     }
+
+    public TerminalScrollbackController getAgentFleetTerminalScrollback() { return mAgentFleetTerminalScrollback; }
 
     static String agentFleetKeySequence(String key) {
         if ("TAB".equals(key)) return "\t";

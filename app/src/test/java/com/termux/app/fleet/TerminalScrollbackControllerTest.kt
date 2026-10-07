@@ -13,6 +13,25 @@ import org.robolectric.RobolectricTestRunner
 
 @RunWith(RobolectricTestRunner::class)
 class TerminalScrollbackControllerTest {
+    @Test fun paneFitsBelowTmuxChromeWithoutAcceptingAChangedWrappingWidth() {
+        val snapshot = parsePaneScrollbackSnapshot(frame("wtmux-main", "row".toByteArray()), "wtmux-main")
+        assertTrue(snapshot.fitsViewport(120, 33))
+        assertTrue(snapshot.fitsViewport(120, 32))
+        assertFalse(snapshot.fitsViewport(120, 31))
+        assertFalse(snapshot.fitsViewport(119, 33))
+    }
+    @Test fun cacheUsesIncarnationAndDimensionsAndRetainsOnlyFourCaptures() {
+        val cache = PaneCaptureCache()
+        val identity = VerifiedSessionIdentity("host", "session", "a".repeat(64), "/fixture", "linux", "codex")
+        val first = parsePaneScrollbackSnapshot(frame("wtmux-main", "row".toByteArray()), "wtmux-main")
+        assertTrue(cache.put(identity, first) === first)
+        assertTrue(cache.put(identity, first.copy()) === first)
+        val resized = first.copy(columns = 121)
+        assertTrue(cache.put(identity, resized) === resized)
+        repeat(5) { index -> cache.put(identity.copy(incarnationId = index.toString().repeat(64)), first.copy()) }
+        assertEquals(4, cache.size())
+        assertFalse(cache.put(identity, first.copy()) === first)
+    }
     @Test
     fun acceptsBoundedIntegrityCheckedAnsiPaneCapture() {
         val ansi = "\u001b[31molder row\u001b[0m\ncurrent row".toByteArray()

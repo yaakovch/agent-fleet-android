@@ -51,6 +51,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.derivedStateOf
@@ -407,7 +408,12 @@ fun AgentFleetTerminalSessionChrome(
     onShellKey: (String) -> Unit = {},
     onCloseSession: () -> Unit = {},
     onKillSession: () -> Unit = {},
-    onRetryConnection: () -> Unit = {}
+    onRetryConnection: () -> Unit = {},
+    historyAvailable: Boolean = false,
+    historyActive: Boolean = false,
+    onHistory: (() -> Unit)? = null,
+    onRefreshHistory: () -> Unit = {},
+    onLiveTerminal: () -> Unit = {}
 ) {
     CompactSessionHeader(
         state = state,
@@ -423,7 +429,12 @@ fun AgentFleetTerminalSessionChrome(
         onRefreshModel = onRefreshModel,
         onSetModel = onSetModel,
         onCancelModel = onCancelModel,
-        onRetryConnection = onRetryConnection
+        onRetryConnection = onRetryConnection,
+        historyAvailable = historyAvailable,
+        historyActive = historyActive,
+        onHistory = onHistory,
+        onRefreshHistory = onRefreshHistory,
+        onLiveTerminal = onLiveTerminal
     )
 }
 
@@ -443,7 +454,12 @@ private fun CompactSessionHeader(
     onSetModel: (String, String, Boolean, Boolean) -> Unit,
     onCancelModel: () -> Unit,
     onRetryConnection: () -> Unit = {},
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    historyAvailable: Boolean = false,
+    historyActive: Boolean = false,
+    onHistory: (() -> Unit)? = null,
+    onRefreshHistory: () -> Unit = {},
+    onLiveTerminal: () -> Unit = {}
 ) {
     var actionMenu by rememberSaveable(state.hostId, state.internalSession, destinationLabel) { mutableStateOf(false) }
     var confirmKill by rememberSaveable(state.hostId, state.internalSession, destinationLabel) { mutableStateOf(false) }
@@ -484,6 +500,17 @@ private fun CompactSessionHeader(
                     ) { Text("Actions", fontSize = 11.sp) }
                     DropdownMenu(expanded = actionMenu, onDismissRequest = { actionMenu = false }) {
                         val context = LocalContext.current
+                        if (onHistory != null) {
+                            DropdownMenuItem(text = { Text("History") }, enabled = historyAvailable,
+                                modifier = Modifier.testTag("terminal-history-open"),
+                                onClick = { actionMenu = false; onHistory() })
+                            DropdownMenuItem(text = { Text("Refresh History") }, enabled = historyAvailable,
+                                modifier = Modifier.testTag("terminal-history-refresh"),
+                                onClick = { actionMenu = false; onRefreshHistory() })
+                            if (historyActive) DropdownMenuItem(text = { Text("Return to live terminal") },
+                                modifier = Modifier.testTag("terminal-history-live"),
+                                onClick = { actionMenu = false; onLiveTerminal() })
+                        }
                         ConversationView.entries.forEach { view ->
                             DropdownMenuItem(
                                 text = { Text("${if (state.conversationView == view) "✓ " else ""}${view.name}") },
@@ -790,6 +817,10 @@ private fun NativeAiComposer(
     onCamera: () -> Unit
 ) {
     var value by rememberSaveable { mutableStateOf("") }
+    val savedBinding = LocalSavedSessionBinding.current
+    val savedMessage by savedBinding?.message?.collectAsState() ?: remember { mutableStateOf("") }
+    LaunchedEffect(savedBinding, savedMessage) { if (savedBinding != null) value = savedMessage }
+    fun changeValue(next: String) { value = next; savedBinding?.updateMessage(next) }
     var observedLiveSerial by remember { mutableStateOf(liveEventSerial) }
     var observedSuggestionKey by remember { mutableStateOf("") }
     val automaticTarget = LocalSuggestionTarget("composer")
@@ -831,7 +862,7 @@ private fun NativeAiComposer(
                     value = value,
                     onValueChange = {
                         if (it.length <= 32_768 && '\u0000' !in it) {
-                            value = it
+                            changeValue(it)
                             if (it.isNotBlank()) localSuggestions.clear()
                         }
                     },
@@ -842,16 +873,17 @@ private fun NativeAiComposer(
                     textStyle = MaterialTheme.typography.bodyMedium.copy(fontSize = 15.sp)
                 )
                 TextButton(enabled = value.isNotEmpty(), contentPadding = PaddingValues(horizontal = 7.dp, vertical = 4.dp), onClick = {
-                    if (onComposerText(value, false)) value = ""
+                    if (onComposerText(value, false)) { value = ""; savedBinding?.clearMessage() }
                 }) { Text("Insert", fontSize = 12.sp) }
                 Button(contentPadding = PaddingValues(horizontal = 10.dp, vertical = 7.dp), onClick = {
-                    if (onComposerText(value, true)) value = ""
+                    if (onComposerText(value, true)) { value = ""; savedBinding?.clearMessage() }
                 }) { Text(if (value.isEmpty()) "Enter" else "Send", fontSize = 12.sp) }
             }
+            if (value.isNotEmpty()) TextButton(onClick = { value = ""; savedBinding?.clearMessage() }) { Text("Clear draft") }
             if (localSuggestions.targetKey == "composer") {
                 LocalSuggestionChoices(
                     localSuggestions,
-                    onUse = { value = it; localSuggestions.clear() },
+                    onUse = { changeValue(it); localSuggestions.clear() },
                     onRegenerate = { localSuggestions.request(conversationItems, automaticTarget, automatic = localSuggestions.automatic) }
                 )
             }
@@ -980,6 +1012,9 @@ private fun ConversationFeed(
     onCancelActivity: () -> Unit
 ) {
     val listState = rememberLazyListState()
+    val savedBinding = LocalSavedSessionBinding.current
+    val savedPosition by savedBinding?.restored?.collectAsState() ?: remember { mutableStateOf(null) }
+    val savedReady by savedBinding?.ready?.collectAsState() ?: remember { mutableStateOf(true) }
     val scope = rememberCoroutineScope()
     val rows = remember(state.items, state.hasMore, pinnedActionId, state.conversationView) {
         buildConversationRows(state.items.filterNot {
@@ -987,24 +1022,29 @@ private fun ConversationFeed(
         }, state.hasMore, state.conversationView)
     }
     val history = remember { ConversationFeedHistory(state.conversationView, rows) }
-    val oldRows = history.rows.asReversed()
-    val visibleKey = listState.layoutInfo.visibleItemsInfo.firstOrNull { visible -> oldRows.any { it.composeKey == visible.key } }?.key
-    val oldIndex = oldRows.indexOfFirst { it.composeKey == visibleKey }
-    val anchor = if (history.view != state.conversationView && listState.firstVisibleItemIndex > 1 && oldIndex >= 0) {
-        oldRows.withIndex().filter { it.value is ConversationRow.Item && (it.value as ConversationRow.Item).value.kind == "message" }
-            .minByOrNull { kotlin.math.abs(it.index - oldIndex) }?.value
-    } else null
-    val anchorOffset = if (anchor?.composeKey == visibleKey) listState.firstVisibleItemScrollOffset else 0
+    val viewAnchor = remember(state.conversationView) {
+        if (history.view == state.conversationView || listState.firstVisibleItemIndex <= 1) null
+        else {
+            val oldRows = history.rows.asReversed()
+            val positions = oldRows.withIndex().associate { it.value.composeKey to it.index }
+            val visibleKey = listState.layoutInfo.visibleItemsInfo.firstOrNull { it.key in positions }?.key
+            val oldIndex = positions[visibleKey] ?: -1
+            val anchor = if (oldIndex < 0) null else oldRows.withIndex()
+                .filter { it.value is ConversationRow.Item && (it.value as ConversationRow.Item).value.kind == "message" }
+                .minByOrNull { kotlin.math.abs(it.index - oldIndex) }?.value
+            anchor?.let { it.id to if (it.composeKey == visibleKey) listState.firstVisibleItemScrollOffset else 0 }
+        }
+    }
     androidx.compose.runtime.SideEffect { history.view = state.conversationView; history.rows = rows }
     LaunchedEffect(state.conversationView) {
-        val index = rows.asReversed().indexOfFirst { it.id == anchor?.id }
+        val index = rows.asReversed().indexOfFirst { it.id == viewAnchor?.first }
         if (index >= 0) {
             val compatibility = state.conversationView == ConversationView.Conversation && state.items.isNotEmpty() &&
                 state.items.none { it.messagePurpose.isNotBlank() || it.activitySummary != null } && state.sourceMode != "shell"
             val preceding = 1 + (if (state.attention != null) 1 else 0) +
                 (if (state.providerStateKnown && !state.providerState.mutationsAllowed && state.providerState.reasonCode != "PROVIDER_STATE_REFRESHING" && state.sourceMode != "shell") 1 else 0) +
                 (if (earlierQuestions.isNotEmpty()) 1 else 0) + (if (compatibility) 1 else 0)
-            listState.scrollToItem(index + preceding, anchorOffset)
+            listState.scrollToItem(index + preceding, viewAnchor?.second ?: 0)
         }
     }
     var expandedToolIds by rememberSaveable { mutableStateOf(listOf<String>()) }
@@ -1022,13 +1062,39 @@ private fun ConversationFeed(
         }
     }
 
-    var initialPositioned by rememberSaveable { mutableStateOf(false) }
-    LaunchedEffect(state.revision) {
-        if (state.revision.isNotBlank() && !initialPositioned) {
+    var initialPositioned by rememberSaveable(savedPosition?.identity?.incarnationId) { mutableStateOf(false) }
+    val rowIds = remember(rows) { rows.associate { it.composeKey to it.id } }
+    fun precedingRows(): Int = 1 + (if (state.attention != null) 1 else 0) +
+        (if (earlierQuestions.isNotEmpty()) 1 else 0) +
+        (if (state.providerStateKnown && !state.providerState.mutationsAllowed && state.providerState.reasonCode != "PROVIDER_STATE_REFRESHING" && state.sourceMode != "shell") 1 else 0) +
+        (if (state.conversationView == ConversationView.Conversation && state.items.isNotEmpty() && state.items.none { it.messagePurpose.isNotBlank() || it.activitySummary != null } && state.sourceMode != "shell") 1 else 0)
+    LaunchedEffect(state.revision, savedReady, state.items.size, state.loadingOlder, state.hasMore) {
+        if (state.revision.isNotBlank() && !initialPositioned && savedReady) {
+            val anchor = savedPosition?.anchor?.takeIf { savedPosition?.followOutput == false && state.notificationFocusSerial == 0L }
+            val index = rows.asReversed().indexOfFirst { it.id == anchor?.itemId }
+            if (anchor != null && index < 0 && state.hasMore && !state.historyLimitReached && state.olderLoadError == null) {
+                if (!state.loadingOlder) onLoadOlder()
+            } else {
+                initialPositioned = true
+                listState.scrollToItem(if (index >= 0) index + precedingRows() else 0, if (index >= 0) anchor?.offset ?: 0 else 0)
+                handledLiveSerial = state.liveEventSerial
+                showNewMessages = false
+            }
+        }
+    }
+    LaunchedEffect(savedBinding, rowIds, initialPositioned) {
+        if (savedBinding != null && initialPositioned) snapshotFlow {
+            val visible = listState.layoutInfo.visibleItemsInfo.firstOrNull { it.key in rowIds }
+            val id = rowIds[visible?.key]
+            nearBottom to id?.let { SavedReadingAnchor(it, if (visible?.index == listState.firstVisibleItemIndex) listState.firstVisibleItemScrollOffset else 0) }
+        }.collect { (follow, anchor) -> savedBinding.updatePosition(follow, anchor) }
+    }
+    LaunchedEffect(state.notificationFocusSerial, state.providerStateKnown) {
+        if (state.notificationFocusSerial > 0) {
             initialPositioned = true
             listState.scrollToItem(0)
-            handledLiveSerial = state.liveEventSerial
-            showNewMessages = false
+            val pending = state.items.lastOrNull { it.kind == "question" && it.state == "pending" }
+            if (pending != null && state.mutationsAllowed) onOpenEarlierQuestion(pending)
         }
     }
     LaunchedEffect(state.liveEventSerial) {
@@ -2030,8 +2096,23 @@ private fun QuestionForm(
     modifier: Modifier = Modifier,
     retry: Boolean = false
 ) {
-    var page by rememberSaveable(value.id) { mutableStateOf(0) }
-    var draft by rememberSaveable(value.id) { mutableStateOf(answersToDraft(value.answers)) }
+    val savedBinding = LocalSavedSessionBinding.current
+    val savedState by savedBinding?.state?.collectAsState() ?: remember { mutableStateOf(null) }
+    val liveForms by savedBinding?.liveQuestions?.collectAsState() ?: remember { mutableStateOf(emptyMap<String, String>()) }
+    val form = remember(value.questions) { questionFormFingerprint(value.questions) }
+    var page by rememberSaveable(value.id, form, savedState?.identity?.incarnationId) { mutableStateOf(0) }
+    var draft by rememberSaveable(value.id, form, savedState?.identity?.incarnationId) { mutableStateOf(answersToDraft(value.answers)) }
+    var edited by remember(value.id, form, savedState?.identity?.incarnationId) { mutableStateOf(false) }
+    LaunchedEffect(savedState?.identity?.incarnationId, liveForms[value.id], form) {
+        if (!edited && value.state == "pending" && liveForms[value.id] == form) {
+            savedState?.questions?.firstOrNull { it.requestId == value.id && it.form == form }?.let { draft = answersToDraft(it.answers) }
+        }
+    }
+    fun changeDraft(next: String) {
+        val answers = conversationAnswers(value.questions, next)
+        if (JSONArray(answers.map { JSONObject().put("questionId", it.questionId).put("choiceIds", JSONArray(it.choiceIds)).put("text", it.text) }).toString().toByteArray(Charsets.UTF_8).size > 32768) return
+        edited = true; draft = next; savedBinding?.updateQuestion(value, answers)
+    }
     val question = value.questions[page.coerceIn(0, value.questions.lastIndex)]
     val current = questionDraft(draft, question.id)
     val suggestionTarget = LocalSuggestionTarget("question", value.id, question.id, question.prompt)
@@ -2074,7 +2155,7 @@ private fun QuestionForm(
                         current.copy(choiceIds = choices)
                     } else current.copy(choiceIds = listOf(option.id), text = "")
                     val nextDraft = updateQuestionDraft(draft, updated)
-                    draft = nextDraft
+                    changeDraft(nextDraft)
                     when (questionTapAction(question, updated, page < value.questions.lastIndex)) {
                         "advance" -> page++
                         "submit" -> sendAnswers(nextDraft)
@@ -2101,7 +2182,7 @@ private fun QuestionForm(
                         val choices = if (question.type == "multi") {
                             if (!selected) (current.choiceIds + "__other__").distinct() else current.choiceIds - "__other__"
                         } else if (!selected) listOf("__other__") else emptyList()
-                        draft = updateQuestionDraft(draft, current.copy(choiceIds = choices, text = if (!selected) current.text else ""))
+                        changeDraft(updateQuestionDraft(draft, current.copy(choiceIds = choices, text = if (!selected) current.text else "")))
                     }.testTag("question-option-${question.id}-other"),
                     shape = RoundedCornerShape(12.dp),
                     color = if (selected) MaterialTheme.colorScheme.secondaryContainer else MaterialTheme.colorScheme.surfaceVariant
@@ -2117,7 +2198,7 @@ private fun QuestionForm(
                     value = current.text,
                     onValueChange = {
                         if (it.length <= 8 * 1024 && '\u0000' !in it) {
-                            draft = updateQuestionDraft(draft, current.copy(text = it))
+                            changeDraft(updateQuestionDraft(draft, current.copy(text = it)))
                             if (it.isNotBlank()) localSuggestions.clear()
                         }
                     },
@@ -2140,7 +2221,7 @@ private fun QuestionForm(
                 if (localSuggestions.targetKey == suggestionTarget.key) {
                     LocalSuggestionChoices(
                         localSuggestions,
-                        onUse = { suggestion -> draft = updateQuestionDraft(draft, current.copy(text = suggestion)); localSuggestions.clear() },
+                        onUse = { suggestion -> changeDraft(updateQuestionDraft(draft, current.copy(text = suggestion))); localSuggestions.clear() },
                         onRegenerate = {
                             localSuggestions.request(conversationItems, suggestionTarget, automatic = localSuggestions.automatic)
                         }
@@ -2158,6 +2239,8 @@ private fun QuestionForm(
         Row(Modifier.fillMaxWidth().padding(top = 10.dp), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
             if (page > 0) OutlinedButton(onClick = { page-- }) { Text("Back") }
             Spacer(Modifier.weight(1f))
+            if (edited || savedState?.questions?.any { it.requestId == value.id && it.form == form } == true)
+                OutlinedButton(onClick = { edited = true; draft = "{}"; savedBinding?.clearQuestion(value.id, form) }) { Text("Clear answer") }
             OutlinedButton(onClick = onOpenTerminal) { Text("Terminal") }
             if (needsAction) {
                 Button(
@@ -2322,6 +2405,15 @@ private fun MarkwonText(value: String, textSizeSp: Int) {
     val linkColor = MaterialTheme.colorScheme.primary.toArgbCompat()
     val markwon = remember(context, linkColor) { nativeMarkdownMarkwon(context, linkColor) }
     val onFile = LocalHostFileHandler.current
+    val rendered = remember(markwon, value) {
+        android.text.SpannableString(markwon.toMarkdown(value)).also { text ->
+            HostFileReferences.extract(text.toString()).forEach { reference ->
+                if (text.getSpans(reference.start, reference.end, android.text.style.ClickableSpan::class.java).isEmpty()) {
+                    text.setSpan(hostFileClickableSpan(reference.target), reference.start, reference.end, android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+                }
+            }
+        }
+    }
     AndroidView(
         modifier = Modifier.fillMaxWidth(),
         factory = {
@@ -2329,32 +2421,42 @@ private fun MarkwonText(value: String, textSizeSp: Int) {
                 setTextIsSelectable(true)
                 setBackgroundColor(AndroidColor.TRANSPARENT)
                 importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_YES
+                includeFontPadding = false
+                movementMethod = android.text.method.LinkMovementMethod.getInstance()
             }
         },
         update = { view ->
+            view.setTag(com.termux.R.id.host_file_handler, onFile)
             view.setTextColor(color.toArgbCompat())
             view.setLinkTextColor(linkColor)
             view.setTextSize(TypedValue.COMPLEX_UNIT_SP, textSizeSp.toFloat())
-            view.includeFontPadding = false
-            view.setTag(com.termux.R.id.host_file_handler, onFile)
-            markwon.setMarkdown(view, value)
-            val text = android.text.SpannableString(view.text)
-            for (reference in HostFileReferences.extract(text.toString())) {
-                if (text.getSpans(reference.start, reference.end, android.text.style.ClickableSpan::class.java).isNotEmpty()) continue
-                text.setSpan(object : android.text.style.ClickableSpan() {
-                    override fun onClick(widget: View) { onFile(reference.target) }
-                }, reference.start, reference.end, android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+            if (view.getTag(com.termux.R.id.host_file_content) !== rendered) {
+                markwon.setParsedMarkdown(view, rendered)
+                view.setTag(com.termux.R.id.host_file_content, rendered)
             }
-            view.text = text
-            view.movementMethod = android.text.method.LinkMovementMethod.getInstance()
         }
     )
+}
+
+private fun hostFileClickableSpan(target: String) = object : android.text.style.ClickableSpan() {
+    override fun onClick(widget: View) {
+        @Suppress("UNCHECKED_CAST")
+        val handler = widget.getTag(com.termux.R.id.host_file_handler) as? ((String) -> Unit)
+        handler?.invoke(target)
+    }
 }
 
 @Composable
 private fun HostFilePlainText(value: String, modifier: Modifier, color: Color, wrap: Boolean) {
     val onFile = LocalHostFileHandler.current
     val linkColor = MaterialTheme.colorScheme.primary.toArgbCompat()
+    val rendered = remember(value) {
+        android.text.SpannableString(value).also { text ->
+            HostFileReferences.extract(value).forEach { reference ->
+                text.setSpan(hostFileClickableSpan(reference.target), reference.start, reference.end, android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+            }
+        }
+    }
     AndroidView(modifier = modifier, factory = { TextView(it).apply {
         setTextIsSelectable(true)
         typeface = android.graphics.Typeface.MONOSPACE
@@ -2364,13 +2466,11 @@ private fun HostFilePlainText(value: String, modifier: Modifier, color: Color, w
         view.setTextColor(color.toArgbCompat())
         view.setLinkTextColor(linkColor)
         view.setHorizontallyScrolling(!wrap)
-        val text = android.text.SpannableString(value)
-        HostFileReferences.extract(value).forEach { reference ->
-            text.setSpan(object : android.text.style.ClickableSpan() {
-                override fun onClick(widget: View) { onFile(reference.target) }
-            }, reference.start, reference.end, android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+        view.setTag(com.termux.R.id.host_file_handler, onFile)
+        if (view.getTag(com.termux.R.id.host_file_content) !== rendered) {
+            view.text = rendered
+            view.setTag(com.termux.R.id.host_file_content, rendered)
         }
-        view.text = text
         view.movementMethod = android.text.method.LinkMovementMethod.getInstance()
     })
 }

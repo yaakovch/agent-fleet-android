@@ -1,0 +1,47 @@
+plugins {
+    id 'com.android.test'
+    id 'org.jetbrains.kotlin.android'
+}
+
+android {
+    namespace 'com.yaakovch.fleet.profilegenerator'
+    compileSdk 36
+    targetProjectPath ':app'
+    experimentalProperties['android.experimental.self-instrumenting'] = true
+    defaultConfig {
+        minSdk 28
+        targetSdk 36
+        testInstrumentationRunner 'androidx.test.runner.AndroidJUnitRunner'
+    }
+    buildTypes {
+        benchmark {
+            debuggable true
+            signingConfig signingConfigs.debug
+            matchingFallbacks = ['benchmark']
+        }
+        measure {
+            debuggable true
+            signingConfig signingConfigs.debug
+            matchingFallbacks = ['measure']
+        }
+        measureWithoutFleetProfiles {
+            initWith measure
+            matchingFallbacks = ['measureWithoutFleetProfiles']
+        }
+    }
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_1_8
+        targetCompatibility JavaVersion.VERSION_1_8
+    }
+    kotlinOptions { jvmTarget = '1.8' }
+}
+
+dependencies {
+    // Root excludes listenablefuture because the app already carries Guava.
+    // This self-instrumenting APK has its own class loader and needs that API.
+    implementation 'com.google.guava:guava:24.1-jre'
+    implementation 'androidx.benchmark:benchmark-macro-junit4:1.5.0'
+    implementation 'androidx.test.ext:junit:1.3.0'
+    implementation 'androidx.test:runner:1.7.0'
+    implementation 'androidx.test.uiautomator:uiautomator:2.3.0'
+}

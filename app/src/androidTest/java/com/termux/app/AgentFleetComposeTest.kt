@@ -323,6 +323,30 @@ class AgentFleetComposeTest {
         compose.runOnIdle { assertEquals(1, controlC) }
     }
 
+    @Test fun terminalHistoryActionsUseExplicitCallbacksAndReturnToLive() {
+        val state = NativeSessionUiState("History fixture", "fixture", "wtmux-fixture",
+            adapter = "codex", connection = "Live", viewMode = NativeViewMode.ManualTerminal)
+        var opens = 0
+        var refreshes = 0
+        var returns = 0
+        compose.setContent {
+            AgentFleetTheme(darkTheme = true) {
+                AgentFleetTerminalSessionChrome(state, {}, {}, { _, _, _, _ -> }, {},
+                    historyAvailable = true, historyActive = true,
+                    onHistory = { opens++ }, onRefreshHistory = { refreshes++ }, onLiveTerminal = { returns++ })
+            }
+        }
+        for (tag in listOf("terminal-history-open", "terminal-history-refresh", "terminal-history-live")) {
+            compose.onNodeWithTag("compact-session-actions").performClick()
+            compose.onNodeWithTag(tag).assertIsDisplayed().performClick()
+        }
+        compose.runOnIdle {
+            assertEquals(1, opens)
+            assertEquals(1, refreshes)
+            assertEquals(1, returns)
+        }
+    }
+
     @Test
     fun nativeHeaderProtectsLongIdentityAndModelAtMaximumBodyDensity() {
         val context = ApplicationProvider.getApplicationContext<android.content.Context>()

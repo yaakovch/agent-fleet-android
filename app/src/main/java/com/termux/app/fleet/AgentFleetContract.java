@@ -11,6 +11,7 @@ public final class AgentFleetContract {
     public static final String EXTRA_NATIVE_SESSION = "com.yaakovch.fleet.extra.NATIVE_SESSION";
     public static final String EXTRA_LOCAL_SESSION = "com.yaakovch.fleet.extra.LOCAL_SESSION";
     public static final String EXTRA_INITIAL_SURFACE = "com.yaakovch.fleet.extra.INITIAL_SURFACE";
+    public static final String EXTRA_NOTIFICATION_ENTRY = "com.yaakovch.fleet.extra.NOTIFICATION_ENTRY";
     public static final String EXTRA_FOCUS_SESSION_ID = "com.yaakovch.fleet.extra.FOCUS_SESSION_ID";
     public static final String SURFACE_NATIVE = "native";
     public static final String SURFACE_TERMINAL = "terminal";

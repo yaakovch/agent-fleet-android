@@ -1,2 +1,2 @@
 <?xml version="1.0" encoding="utf-8"?>
-<resources><item name="host_file_handler" type="id" /></resources>
+<resources><item name="host_file_handler" type="id" /><item name="host_file_content" type="id" /></resources>

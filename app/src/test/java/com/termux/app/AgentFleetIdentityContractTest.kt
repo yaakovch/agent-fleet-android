@@ -36,8 +36,12 @@ class AgentFleetIdentityContractTest {
         assertEquals(BuildConfig.VERSION_NAME, info.versionName)
         assertNull(info.sharedUserId)
         val exportedActivities = info.activities.orEmpty().filter { it.exported && it.name.startsWith("com.termux.") }.associateBy { it.name }
+        val expectedEntryPoints = mutableSetOf("com.termux.app.AgentFleetActivity", "com.termux.app.migration.AgentFleetMigrationActivity")
+        if (BuildConfig.BUILD_TYPE in setOf("benchmark", "measure", "measureWithoutFleetProfiles")) {
+            expectedEntryPoints.add("com.termux.app.fleet.profile.FleetProfileFixtureActivity")
+        }
         assertEquals(
-            setOf("com.termux.app.AgentFleetActivity", "com.termux.app.migration.AgentFleetMigrationActivity"),
+            expectedEntryPoints,
             exportedActivities.keys
         )
         assertEquals(

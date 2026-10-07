@@ -273,7 +273,6 @@ class AgentFleetActivity : ComponentActivity() {
         workspaceTerminalBroker = WorkspaceTerminalBroker(applicationContext).also { it.start() }
         workspaceNativeSessionRegistry = NativeSessionRegistry(applicationContext)
         refreshUpdatePolicy()
-        recentSessions.value = recentSessionStore.load()
         val cleanTerminal = !File(filesDir, "usr/bin/bash").canExecute()
         val offlineRuntimeSupported = runCatching {
             supportsEmbeddedRuntime(android.os.Build.SUPPORTED_ABIS.firstOrNull(), embeddedRuntime.descriptor().supportedAbis)
@@ -366,11 +365,32 @@ class AgentFleetActivity : ComponentActivity() {
                 }
             }
         }
+        afterFirstDisplay {
+            kotlin.concurrent.thread(name = "fleet-startup-maintenance", isDaemon = true) {
+                val recent = recentSessionStore.load()
+                runOnUiThread { if (!isFinishing && !isDestroyed) recentSessions.value = recent }
+            }
+        }
         TermuxInstaller.setupBootstrapIfNeeded(this) {
             if (!isFinishing && !isDestroyed) {
                 prepareEmbeddedRuntime(autoRepair = automaticPreparation, blocking = automaticPreparation)
             }
         }
+    }
+
+    private fun afterFirstDisplay(operation: () -> Unit) {
+        val view = window.decorView
+        view.viewTreeObserver.addOnDrawListener(object : android.view.ViewTreeObserver.OnDrawListener {
+            private var posted = false
+            override fun onDraw() {
+                if (posted) return
+                posted = true
+                view.post {
+                    if (view.viewTreeObserver.isAlive) view.viewTreeObserver.removeOnDrawListener(this)
+                    if (!isFinishing && !isDestroyed) operation()
+                }
+            }
+        })
     }
 
     override fun onStart() {
@@ -414,6 +434,7 @@ class AgentFleetActivity : ComponentActivity() {
     }
 
     override fun onStop() {
+        com.termux.app.fleet.SavedSessionStates.flush()
         fleetAlerts.value = emptyList()
         if (::fleetRuntime.isInitialized) fleetRuntime.closeRepositoryBrowser()
         FleetSnapshotStore.removeObserver(this)

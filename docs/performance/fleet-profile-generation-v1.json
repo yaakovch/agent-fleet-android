@@ -1,0 +1,22 @@
+{
+  "schemaVersion": 1,
+  "generationReport": "20261007T122151Z-profiles",
+  "networkContent": false,
+  "generatorApkSha256": "8f654e0e8553aeb4767788d9fc494cddc9be909345d5382a58715d43b500b4e0",
+  "appApkSha256": "d7221b5f85ad2de73a7afe5facce05bd9db7dd84205ddc9e09efe84cceb5d02d",
+  "inputs": {
+    "FleetBaselineProfileGenerator_launcher-startup-prof.txt": "c55383e65c42498efcdc595aaae32c4719675ee13246f85b127752f89d2f2735",
+    "FleetBaselineProfileGenerator_notificationEntry-startup-prof.txt": "c6f7a7e91d824a53cc19d1dab8c9309fb5b96dc9b8c79002fb47712361226225",
+    "FleetBaselineProfileGenerator_switchingScrollingAndPreview-baseline-prof.txt": "937f143099a349aedbae865ce6f2aadb5b2942fbec23b337035ad51b7af3447a"
+  },
+  "outputs": {
+    "baseline-prof.txt": {
+      "sha256": "315038dfc7f656b31af928bab4564ac0976c093b4fe3cb1295b9544f9e1282ef",
+      "rules": 23289
+    },
+    "startup-prof.txt": {
+      "sha256": "1bf91251cba49a0ccc5755a644a3dd0155e84a937cd0d249cfb48e7b58fff465",
+      "rules": 18523
+    }
+  }
+}

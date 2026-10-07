@@ -6,6 +6,7 @@ import android.os.Handler
 import android.os.Looper
 import android.util.Base64
 import android.view.View
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.platform.ComposeView
 import androidx.compose.ui.platform.ViewCompositionStrategy
@@ -15,6 +16,7 @@ import org.json.JSONArray
 import java.io.File
 import java.util.UUID
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.Executors
 import kotlin.concurrent.thread
 
 interface NativeSessionHost {
@@ -28,6 +30,7 @@ interface NativeSessionHost {
     fun setAgentFleetNativeView(nativeAvailable: Boolean, nativeView: Boolean, automaticTerminal: Boolean, aiComposer: Boolean)
     fun closeAgentFleetSessionTab()
     fun retryAgentFleetAttachment() {}
+    fun getAgentFleetTerminalScrollback(): TerminalScrollbackController? = null
 }
 
 internal fun nativeSessionCompositionStrategy(retainAcrossDetach: Boolean): ViewCompositionStrategy =
@@ -44,6 +47,9 @@ class NativeSessionController @JvmOverloads constructor(
     private companion object {
         const val HISTORY_PAGE_SIZE = 20
         const val MAX_LOADED_ITEMS = 2_000
+        val processReaper = Executors.newSingleThreadExecutor { runnable ->
+            Thread(runnable, "native-session-reaper").apply { isDaemon = true }
+        }
     }
 
     private val main = Handler(Looper.getMainLooper())
@@ -54,6 +60,9 @@ class NativeSessionController @JvmOverloads constructor(
     private val home = File(appRoot, "files/home")
     private val fleetRuntime = FleetRuntime(activity.nativeContext.applicationContext)
     private val uiState = mutableStateOf(NativeSessionUiState("Session", "", "", surfaceActive = false, conversationView = NativeSessionSettings.conversationView(activity.nativeContext)))
+    private val savedBinding = mutableStateOf<SavedSessionBinding?>(null)
+    private var notificationEntry = false
+    private var viewSelectionSerial = 0L
     private val completedQuestions = CompletedQuestionMemory()
     @Volatile private var fleetSnapshot: FleetSnapshot? = null
     @Volatile private var visible = false
@@ -103,6 +112,7 @@ class NativeSessionController @JvmOverloads constructor(
         composeView.setViewCompositionStrategy(nativeSessionCompositionStrategy(retainCompositionAcrossDetach))
         composeView.setContent {
             AgentFleetTheme {
+                CompositionLocalProvider(LocalSavedSessionBinding provides savedBinding.value) {
                 NativeSessionScreen(
                     state = uiState.value,
                     aiComposer = aiComposer,
@@ -136,11 +146,13 @@ class NativeSessionController @JvmOverloads constructor(
                     onSetModel = ::setModelControl,
                     onCancelModel = ::cancelModelControl
                 )
+                }
             }
         }
         terminalChromeView?.setViewCompositionStrategy(nativeSessionCompositionStrategy(retainCompositionAcrossDetach))
         terminalChromeView?.setContent {
             AgentFleetTheme {
+                val history = activity.getAgentFleetTerminalScrollback()
                 AgentFleetTerminalSessionChrome(
                     state = uiState.value,
                     onShowNative = ::showNative,
@@ -152,7 +164,12 @@ class NativeSessionController @JvmOverloads constructor(
                     onShellKey = { key -> if (canSendInput()) activity.sendAgentFleetKey(key) },
                     onCloseSession = ::closeSession,
                     onKillSession = ::killSession,
-                    onRetryConnection = ::retryConnection
+                    onRetryConnection = ::retryConnection,
+                    historyAvailable = history?.historyAvailable == true,
+                    historyActive = history?.historyActive == true,
+                    onHistory = { history?.showHistory() },
+                    onRefreshHistory = { history?.refresh() },
+                    onLiveTerminal = { history?.returnToLive() }
                 )
             }
         }
@@ -176,6 +193,7 @@ class NativeSessionController @JvmOverloads constructor(
         val bindingView = NativeSessionSettings.conversationView(activity.nativeContext)
         val cacheBinding = binding + "\u0000" + bindingView.wire
         if (targetBinding == binding && enabled == nextEnabled) {
+            if (intent?.getBooleanExtra(AgentFleetContract.EXTRA_NOTIFICATION_ENTRY, false) == true) focusNotification()
             if (uiState.value.conversationView != bindingView) restartForView()
             aiComposer = intent?.getBooleanExtra(AgentFleetContract.EXTRA_COMPOSE_INPUT, false) == true
             uiState.value = uiState.value.copy(sessionLabel = label.ifBlank { uiState.value.sessionLabel })
@@ -236,6 +254,22 @@ class NativeSessionController @JvmOverloads constructor(
             else -> NativeViewMode.Native
         }
         applyViewMode(initialMode)
+        notificationEntry = intent?.getBooleanExtra(AgentFleetContract.EXTRA_NOTIFICATION_ENTRY, false) == true
+        if (notificationEntry) focusNotification()
+        val target = snapshot?.sessions?.firstOrNull { it.hostId == host && it.internalName == session }?.executionTargetId
+            ?: DrawerSessionStore(activity.nativeContext.applicationContext).sessionFor(workspaceSessionId)
+                ?.takeIf { it.hostId == host && it.internalName == session }?.executionTargetId
+        savedBinding.value?.flush()
+        savedBinding.value = null
+        if (!nextLocal && host.isNotBlank() && session.isNotBlank() && !target.isNullOrBlank()) {
+            val resolvedRoute = targetBinding
+            val selectionAtResolution = viewSelectionSerial
+            val binding = SavedSessionStates.resolve(activity.nativeContext, host, session, target) { resolved ->
+                if (resolvedRoute != targetBinding || host != uiState.value.hostId || session != uiState.value.internalSession) return@resolve
+                installSavedBinding(resolved, selectionAtResolution)
+            }
+            savedBinding.value = binding
+        }
         if (enabled && localSession) refreshDirectories()
         if (visible && enabled) {
             observeFleet()
@@ -280,6 +314,7 @@ class NativeSessionController @JvmOverloads constructor(
     }
 
     fun onStop() {
+        savedBinding.value?.flush()
         visible = false
         uiState.value = uiState.value.copy(
             localSuggestionCancellationSerial = Math.addExact(
@@ -365,6 +400,12 @@ class NativeSessionController @JvmOverloads constructor(
         if (enabled) applyViewMode(NativeViewMode.Native, persist = true)
     }
 
+    private fun focusNotification() {
+        notificationEntry = true
+        uiState.value = uiState.value.copy(notificationFocusSerial = uiState.value.notificationFocusSerial + 1)
+        if (enabled) applyViewMode(NativeViewMode.Native)
+    }
+
     fun showPendingQuestion() {
         if (!enabled) return
         val pending = activePendingAction(uiState.value.items)?.takeIf { it.kind == "question" } ?: return
@@ -407,6 +448,9 @@ class NativeSessionController @JvmOverloads constructor(
     }
 
     private fun updateComposerState() {
+        savedBinding.value?.liveQuestions?.value = if (uiState.value.providerState.mutationsAllowed)
+            uiState.value.items.filter { it.kind == "question" && it.state == "pending" }.associate { it.id to questionFormFingerprint(it.questions) }
+            else emptyMap()
         val pendingAction = activePendingAction(uiState.value.items)
         val pendingQuestion = pendingAction?.takeIf { it.kind == "question" && it.source != "codex_async_question" }?.id.orEmpty()
         val native = enabled && uiState.value.viewMode == NativeViewMode.Native
@@ -431,6 +475,10 @@ class NativeSessionController @JvmOverloads constructor(
     }
 
     private fun applyViewMode(mode: NativeViewMode, persist: Boolean = false) {
+        if (persist && mode != NativeViewMode.AutomaticTerminal) {
+            viewSelectionSerial++
+            savedBinding.value?.updateView(if (mode == NativeViewMode.Native) "native" else "terminal")
+        }
         val current = uiState.value
         uiState.value = current.copy(
             viewMode = mode,
@@ -454,6 +502,15 @@ class NativeSessionController @JvmOverloads constructor(
         // metadata-only stream alive on both surfaces so provider activity does
         // not freeze or disappear while the user switches views.
         if (shouldRunStream()) startStream()
+    }
+
+    private fun installSavedBinding(resolved: SavedSessionBinding, selectionAtResolution: Long) {
+        savedBinding.value = resolved
+        val saved = resolved.state.value
+        if (saved != null && !notificationEntry && viewSelectionSerial == selectionAtResolution) {
+            applyViewMode(if (saved.selectedView == "terminal") NativeViewMode.ManualTerminal else NativeViewMode.Native)
+        }
+        updateComposerState()
     }
 
     fun isManagedSession(): Boolean = enabled
@@ -759,6 +816,12 @@ class NativeSessionController @JvmOverloads constructor(
     private fun startStream() {
         val launchTicket = streamLaunchGate.begin(shouldRunStream()) ?: return
         val token = generation
+        val streamContentBinding = contentBinding
+        val streamSession = uiState.value.internalSession
+        val publisher = ConversationFramePublisher(
+            frame = { frame -> if (token == generation) applyFrame(frame) },
+            batch = { batch -> if (token == generation) applyEventBatch(batch) }
+        )
         uiState.value = uiState.value.copy(
             connection = if (uiState.value.items.isNotEmpty()) "Refreshing…" else if (retryIndex == 0) "Connecting…" else "Reconnecting…",
             providerState = ProviderState.unavailable(), providerStateKnown = false, error = null
@@ -796,29 +859,27 @@ class NativeSessionController @JvmOverloads constructor(
                             } else {
                                 "The host sent an invalid conversation frame."
                             }
-                            postError(token, message)
+                            publisher.enqueue(ConversationFrame.Error("invalid_frame", message))
                             launchedProcess.destroyForciblyCompat()
                             break
                         }
-                        main.post {
-                            if (token == generation) {
-                                applyFrame(frame)
-                                if ((frame is ConversationFrame.Snapshot && frame.session == uiState.value.internalSession) ||
-                                    (frame is ConversationFrame.Event && frame.session == uiState.value.internalSession)) {
-                                    NativeConversationContentCache.record(contentBinding, line)
-                                }
-                            }
+                        if (token == generation && ((frame is ConversationFrame.Snapshot && frame.session == streamSession) ||
+                            (frame is ConversationFrame.Event && frame.session == streamSession))) {
+                            NativeConversationContentCache.record(streamContentBinding, frame, line.toByteArray(Charsets.UTF_8).size)
                         }
+                        publisher.enqueue(frame)
                     }
                 }
                 launchedProcess.waitFor()
-                if (token == generation) main.post { streamEnded(token) }
+                publisher.finish { if (token == generation) streamEnded(token) }
             } catch (_: BoundedLineException) {
                 process?.destroyForciblyCompat()
-                if (token == generation) postError(token, "The host sent an oversized conversation frame.")
+                publisher.enqueue(ConversationFrame.Error("oversized_frame", "The host sent an oversized conversation frame."))
+                publisher.finish { if (token == generation) streamEnded(token) }
             } catch (_: Exception) {
                 process?.destroyForciblyCompat()
-                if (token == generation) postError(token, "The native conversation stream is unavailable.")
+                publisher.enqueue(ConversationFrame.Error("stream_unavailable", "The native conversation stream is unavailable."))
+                publisher.finish { if (token == generation) streamEnded(token) }
             } finally {
                 process?.let { launchedProcess ->
                     if (launchedProcess.isAliveCompat()) launchedProcess.terminateAndReapCompat()
@@ -907,7 +968,32 @@ class NativeSessionController @JvmOverloads constructor(
             streamProcess = null
         }
         val stoppedProcess = process
-        stoppedProcess?.terminateAndReapCompat(gracefulWaitMillis = 100, forcedWaitSeconds = 1)
+        stoppedProcess?.let { process ->
+            processReaper.execute { process.terminateAndReapCompat(gracefulWaitMillis = 100, forcedWaitSeconds = 1) }
+        }
+    }
+
+    private fun applyEventBatch(batch: ConversationEventBatch) {
+        val frames = batch.frames.filter { it.session == uiState.value.internalSession }
+        if (frames.isEmpty()) return
+        if (frames.size != batch.frames.size || uiState.value.sourceMode == "shell") {
+            frames.forEach(::applyFrame)
+            return
+        }
+        val previous = uiState.value
+        val known = previous.items.map { it.id }.toMutableSet()
+        val newCount = frames.count { known.add(it.item.id) }
+        var optimistic = previous.optimisticWorkStartedAt
+        frames.forEach { optimistic = optimisticWorkAfterEvent(optimistic, it.item) }
+        val provider = frames.lastOrNull { it.providerState != null }?.providerState
+        uiState.value = previous.copy(
+            items = mergeConversationItems(previous.items, completedQuestions.reconcile(batch.items, previous.items)),
+            connection = "Live", liveEventSerial = previous.liveEventSerial + newCount,
+            optimisticWorkStartedAt = optimistic,
+            providerState = provider ?: previous.providerState,
+            providerStateKnown = provider != null || previous.providerStateKnown
+        )
+        updateComposerState()
     }
 
     private fun applyFrame(frame: ConversationFrame) {
@@ -990,7 +1076,9 @@ class NativeSessionController @JvmOverloads constructor(
                 updateComposerState()
             }
             is ConversationFrame.Error -> {
-                uiState.value = uiState.value.copy(connection = "Unavailable", error = frame.message)
+                uiState.value = uiState.value.copy(connection = "Unavailable", error = frame.message,
+                    providerState = ProviderState.unavailable(), providerStateKnown = false)
+                updateComposerState()
             }
         }
     }
@@ -1180,6 +1268,7 @@ class NativeSessionController @JvmOverloads constructor(
                 ))
                 updateComposerState()
             } else if (delivered) {
+                savedBinding.value?.clearQuestion(value.id, questionFormFingerprint(value.questions))
                 uiState.value = uiState.value.copy(items = mergeConversationItems(
                     uiState.value.items, completedQuestions.reconcile(listOf(existing.copy(state = "complete", title = "Answered", answers = answers)), uiState.value.items)
                 ))

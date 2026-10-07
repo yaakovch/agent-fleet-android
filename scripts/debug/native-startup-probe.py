@@ -35,9 +35,28 @@ def environment(root: Path) -> dict[str, str]:
 def ssh(root: Path) -> None:
     state = json.loads((root / "state.json").read_text())
     outer = shlex.split(os.environ.get("SSH_ORIGINAL_COMMAND", ""))
-    if len(outer) != 3 or outer[:2] != ["bash", "-lc"]:
-        raise SystemExit("Only the isolated fixture runtime is accepted")
-    command = shlex.split(outer[2])
+    command = shlex.split(outer[2]) if len(outer) == 3 and outer[:2] == ["bash", "-lc"] else outer
+    if command == ["python3", "-", "native-startup", state["session"]]:
+        source = Path(state["source"]) / "lib/session_identity.py"
+        payload = sys.stdin.buffer.read(64 * 1024 + 1)
+        if payload != source.read_bytes():
+            raise SystemExit("Only the verified read-only identity script is accepted")
+        with (root / "requests.jsonl").open("a") as log:
+            log.write(json.dumps({"at": time.time(), "channel": "identity", "session": state["session"]}) + "\n")
+        os.execve(sys.executable, [sys.executable, str(source), "native-startup", state["session"]], environment(root))
+    if (len(command) == 4 and command[:3] == ["python3", "-", state["session"]]
+            and command[3].isdigit() and 100 <= int(command[3]) <= 5000):
+        launcher = (Path(state["source"]) / "scripts/wtmux").read_text()
+        marker = 'wtmux_exec_machine_command "$command_host" python3 - "$session_name" "$limit" <<\'PY\'\n'
+        expected = (launcher.split(marker, 1)[1].split("\nPY\n", 1)[0] + "\n").encode()
+        if sys.stdin.buffer.read(64 * 1024 + 1) != expected:
+            raise SystemExit("Only the verified read-only scrollback script is accepted")
+        source = root / "pane-scrollback-fixture.py"
+        source.write_bytes(expected)
+        source.chmod(0o600)
+        with (root / "requests.jsonl").open("a") as log:
+            log.write(json.dumps({"at": time.time(), "channel": "pane.scrollback", "session": state["session"]}) + "\n")
+        os.execve(sys.executable, [sys.executable, str(source), state["session"], command[3]], environment(root))
     helper = str(Path(state["source"]) / "scripts/wtmux-host-runtime")
     if len(command) < 5 or command[0] != helper or command[2:4] != ["--machine", "native-startup"]:
         raise SystemExit("Invalid fixture runtime binding")

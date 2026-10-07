@@ -4,7 +4,11 @@ import android.content.Context
 import android.content.Intent
 import android.os.Handler
 import android.os.Looper
+import android.os.SystemClock
 import android.util.Base64
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
 import com.termux.shared.logger.Logger
 import com.termux.view.TerminalView
 import java.io.ByteArrayOutputStream
@@ -26,6 +30,10 @@ internal data class PaneScrollbackSnapshot(
     val revision: String,
     val ansi: ByteArray
 )
+
+/** tmux chrome consumes rows outside the pane; wrapping still requires the same width. */
+internal fun PaneScrollbackSnapshot.fitsViewport(columns: Int, rows: Int): Boolean =
+    this.columns == columns && this.rows > 0 && this.rows <= rows
 
 internal fun parsePaneScrollbackSnapshot(raw: String, expectedSession: String): PaneScrollbackSnapshot {
     val value = JSONObject(raw)
@@ -77,6 +85,21 @@ private object TerminalScrollbackExecutor {
     }
 }
 
+internal class PaneCaptureCache {
+    private val entries = linkedMapOf<String, PaneScrollbackSnapshot>()
+    @Synchronized fun put(identity: VerifiedSessionIdentity, snapshot: PaneScrollbackSnapshot): PaneScrollbackSnapshot {
+        val key = sessionStateKey(identity, identity.backend) + ":${snapshot.columns}:${snapshot.rows}"
+        val old = entries.remove(key)
+        val current = if (old?.revision == snapshot.revision) old else snapshot
+        entries[key] = current
+        while (entries.size > 4) entries.remove(entries.keys.first())
+        return current
+    }
+    @Synchronized fun size() = entries.size
+}
+
+private val paneCaptures = PaneCaptureCache()
+
 /** Prefetches the real tmux pane and installs it into TerminalView's read-only renderer buffer. */
 class TerminalScrollbackController(context: Context) {
     private val appContext = context.applicationContext
@@ -93,6 +116,18 @@ class TerminalScrollbackController(context: Context) {
     private var terminalView: TerminalView? = null
     @Volatile private var generation = 0
     @Volatile private var requestRunning = false
+    private var lastCaptureAt = 0L
+    private var installedRevision = ""
+    private var installedBinding = ""
+    private var dirtyVersion = 1L
+    private var capturedVersion = 0L
+    private var pendingPrepared: Pair<PaneScrollbackSnapshot, TerminalView.PreparedScrollback>? = null
+    var historyActive by mutableStateOf(false)
+        private set
+    var historyAvailable by mutableStateOf(false)
+        private set
+    private var openAfterCapture = false
+    private var refreshVisible = false
     private val quietRequest = Runnable { requestIfEligible() }
 
     fun bind(intent: Intent?) {
@@ -109,6 +144,13 @@ class TerminalScrollbackController(context: Context) {
         hostId = host
         internalSession = session
         eligible = requested && host.isNotBlank() && session.isNotBlank()
+        historyAvailable = eligible && alternateScreen
+        openAfterCapture = false; refreshVisible = false
+        installedRevision = ""
+        installedBinding = ""
+        pendingPrepared = null
+        dirtyVersion++; capturedVersion = 0
+        lastCaptureAt = 0
         terminalView?.clearLocalScrollback()
         schedulePrefetch()
     }
@@ -116,8 +158,23 @@ class TerminalScrollbackController(context: Context) {
     fun setTerminalView(view: TerminalView?) {
         if (terminalView === view) return
         terminalView?.clearLocalScrollback()
+        terminalView?.setLocalHistoryListener(null)
         terminalView = view
+        installedRevision = ""
+        view?.setLocalHistoryListener(object : TerminalView.LocalHistoryListener {
+            override fun onRequested() { showHistory() }
+            override fun onOpened() { historyActive = true }
+            override fun onClosed() {
+                historyActive = false
+                pendingPrepared?.let { (snapshot, prepared) ->
+                    if (terminalView?.installPreparedScrollback(prepared) == true) installedRevision = snapshot.revision
+                }
+                pendingPrepared = null
+                schedulePrefetch()
+            }
+        })
         alternateScreen = view?.mEmulator?.isAlternateBufferActive == true
+        historyAvailable = eligible && alternateScreen
         schedulePrefetch()
     }
 
@@ -136,6 +193,8 @@ class TerminalScrollbackController(context: Context) {
         generation++
         main.removeCallbacks(quietRequest)
         terminalView?.clearLocalScrollback()
+        installedRevision = ""; installedBinding = ""; pendingPrepared = null
+        openAfterCapture = false; refreshVisible = false
     }
 
     fun close() {
@@ -150,6 +209,7 @@ class TerminalScrollbackController(context: Context) {
         }
         if (alternateScreen == value) return
         alternateScreen = value
+        historyAvailable = eligible && value
         generation++
         main.removeCallbacks(quietRequest)
         if (!value) terminalView?.clearLocalScrollback() else schedulePrefetch()
@@ -160,44 +220,92 @@ class TerminalScrollbackController(context: Context) {
             main.post(::onTerminalActivity)
             return
         }
-        if (terminalView?.isLocalScrollbackActive == true) return
+        dirtyVersion++
         schedulePrefetch()
     }
 
     private fun schedulePrefetch() {
         main.removeCallbacks(quietRequest)
         if (lifecycleVisible && terminalVisible && eligible && alternateScreen && !requestRunning &&
-            terminalView?.isLocalScrollbackActive != true) {
-            main.postDelayed(quietRequest, PREFETCH_QUIET_MS)
+            terminalView?.isLocalScrollbackActive != true && (dirtyVersion != capturedVersion || terminalView?.hasLocalScrollback() != true)) {
+            main.postDelayed(quietRequest, maxOf(PREFETCH_QUIET_MS, lastCaptureAt + MIN_CAPTURE_INTERVAL_MS - SystemClock.elapsedRealtime()))
         }
     }
 
-    private fun requestIfEligible() {
+    fun showHistory() {
+        if (!historyAvailable) return
+        openAfterCapture = terminalView?.enterPreparedLocalHistory() != true
+        requestIfEligible(true)
+    }
+
+    fun returnToLive() { openAfterCapture = false; terminalView?.returnToLiveTerminal() }
+
+    fun refresh() {
+        if (!historyAvailable) return
+        refreshVisible = true
+        requestIfEligible(true)
+    }
+
+    private fun requestIfEligible(explicit: Boolean = false) {
         if (!lifecycleVisible || !terminalVisible || !eligible || !alternateScreen || requestRunning ||
-            terminalView?.isLocalScrollbackActive == true) return
+            (!explicit && terminalView?.isLocalScrollbackActive == true)) return
         val host = hostId
         val session = internalSession
         val token = ++generation
+        val colors = terminalView?.localScrollbackColors()
+        val previousRevision = installedRevision
+        val previousBinding = installedBinding
+        val hasBuffer = terminalView?.hasLocalScrollback() == true
+        val dimensions = terminalView?.mEmulator?.let { it.mColumns to it.mRows }
+        val version = dirtyVersion
+        lastCaptureAt = SystemClock.elapsedRealtime()
         requestRunning = true
         TerminalScrollbackExecutor.value.execute {
-            val result = runCatching { loadSnapshot(host, session) }
+            val result = runCatching {
+                val runtime = FleetRuntime(appContext)
+                val identity = runCatching { runtime.sessionIdentity(host, session) }.getOrNull()
+                var snapshot = loadSnapshot(host, session)
+                if (identity != null) {
+                    require(runtime.sessionIdentity(host, session) == identity) { "Session changed during capture." }
+                    snapshot = paneCaptures.put(identity, snapshot)
+                }
+                val binding = identity?.let { sessionStateKey(it, it.backend) }.orEmpty()
+                require(dimensions != null && snapshot.fitsViewport(dimensions.first, dimensions.second)) {
+                    "Pane dimensions changed during capture."
+                }
+                // tmux chrome occupies viewport rows outside the captured pane.
+                // Keep the wrapping width and fill the isolated viewport's height.
+                val prepared = if (binding.isNotEmpty() && binding == previousBinding && snapshot.revision == previousRevision && hasBuffer) null else
+                    TerminalView.prepareLocalScrollback(snapshot.ansi, snapshot.columns, dimensions.second, colors)
+                Triple(snapshot, prepared, binding)
+            }
             main.post {
                 requestRunning = false
                 if (token != generation || host != hostId || session != internalSession || !alternateScreen) {
                     schedulePrefetch()
                     return@post
                 }
-                result.onSuccess { snapshot ->
-                    terminalView.orNullInstall(snapshot)
+                result.onSuccess { (snapshot, prepared, binding) ->
+                    if (installedBinding.isNotEmpty() && installedBinding != binding) terminalView?.clearLocalScrollback()
+                    installedBinding = binding
+                    capturedVersion = version
+                    if (prepared != null) {
+                        if (terminalView?.isLocalScrollbackActive == true && !refreshVisible) pendingPrepared = snapshot to prepared
+                        else if (terminalView?.installPreparedScrollback(prepared, refreshVisible) == true) {
+                            installedRevision = snapshot.revision
+                            pendingPrepared = null
+                        }
+                    }
+                    if (openAfterCapture) terminalView?.enterPreparedLocalHistory()
+                    openAfterCapture = false; refreshVisible = false
                 }.onFailure { error ->
+                    openAfterCapture = false; refreshVisible = false
                     Logger.logWarn(LOG_TAG, "Pane scrollback prefetch failed: ${safeFailure(error)}")
                 }
+                if (dirtyVersion != capturedVersion) schedulePrefetch()
             }
         }
     }
-
-    private fun TerminalView?.orNullInstall(snapshot: PaneScrollbackSnapshot): Boolean =
-        this?.setLocalScrollback(snapshot.ansi, snapshot.columns, snapshot.rows) == true
 
     private fun loadSnapshot(host: String, session: String): PaneScrollbackSnapshot {
         require(host.isNotBlank() && session.isNotBlank()) { "Session identity is unavailable." }
@@ -280,6 +388,7 @@ class TerminalScrollbackController(context: Context) {
     private companion object {
         const val LOG_TAG = "TerminalScrollback"
         const val PREFETCH_QUIET_MS = 900L
+        const val MIN_CAPTURE_INTERVAL_MS = 5_000L
         const val SCROLLBACK_ROWS = 2_000
         const val MAX_STDOUT = 6 * 1024 * 1024
         const val MAX_STDERR = 64 * 1024

@@ -13,7 +13,8 @@ import java.util.concurrent.atomic.AtomicBoolean
  * moved to the background.
  */
 object FleetSnapshotStore {
-    private const val REFRESH_INTERVAL_MS = 3_000L
+    private const val RECONCILE_INTERVAL_MS = 30_000L
+    private const val LEGACY_INTERVAL_MS = 3_000L
 
     private val main = Handler(Looper.getMainLooper())
     private val executor = Executors.newSingleThreadExecutor()
@@ -30,6 +31,19 @@ object FleetSnapshotStore {
     private val supervisorOwners = ForegroundSupervisorOwners()
     private var contextReference: WeakReference<Context>? = null
     private var state: FleetLoadState = FleetLoadState.Loading
+    init {
+        FleetControlSupervisor.onHeartbeat = { revision, presentation ->
+            main.post {
+                val snapshot = latestSnapshot()
+                if (snapshot != null && (snapshot.revision != revision || (presentation != null && snapshot.presentationRevision != presentation))) {
+                    refresh()
+                }
+            }
+        }
+    }
+
+    private fun refreshInterval(context: Context): Long =
+        if (ClientSupervisorSettings.usesSharedControl(context)) RECONCILE_INTERVAL_MS else LEGACY_INTERVAL_MS
 
     private val refreshRunnable = Runnable {
         synchronized(this) {
@@ -103,7 +117,7 @@ object FleetSnapshotStore {
         if (active && FleetRuntimePreparation.active) {
             if (latestSnapshot() == null) publishState(FleetLoadState.Loading)
             main.removeCallbacks(refreshRunnable)
-            main.postDelayed(refreshRunnable, REFRESH_INTERVAL_MS)
+            main.postDelayed(refreshRunnable, LEGACY_INTERVAL_MS)
             return
         }
         if (!active || !refreshing.compareAndSet(false, true)) return
@@ -152,7 +166,7 @@ object FleetSnapshotStore {
                 synchronized(this) {
                     if (observers.values.any { it.continuous }) {
                         main.removeCallbacks(refreshRunnable)
-                        main.postDelayed(refreshRunnable, if (reconnectRequested.get()) 0 else REFRESH_INTERVAL_MS)
+                        main.postDelayed(refreshRunnable, if (reconnectRequested.get()) 0 else refreshInterval(context))
                     }
                 }
             }

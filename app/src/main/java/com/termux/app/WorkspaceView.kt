@@ -850,6 +850,16 @@ private fun EmbeddedTerminal(session: FleetSession, broker: WorkspaceTerminalBro
                 scrollback.onTerminalScreenChanged(terminal.emulator?.isAlternateBufferActive == true)
             }
         )
+        if (scrollback.historyAvailable) Row(
+            Modifier.align(Alignment.TopEnd).background(MaterialTheme.colorScheme.surface),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            TextButton(onClick = scrollback::showHistory, modifier = Modifier.testTag("terminal-history-open")) { Text("History") }
+            if (scrollback.historyActive) {
+                TextButton(onClick = scrollback::refresh, modifier = Modifier.testTag("terminal-history-refresh")) { Text("Refresh") }
+                TextButton(onClick = scrollback::returnToLive, modifier = Modifier.testTag("terminal-history-live")) { Text("Live") }
+            }
+        }
     }
 }
 

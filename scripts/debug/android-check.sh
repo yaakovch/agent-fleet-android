@@ -3,8 +3,8 @@ set -euo pipefail
 
 mode="${1:-fast}"
 case "$mode" in
-  fast|focused|full|update-goldens|coinstall|migration-lanes) ;;
-  *) echo "usage: $0 [fast|focused|full|update-goldens|coinstall|migration-lanes]" >&2; exit 2 ;;
+  fast|focused|full|update-goldens|coinstall|migration-lanes|profiles|profile-benchmark|profile-benchmark-disabled) ;;
+  *) echo "usage: $0 [fast|focused|full|update-goldens|coinstall|migration-lanes|profiles|profile-benchmark|profile-benchmark-disabled]" >&2; exit 2 ;;
 esac
 
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
@@ -101,6 +101,29 @@ adb_windows="$(wslpath -w "$adb")"
 emulator_windows="$(wslpath -w "$emulator")"
 
 adb_run() { /init "$cmd_exe" /c "$adb_windows" -P "$adb_port" "$@"; }
+pull_profile_output() {
+  local archive="$artifacts/profile-output.tar"
+  mkdir -p "$artifacts/profile-output"
+  # One binary transfer avoids Windows ADB consuming a filename loop's stdin.
+  adb_run -s "$serial" exec-out tar -C /sdcard/Download/fleet-profile-output -cf - . \
+    >"$archive" 2>>"$log" || return 1
+  python3 - "$archive" "$artifacts/profile-output" <<'PYPROFILE'
+import pathlib, re, shutil, sys, tarfile
+archive, output = map(pathlib.Path, sys.argv[1:])
+with tarfile.open(archive) as source:
+    members = source.getmembers()
+    if sum(member.size for member in members) > 1024 * 1024 * 1024:
+        raise SystemExit('Profile artifacts exceed the bounded collection size')
+    for member in members:
+        if member.isdir() and member.name in ('.', './'):
+            continue
+        name = member.name.removeprefix('./')
+        if not member.isfile() or not re.fullmatch(r'[A-Za-z0-9_.-]+', name):
+            raise SystemExit('Unsafe profile artifact name or type')
+        with source.extractfile(member) as content, (output / name).open('wb') as target:
+            shutil.copyfileobj(content, target)
+PYPROFILE
+}
 adb_run start-server >>"$log" 2>&1
 
 emulator_serial() {
@@ -183,13 +206,31 @@ fi
 
 say "building tests"
 gradle_tasks=(:app:assembleDebug)
-[[ "$mode" != "coinstall" ]] && gradle_tasks+=(:app:assembleDebugAndroidTest)
+if [[ "$mode" == "profiles" || "$mode" == profile-benchmark* ]]; then
+  gradle_tasks=(:app:assembleBenchmark :profilegenerator:assembleBenchmark)
+fi
+if [[ "$mode" == profile-benchmark* ]]; then
+  measure_variant="Measure"
+  [[ "$mode" != "profile-benchmark-disabled" ]] || measure_variant="MeasureWithoutFleetProfiles"
+  gradle_tasks=(":app:assemble$measure_variant" ":profilegenerator:assemble$measure_variant")
+fi
+[[ "$mode" != "coinstall" && "$mode" != "profiles" && "$mode" != profile-benchmark* ]] && gradle_tasks+=(:app:assembleDebugAndroidTest)
 [[ "$mode" == "full" ]] && gradle_tasks+=(:app:testDebugUnitTest)
 if ! "$gradle" "${gradle_tasks[@]}" --daemon --no-build-cache --parallel --console=plain >"$log" 2>&1; then
   tail -n 35 "$log" >&2
   fail "test build failed"
 fi
-app_apk="$(find app/build/outputs/apk/debug -type f -name '*universal.apk' -print -quit)"
+app_variant="debug"
+if [[ "$mode" == "profiles" || "$mode" == profile-benchmark* ]]; then
+  app_variant="benchmark"
+  [[ "$mode" != profile-benchmark* ]] || app_variant="measure"
+  [[ "$mode" != "profile-benchmark-disabled" ]] || app_variant="measureWithoutFleetProfiles"
+  test_package="com.yaakovch.fleet.profilegenerator"
+fi
+app_apk="$(find "app/build/outputs/apk/$app_variant" -type f -name '*universal.apk' -print -quit)"
+if [[ "$app_variant" != "debug" && ! -f "$app_apk" ]]; then
+  app_apk="$(find "app/build/outputs/apk/$app_variant" -type f -name '*.apk' -print -quit)"
+fi
 [[ -f "$app_apk" ]] || fail "app test APK was not produced"
 app_apk_windows="$(wslpath -w "$app_apk")"
 adb_run -s "$serial" uninstall "$test_package" >>"$log" 2>&1 || true
@@ -220,10 +261,28 @@ if [[ "$mode" == "coinstall" ]]; then
   exit 0
 fi
 
-test_apk="$(find app/build/outputs/apk/androidTest/debug -type f -name '*.apk' -print -quit)"
+if [[ "$app_variant" != "debug" ]]; then
+  test_apk="$(find "profilegenerator/build/outputs/apk/$app_variant" -type f -name '*.apk' -print -quit)"
+else
+  test_apk="$(find app/build/outputs/apk/androidTest/debug -type f -name '*.apk' -print -quit)"
+fi
 [[ -f "$test_apk" ]] || fail "instrumentation APK was not produced"
 test_apk_windows="$(wslpath -w "$test_apk")"
+python3 - "$app_apk" "$test_apk" "$artifacts" "$app_variant" <<'PYINPUT'
+import hashlib, json, pathlib, subprocess, sys
+app, test, output = map(pathlib.Path, sys.argv[1:4])
+value = {'schemaVersion': 1, 'variant': sys.argv[4], 'sourceCommit': subprocess.check_output(['git', 'rev-parse', 'HEAD'], text=True).strip(),
+    'sourceDirty': bool(subprocess.check_output(['git', 'status', '--porcelain'], text=True)), 'emulator': 'API 36 x86_64',
+    'appApkSha256': hashlib.sha256(app.read_bytes()).hexdigest(), 'testApkSha256': hashlib.sha256(test.read_bytes()).hexdigest()}
+(output / 'input-identity.json').write_text(json.dumps(value, indent=2) + '\n')
+PYINPUT
 adb_run -s "$serial" install -r -t "$test_apk_windows" >>"$log" 2>&1
+if [[ "$mode" == "profiles" || "$mode" == profile-benchmark* ]]; then
+  # Keep the same established permission state across all measured launches.
+  # A deferred notification prompt otherwise interrupts a later cold sample.
+  adb_run -s "$serial" shell pm grant "$app_package" android.permission.POST_NOTIFICATIONS >>"$log" 2>&1 || \
+    fail "profile fixture notification permission could not be established"
+fi
 
 # A retained headless AVD can keep Quick Settings or the notification shade
 # expanded between runs. Compose semantics remain reachable underneath it, but
@@ -234,7 +293,19 @@ adb_run -s "$serial" shell cmd statusbar collapse >>"$log" 2>&1 || \
   fail "emulator system panels could not be collapsed"
 
 instrument_args=(-w -r)
-if [[ "$mode" == "update-goldens" ]]; then
+if [[ "$mode" == "profiles" || "$mode" == profile-benchmark* ]]; then
+  profile_class="com.termux.app.profilegen.FleetBaselineProfileGenerator"
+  [[ "$mode" != profile-benchmark* ]] || profile_class="com.termux.app.profilegen.FleetReleaseProfileBenchmark"
+  profile_method="${AGENT_FLEET_PROFILE_METHOD:-}"
+  if [[ -n "$profile_method" ]]; then
+    [[ "$mode" == profile-benchmark* && "$profile_method" =~ ^[A-Za-z][A-Za-z0-9]+$ ]] || fail "invalid focused profile method"
+    profile_class+="#$profile_method"
+  fi
+  adb_run -s "$serial" shell rm -rf /sdcard/Download/fleet-profile-output >>"$log" 2>&1 || fail "old profile fixture output could not be cleared"
+  adb_run -s "$serial" logcat -c -b crash >>"$log" 2>&1 || fail "profile crash buffer could not be cleared"
+  instrument_args+=(-e class "$profile_class" -e androidx.benchmark.suppressErrors EMULATOR,LOW-BATTERY
+    -e additionalTestOutputDir /sdcard/Download/fleet-profile-output)
+elif [[ "$mode" == "update-goldens" ]]; then
   instrument_args+=(-e class com.termux.app.AgentFleetGoldenTest -e agentFleetUpdateGoldens true)
 elif [[ "$mode" == "focused" ]]; then
   instrument_args+=(-e class "$focused_class")
@@ -251,10 +322,23 @@ if [[ $status -ne 0 ]] || ! "$instrumentation_checker" "$artifacts/instrumentati
   mkdir -p "$artifacts/device-output"
   output_windows="$(wslpath -w "$artifacts/device-output")"
   adb_run -s "$serial" pull "/sdcard/Android/media/$app_package/." "$output_windows" >>"$log" 2>&1 || true
+  if [[ "$app_variant" != "debug" ]]; then
+    mkdir -p "$artifacts/profile-output"
+    pull_profile_output || true
+    adb_run -s "$serial" logcat -d -b crash >"$artifacts/profile-crash.txt" 2>&1 || true
+    adb_run -s "$serial" pull "/sdcard/Android/data/$test_package/files/profile-failure" \
+      "$(wslpath -w "$artifacts/profile-failure")" >>"$log" 2>&1 || true
+    adb_run -s "$serial" shell uiautomator dump /sdcard/Download/fleet-profile-ui.xml >>"$log" 2>&1 || true
+    adb_run -s "$serial" pull /sdcard/Download/fleet-profile-ui.xml "$(wslpath -w "$artifacts/profile-ui.xml")" >>"$log" 2>&1 || true
+  fi
   tail -n 60 "$artifacts/instrumentation.txt" >&2
   fail "instrumentation tests failed"
 fi
 
+if [[ "$app_variant" != "debug" ]]; then
+  mkdir -p "$artifacts/profile-output"
+  pull_profile_output || fail "profile output could not be retained"
+fi
 if [[ "$mode" == "update-goldens" || "${AGENT_FLEET_CAPTURE_DEVICE_OUTPUT:-0}" == "1" ]]; then
   mkdir -p "$artifacts/device-output"
   output_windows="$(wslpath -w "$artifacts/device-output")"

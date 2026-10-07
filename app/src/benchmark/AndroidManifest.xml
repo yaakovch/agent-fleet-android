@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <application>
+        <profileable android:shell="true" />
+        <activity android:name="com.termux.app.fleet.profile.FleetProfileFixtureActivity" android:exported="true" />
+        <activity android:name="com.termux.app.fleet.profile.FleetProfileFileActivity" android:exported="false" />
+    </application>
+</manifest>

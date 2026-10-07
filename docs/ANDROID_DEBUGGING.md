@@ -407,3 +407,24 @@ to the report's `device-output` directory before another run uninstalls the app.
 Remove only `/sdcard/Download/agent-fleet-controller-fixture.json` afterward.
 Remove the reverse mapping, stop the recorded relay process after checking its
 command line, run the fixture's `stop`, and update/validate the ports registry.
+
+
+Fleet startup and baseline profiles use `app/src/fleetProfiles`. Generate them
+with `android-check.sh profiles`, then run `scripts/debug/merge-fleet-profiles.py`
+on its successful report. The release, benchmark and measure source sets consume
+both rule files; dependency profiles merge automatically. The
+`measureWithoutFleetProfiles` variant retains dependency profiles and omits
+Fleet rules. Keep AGP and Compose versions fixed for relative comparisons.
+
+Run `android-check.sh profile-benchmark` and
+`android-check.sh profile-benchmark-disabled` consecutively on the protected
+API 36 emulator. Each runs 20 repetitions of cold/warm launcher and notification
+startup plus scrolling frames, with required profile compilation in both builds.
+Reports retain input APK hashes, raw results and traces. These measurements
+exclude network latency and do not establish physical-phone performance.
+Build a measure AAB and inspect its `r8.json` for startup DEX placement, and verify
+`assets/dexopt/baseline.prof` and `.profm` in the release APK. The generator's
+fixture activity is measurement-only and is absent from production release APKs.
+The runner clears only the protected profile output directory and crash buffer
+before each profile run. It captures artifacts in one binary tar transfer;
+Windows ADB can consume a filename loop's stdin and silently skip later files.

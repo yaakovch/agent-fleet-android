@@ -13,6 +13,29 @@ import org.robolectric.RuntimeEnvironment
 
 @RunWith(RobolectricTestRunner::class)
 class NativeSessionControllerLifecycleTest {
+    @Test fun lateSavedViewDoesNotUndoTheUsersSurfaceChoice() {
+        val context: Context = RuntimeEnvironment.getApplication()
+        val controller = NativeSessionController(FakeHost(context), ComposeView(context))
+        controller.bind(Intent().putExtra(AgentFleetContract.EXTRA_NATIVE_SESSION, true)
+            .putExtra(AgentFleetContract.EXTRA_LOCAL_SESSION, true))
+        val directory = kotlin.io.path.createTempDirectory("late-saved-view-").toFile()
+        try {
+            val binding = SavedSessionBinding(directory)
+            binding.install(VerifiedSessionIdentity("host", "session", "a".repeat(64), "/fixture", "linux", "codex"), "linux")
+            val choose = NativeSessionController::class.java.getDeclaredMethod("applyViewMode", NativeViewMode::class.java, Boolean::class.javaPrimitiveType).apply { isAccessible = true }
+            choose.invoke(controller, NativeViewMode.ManualTerminal, true)
+            val resolve = NativeSessionController::class.java.getDeclaredMethod("installSavedBinding", SavedSessionBinding::class.java, Long::class.javaPrimitiveType).apply { isAccessible = true }
+            resolve.invoke(controller, binding, 0L)
+            val field = NativeSessionController::class.java.getDeclaredField("uiState").apply { isAccessible = true }
+            @Suppress("UNCHECKED_CAST")
+            val state = field.get(controller) as androidx.compose.runtime.MutableState<NativeSessionUiState>
+            assertEquals(NativeViewMode.ManualTerminal, state.value.viewMode)
+            choose.invoke(controller, NativeViewMode.Native, true)
+            assertEquals("native", binding.state.value!!.selectedView)
+            choose.invoke(controller, NativeViewMode.ManualTerminal, true)
+            assertEquals("terminal", binding.state.value!!.selectedView)
+        } finally { controller.close(); SavedSessionStates.writer.submit {}.get(); directory.deleteRecursively() }
+    }
     @Test
     fun repeatedSameSessionBindingRetainsVisibleConversation() {
         val context: Context = RuntimeEnvironment.getApplication()

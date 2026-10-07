@@ -37,6 +37,7 @@ data class FleetControlSupervisorMetrics(
  * cancellation/failure lifecycles.
  */
 object FleetControlSupervisor {
+    @Volatile internal var onHeartbeat: ((String, String?) -> Unit)? = null
     private data class BridgePaths(
         val python: File,
         val bridge: File,
@@ -325,7 +326,12 @@ object FleetControlSupervisor {
                 val data = frame.getJSONObject("data")
                 require(data.keys().asSequence().toSet() == setOf("hostCount"))
                 require(data.getInt("hostCount") >= 0)
+                val revision = frame.getString("revision")
+                require(revision.length in 1..64 && revision.none(Char::isISOControl))
+                val presentation = frame.optString("presentationRevision").takeIf { it.isNotEmpty() }
+                if (presentation != null) require(presentation.length in 1..64 && presentation.none(Char::isISOControl))
                 applyReady()
+                onHeartbeat?.invoke(revision, presentation)
             }
             "response" -> {
                 val requestPending = synchronized(lock) {

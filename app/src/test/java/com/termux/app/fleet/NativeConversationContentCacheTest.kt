@@ -40,7 +40,7 @@ class NativeConversationContentCacheTest {
 
     @Test fun anEventFromAnotherSessionCannotPoisonCachedContent() {
         NativeConversationContentCache.record("binding", frame(1))
-        val event = JSONObject().put("type", "conversation.event").put("session", "other").put("item", item(99))
+        val event = JSONObject().put("protocolVersion", 2).put("type", "conversation.event").put("adapter", "codex").put("session", "other").put("item", item(99))
         NativeConversationContentCache.record("binding", event.toString())
         assertEquals(listOf("0"), NativeConversationContentCache.get("binding")!!.items.map { it.id })
     }

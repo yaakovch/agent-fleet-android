@@ -8,8 +8,8 @@ data class GeneratedStructuralShape(
 )
 
 object GeneratedAgentFleetContracts {
-    const val CONTRACT_PACKAGE_VERSION = "1.13.0"
-    val protocolVersions: Map<String, Int> = mapOf("control" to 1, "conversation" to 2, "workspace-layout" to 1, "release-set" to 1, "supervisor" to 1, "transport" to 1, "host-runtime" to 1, "diagnostics" to 2, "provider-confidence" to 1, "linked-file" to 1, "pane-links" to 1)
+    const val CONTRACT_PACKAGE_VERSION = "1.14.0"
+    val protocolVersions: Map<String, Int> = mapOf("control" to 1, "conversation" to 2, "workspace-layout" to 1, "release-set" to 1, "supervisor" to 1, "transport" to 1, "host-runtime" to 1, "diagnostics" to 2, "provider-confidence" to 1, "linked-file" to 1, "pane-links" to 1, "session-identity" to 1, "saved-session" to 1)
     val objectShapes: Map<String, GeneratedStructuralShape> = mapOf(
         "activation-journal-v1:#" to GeneratedStructuralShape(listOf("candidate", "current", "failureCode", "phase", "previous", "schemaVersion", "transactionId", "updatedAt"), listOf(), true),
         "activation-journal-v1:#/\$defs/componentSequences" to GeneratedStructuralShape(listOf("androidApp", "clientRuntime", "contracts", "hostRuntime", "providerAdapters", "windowsApp"), listOf(), true),
@@ -162,6 +162,11 @@ object GeneratedAgentFleetContracts {
         "release-set-v1:#/properties/rollbackFloor" to GeneratedStructuralShape(listOf("componentSequences", "releaseSetSequence"), listOf(), true),
         "release-set-v1:#/properties/signature" to GeneratedStructuralShape(listOf("algorithm", "keyId", "value"), listOf(), true),
         "runtime-update-v1:#" to GeneratedStructuralShape(listOf("keyId", "payload", "schemaVersion", "signature"), listOf(), true),
+        "saved-session-v1:#" to GeneratedStructuralShape(listOf("anchor", "executionTarget", "followOutput", "identity", "message", "questions", "revision", "schemaVersion", "selectedView"), listOf(), true),
+        "saved-session-v1:#/properties/anchor/oneOf/1" to GeneratedStructuralShape(listOf("itemId", "offset"), listOf(), true),
+        "saved-session-v1:#/properties/questions/items" to GeneratedStructuralShape(listOf("answers", "form", "requestId"), listOf(), true),
+        "saved-session-v1:#/properties/questions/items/properties/answers/items" to GeneratedStructuralShape(listOf("choiceIds", "questionId", "text"), listOf(), true),
+        "session-identity-v1:#" to GeneratedStructuralShape(listOf("backend", "host", "incarnationId", "projectRoot", "schemaVersion", "session", "tool"), listOf(), true),
         "supervisor-v1:#" to GeneratedStructuralShape(listOf("contract", "scenarios", "schemaVersion"), listOf(), true),
         "supervisor-v1:#/\$defs/action" to GeneratedStructuralShape(listOf("type"), listOf("channel"), true),
         "supervisor-v1:#/\$defs/channel" to GeneratedStructuralShape(listOf("backgroundPolicy", "failureDomain", "id", "persistence"), listOf(), true),

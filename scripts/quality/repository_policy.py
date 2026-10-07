@@ -38,6 +38,7 @@ DEPENDENCY_LOCKS = (
     "terminal-emulator/gradle.lockfile",
     "terminal-view/gradle.lockfile",
     "termux-shared/gradle.lockfile",
+    "profilegenerator/gradle.lockfile",
 )
 LOCKED_COMPONENT = re.compile(
     r"([A-Za-z0-9_.-]+):([A-Za-z0-9_.-]+):([^\s=,+]+)=([A-Za-z0-9_.,-]+)"
