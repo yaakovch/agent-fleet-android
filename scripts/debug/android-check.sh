@@ -255,13 +255,15 @@ if [[ $status -ne 0 ]] || ! "$instrumentation_checker" "$artifacts/instrumentati
   fail "instrumentation tests failed"
 fi
 
-if [[ "$mode" == "update-goldens" ]]; then
+if [[ "$mode" == "update-goldens" || "${AGENT_FLEET_CAPTURE_DEVICE_OUTPUT:-0}" == "1" ]]; then
   mkdir -p "$artifacts/device-output"
   output_windows="$(wslpath -w "$artifacts/device-output")"
   adb_run -s "$serial" pull "/sdcard/Android/media/$app_package/." "$output_windows" >>"$log" 2>&1 || \
-    fail "golden output could not be copied from the emulator"
+    fail "test output could not be copied from the emulator"
   say "PASS · review generated images under $artifacts/device-output"
-  say "goldens are never replaced automatically"
+  if [[ "$mode" == "update-goldens" ]]; then
+    say "goldens are never replaced automatically"
+  fi
 else
   say "PASS · report: $artifacts"
 fi

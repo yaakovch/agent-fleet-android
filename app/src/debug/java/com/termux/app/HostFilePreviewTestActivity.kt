@@ -15,18 +15,19 @@ class HostFilePreviewTestActivity : HostFilePreviewActivity() {
         @Volatile var kind = "text"
         @Volatile var name = "preview-fixture.txt"
         @Volatile var slow = false
+        @Volatile var expectedReference = "/outside/project/fixture.txt"
         val inspections = AtomicInteger()
         val fetches = AtomicInteger()
         val origins = CopyOnWriteArrayList<String>()
         val directories = CopyOnWriteArrayList<File>()
-        fun reset() { body = "Host preview fixture".toByteArray(); kind = "text"; name = "preview-fixture.txt"; slow = false; inspections.set(0); fetches.set(0); origins.clear(); directories.clear() }
+        fun reset() { expectedReference = "/outside/project/fixture.txt"; body = "Host preview fixture".toByteArray(); kind = "text"; name = "preview-fixture.txt"; slow = false; inspections.set(0); fetches.set(0); origins.clear(); directories.clear() }
         override fun selectSession(id: String, hostId: String, internalName: String, cancellation: FleetDownloadCancellation): FleetSession {
             origins += "$id|$hostId|$internalName"
             require(id == "origin-session" && hostId == "origin-host" && internalName == "managed-origin")
             return FleetSession(id, hostId, internalName, "Fixture", "Fixture", "Fixture", "codex", "linux", "idle", false, null, 0)
         }
         override fun inspect(session: FleetSession, reference: String, cancellation: FleetDownloadCancellation): HostFileMetadata {
-            require(reference == "/outside/project/fixture.txt")
+            require(reference == expectedReference)
             inspections.incrementAndGet()
             return HostFileMetadata(name, body.size.toLong(), "2026-10-06T10:00:00Z", digest(body), kind)
         }

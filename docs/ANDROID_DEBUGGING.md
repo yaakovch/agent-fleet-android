@@ -343,10 +343,15 @@ its isolated processes and delete its ephemeral authorization/key files.
 A Kotlin daemon left in another network namespace can leave compilation waiting
 on an unreachable loopback socket. For that invocation, use
 `-Pkotlin.compiler.execution.strategy=in-process`; for the protected runner,
-set `GRADLE_OPTS=-Dorg.gradle.project.kotlin.compiler.execution.strategy=in-process`.
+set `AGENT_FLEET_KOTLIN_IN_PROCESS=1`. The Java-17 wrapper passes the explicit
+Gradle project argument, including when invoked through the quality gate.
 Bash does not reliably preserve dotted environment-variable names for child
 commands, so do not pass this through a dotted ORG_GRADLE_PROJECT variable.
 Keep the normal Java-17 launcher and emulator safety checks.
+
+Set `AGENT_FLEET_CAPTURE_DEVICE_OUTPUT=1` to retain device-side test screenshots
+after a successful focused or full run. Failed runs already collect this output.
+The runner pulls only from the verified emulator into that run's artifact folder.
 
 The Windows AVD may not reach a WSL fixture through its LAN address or the
 emulator host alias. Preserve pinned SSH and use a loopback-only transparent TCP

@@ -37,4 +37,11 @@ case ":$PATH:" in
 esac
 export ANDROID_HOME="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-$HOME/.local/share/android-sdk}}"
 
-exec "$root/gradlew" "$@"
+# Keep the canonical emulator/quality runners usable when a stale compiler
+# daemon record points at an unavailable socket. Device safeguards stay in the
+# emulator runner; this opt-in changes only where Kotlin compilation executes.
+extra_arguments=()
+if [[ "${AGENT_FLEET_KOTLIN_IN_PROCESS:-0}" == "1" ]]; then
+  extra_arguments+=(-Pkotlin.compiler.execution.strategy=in-process)
+fi
+exec "$root/gradlew" "${extra_arguments[@]}" "$@"

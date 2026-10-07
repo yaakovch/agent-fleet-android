@@ -2,6 +2,7 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:tools="http://schemas.android.com/tools">
     <application>
+        <activity android:name="com.termux.app.WrappedLinksTestActivity" android:exported="false" />
         <activity android:name="com.termux.app.HostFilePreviewTestActivity" android:exported="false" />
         <activity
             android:name="com.termux.app.DrawerComposeTestHostActivity"

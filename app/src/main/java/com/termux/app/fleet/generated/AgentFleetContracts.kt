@@ -8,8 +8,8 @@ data class GeneratedStructuralShape(
 )
 
 object GeneratedAgentFleetContracts {
-    const val CONTRACT_PACKAGE_VERSION = "1.12.0"
-    val protocolVersions: Map<String, Int> = mapOf("control" to 1, "conversation" to 2, "workspace-layout" to 1, "release-set" to 1, "supervisor" to 1, "transport" to 1, "host-runtime" to 1, "diagnostics" to 2, "provider-confidence" to 1, "linked-file" to 1)
+    const val CONTRACT_PACKAGE_VERSION = "1.13.0"
+    val protocolVersions: Map<String, Int> = mapOf("control" to 1, "conversation" to 2, "workspace-layout" to 1, "release-set" to 1, "supervisor" to 1, "transport" to 1, "host-runtime" to 1, "diagnostics" to 2, "provider-confidence" to 1, "linked-file" to 1, "pane-links" to 1)
     val objectShapes: Map<String, GeneratedStructuralShape> = mapOf(
         "activation-journal-v1:#" to GeneratedStructuralShape(listOf("candidate", "current", "failureCode", "phase", "previous", "schemaVersion", "transactionId", "updatedAt"), listOf(), true),
         "activation-journal-v1:#/\$defs/componentSequences" to GeneratedStructuralShape(listOf("androidApp", "clientRuntime", "contracts", "hostRuntime", "providerAdapters", "windowsApp"), listOf(), true),
@@ -140,6 +140,8 @@ object GeneratedAgentFleetContracts {
         "pairing-bundle-v1:#/\$defs/hostTrust" to GeneratedStructuralShape(listOf("endpointId", "identityState", "physicalHostId", "sshHostKeySha256", "tailscaleNodeId"), listOf(), true),
         "pairing-bundle-v1:#/properties/compatibility" to GeneratedStructuralShape(listOf("contractPackageVersion", "controlVersions", "conversationVersions", "minimumReleaseSetSequence"), listOf(), true),
         "pairing-bundle-v1:#/properties/integrity" to GeneratedStructuralShape(listOf("algorithm", "digest"), listOf(), true),
+        "pane-links-v1:#" to GeneratedStructuralShape(listOf("hostId", "line", "links", "projectRoot", "protocolVersion", "revision", "session", "type"), listOf(), true),
+        "pane-links-v1:#/properties/links/items" to GeneratedStructuralShape(listOf("end", "start", "target"), listOf(), true),
         "presets-v1:#" to GeneratedStructuralShape(listOf("presets", "schemaVersion"), listOf(), true),
         "presets-v1:#/properties/presets/items" to GeneratedStructuralShape(listOf("backend", "hostId", "id", "name", "profileAlias", "project", "tool"), listOf(), true),
         "provider-confidence-v1:#" to GeneratedStructuralShape(listOf("adapters", "cases", "schemaVersion"), listOf(), true),

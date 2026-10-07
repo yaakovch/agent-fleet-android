@@ -23,6 +23,16 @@ class HostFileReferenceTest {
             val row = extractions.getJSONObject(index); val expected = row.getJSONArray("targets")
             assertEquals((0 until expected.length()).map { expected.getString(it) }, HostFileReferences.extract(row.getString("text")).map { it.target })
         }
+        val terminalRows = golden.getJSONArray("terminalRows")
+        repeat(terminalRows.length()) { index ->
+            val test = terminalRows.getJSONObject(index)
+            val raw = test.getJSONArray("rows")
+            val rows = (0 until raw.length()).map { val row = raw.getJSONObject(it); HostFileRow(row.getString("text"), row.optBoolean("wrapped")) }
+            val targets = test.getJSONArray("targets")
+            assertEquals(test.getString("name"), (0 until targets.length()).map { targets.getString(it) }, HostFileRowReferences.extract(rows).map { it.target })
+        }
+        assertTrue(HostFileRowReferences.extract(listOf(HostFileRow("x".repeat(8193)))).isEmpty())
+        assertTrue(HostFileRowReferences.extract(listOf(HostFileRow("(" + "/a".repeat(2048) + ")"))).isEmpty())
         assertEquals("report.pdf", HostFileMetadata.parse(fixture("contracts/linked-file-v1.json")).name)
         assertTrue(runCatching { HostFileMetadata.parse(fixture("contracts/linked-file-unknown-field-v1.json")) }.isFailure)
     }

@@ -11,20 +11,14 @@ object HostFileTerminalLinks {
         val screen = emulator.screen
         val row = location[1]
         if (row < -screen.activeTranscriptRows || row >= emulator.mRows) return null
-        var first = row
-        var last = row
-        while (first > -screen.activeTranscriptRows && row - first < 32 && screen.getLineWrap(first - 1)) first--
-        while (last < emulator.mRows - 1 && last - first < 32 && screen.getLineWrap(last)) last++
-        val content = StringBuilder()
-        var offset = screen.getColumnTextOffset(row, location[0])
+        val first = maxOf(-screen.activeTranscriptRows, row - 31)
+        val last = minOf(emulator.mRows - 1, row + 31)
+        val offset = screen.getColumnTextOffset(row, location[0])
         if (offset < 0) return null
-        for (current in first..last) {
-            val raw = screen.getLineTextAt(current)
-            if (current < row) offset += raw.length
-            content.append(raw)
-            if (content.length > 8192) return null
-        }
-        val text = content.toString()
-        return HostFileReferences.extract(text).firstOrNull { offset >= it.start && offset < it.end }?.target
+        val rows = (first..last).map { current -> HostFileRow(
+            screen.getLineTextAt(current).let { if (screen.getLineWrap(current)) it else it.trimEnd(' ') },
+            current > -screen.activeTranscriptRows && screen.getLineWrap(current - 1)
+        ) }
+        return HostFileRowReferences.extract(rows).firstOrNull { it.row == row - first && offset >= it.start && offset < it.end }?.target
     }
 }
