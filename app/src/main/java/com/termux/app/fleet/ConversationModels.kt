@@ -186,6 +186,8 @@ internal fun localSuggestionCancellationSerialForFocusChange(
     focused: Boolean
 ): Long = if (wasFocused && !focused) Math.addExact(currentSerial, 1L) else currentSerial
 
+data class SessionAttachmentRecovery(val message: String, val retryable: Boolean)
+
 data class NativeSessionUiState(
     val sessionLabel: String,
     val hostId: String,
@@ -224,5 +226,8 @@ data class NativeSessionUiState(
     val modelControlLoading: Boolean = false,
     val modelControlError: String? = null,
     val conversationView: ConversationView = ConversationView.Conversation,
-    val activityPages: Map<String, ActivityPage> = emptyMap()
-)
+    val activityPages: Map<String, ActivityPage> = emptyMap(),
+    val attachmentRecovery: SessionAttachmentRecovery? = null
+) {
+    val mutationsAllowed: Boolean get() = providerState.mutationsAllowed && attachmentRecovery == null
+}

@@ -21,7 +21,7 @@ data class FleetAlertSettings(
     val hardLimits: Boolean = true,
     val deliveryFailures: Boolean = true,
     val deliverySuccess: Boolean = true,
-    val hostState: Boolean = true,
+    val hostState: Boolean = false,
     val versionDrift: Boolean = true,
     val pairing: Boolean = true,
     val pauseUntilEpochMillis: Long? = null
@@ -30,7 +30,7 @@ data class FleetAlertSettings(
         FleetAlertCategory.HardLimits -> hardLimits
         FleetAlertCategory.DeliveryFailures -> deliveryFailures
         FleetAlertCategory.DeliverySuccess -> deliverySuccess
-        FleetAlertCategory.HostState -> hostState
+        FleetAlertCategory.HostState -> false
         FleetAlertCategory.VersionDrift -> versionDrift
         FleetAlertCategory.Pairing -> pairing
     }
@@ -46,7 +46,7 @@ class FleetAlertSettingsStore(context: Context) {
         hardLimits = boolean(KEY_HARD_LIMITS),
         deliveryFailures = boolean(KEY_DELIVERY_FAILURES),
         deliverySuccess = boolean(KEY_DELIVERY_SUCCESS),
-        hostState = boolean(KEY_HOST_STATE),
+        hostState = false,
         versionDrift = boolean(KEY_VERSION_DRIFT),
         pairing = boolean(KEY_PAIRING),
         pauseUntilEpochMillis = (preferences.all[KEY_PAUSE_UNTIL] as? Number)?.toLong()?.takeIf { it > 0L }
@@ -57,7 +57,7 @@ class FleetAlertSettingsStore(context: Context) {
             .putBoolean(KEY_HARD_LIMITS, value.hardLimits)
             .putBoolean(KEY_DELIVERY_FAILURES, value.deliveryFailures)
             .putBoolean(KEY_DELIVERY_SUCCESS, value.deliverySuccess)
-            .putBoolean(KEY_HOST_STATE, value.hostState)
+            .putBoolean(KEY_HOST_STATE, false)
             .putBoolean(KEY_VERSION_DRIFT, value.versionDrift)
             .putBoolean(KEY_PAIRING, value.pairing)
             .also { editor ->
@@ -73,7 +73,7 @@ class FleetAlertSettingsStore(context: Context) {
             FleetAlertCategory.HardLimits -> current.copy(hardLimits = enabled)
             FleetAlertCategory.DeliveryFailures -> current.copy(deliveryFailures = enabled)
             FleetAlertCategory.DeliverySuccess -> current.copy(deliverySuccess = enabled)
-            FleetAlertCategory.HostState -> current.copy(hostState = enabled)
+            FleetAlertCategory.HostState -> current.copy(hostState = false)
             FleetAlertCategory.VersionDrift -> current.copy(versionDrift = enabled)
             FleetAlertCategory.Pairing -> current.copy(pairing = enabled)
         }

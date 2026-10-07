@@ -94,23 +94,8 @@ class FleetAlertTracker {
         snapshot.hosts.take(MAX_FLEET_ALERT_HOST_STATES).forEach { host ->
             if (nextHostStates.containsKey(host.id)) return@forEach
             nextHostStates[host.id] = host.status
-            val previous = hostStates[host.id]
-            if (!settings.hostState || previous == null || previous == host.status) return@forEach
-            if (host.status == "offline") {
-                candidates += FleetAlert(
-                    category = FleetAlertCategory.HostState,
-                    title = "${host.name} is offline",
-                    body = "The host is unavailable and live actions are paused.",
-                    target = FleetAlertTarget.Host(host.id)
-                )
-            } else if (previous == "offline" && host.status == "healthy") {
-                candidates += FleetAlert(
-                    category = FleetAlertCategory.HostState,
-                    title = "${host.name} recovered",
-                    body = "The host is connected and live actions are available again.",
-                    target = FleetAlertTarget.Host(host.id)
-                )
-            }
+            // Routine connectivity belongs in the existing status dot, including
+            // after upgrading a legacy preference that enabled host alerts.
         }
         hostStates = nextHostStates
 

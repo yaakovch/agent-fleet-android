@@ -45,6 +45,11 @@ import com.termux.app.fleet.DrawerSessionStore;
 import com.termux.app.fleet.FleetSession;
 import com.termux.app.fleet.FleetRuntime;
 import com.termux.app.fleet.AgentFleetSessionResumeController;
+import com.termux.app.fleet.FleetSnapshotStore;
+import com.termux.app.fleet.FleetSnapshot;
+import com.termux.app.fleet.FleetHost;
+import com.termux.app.fleet.AgentFleetAttachmentFailure;
+import com.termux.app.fleet.TransportContract;
 import com.termux.app.fleet.UnifiedTerminalDrawerController;
 import com.termux.shared.activities.ReportActivity;
 import com.termux.shared.packages.PermissionUtils;
@@ -201,6 +206,8 @@ public final class TermuxActivity extends ComponentActivity implements ServiceCo
     private NativeSessionController mAgentFleetNativeSession;
     private TerminalScrollbackController mAgentFleetTerminalScrollback;
     private AgentFleetSessionResumeController mAgentFleetSessionResume;
+    private String mAttachmentFailureSession;
+    private String mAttachmentFailureCode;
     private FleetRuntime mAgentFleetResumeRuntime;
     private boolean mShouldRestoreAgentFleetSession;
 
@@ -331,6 +338,7 @@ public final class TermuxActivity extends ComponentActivity implements ServiceCo
             mUnifiedDrawerController.onStart();
 
         restoreAgentFleetSessionIfNeeded();
+        observeManagedAvailability();
     }
 
     @Override
@@ -340,16 +348,23 @@ public final class TermuxActivity extends ComponentActivity implements ServiceCo
         if (managedSessionId(intent) == null && managedSessionId(current) != null &&
             Intent.ACTION_MAIN.equals(intent.getAction())) {
             mShouldRestoreAgentFleetSession = true;
+            DrawerSessionStore remembered = new DrawerSessionStore(getApplicationContext());
+            current.putExtra(AgentFleetContract.EXTRA_INITIAL_SURFACE,
+                remembered.surfaceFor(managedSessionId(current)) == DrawerSessionSurface.Terminal ?
+                    AgentFleetContract.SURFACE_TERMINAL : AgentFleetContract.SURFACE_NATIVE);
             updateAgentFleetInputMode(current);
             selectAgentFleetTarget(current, 0);
             restoreAgentFleetSessionIfNeeded();
+            observeManagedAvailability();
             return;
         }
         if (mAgentFleetSessionResume != null) mAgentFleetSessionResume.onBackground();
-        mShouldRestoreAgentFleetSession = false;
+        mShouldRestoreAgentFleetSession = managedSessionId(intent) != null;
         setIntent(intent);
         updateAgentFleetInputMode(intent);
         selectAgentFleetTarget(intent, 0);
+        restoreAgentFleetSessionIfNeeded();
+        observeManagedAvailability();
     }
 
     private void updateAgentFleetInputMode(Intent intent) {
@@ -381,6 +396,7 @@ public final class TermuxActivity extends ComponentActivity implements ServiceCo
     }
 
     public boolean sendAgentFleetComposerText(String text, boolean appendEnter) {
+        if (mAgentFleetNativeSession != null && !mAgentFleetNativeSession.canSendInput()) return false;
         if (text == null || text.length() > 32768 || text.indexOf('\0') >= 0 || (!appendEnter && text.isEmpty()))
             return false;
         TerminalSession session = getCurrentSession();
@@ -586,8 +602,17 @@ public final class TermuxActivity extends ComponentActivity implements ServiceCo
             // terminal container. Reassert the managed chrome immediately and
             // again after the replacement attachment is selected.
             if (mAgentFleetNativeSession != null) mAgentFleetNativeSession.reapplyPresentation();
+            mAttachmentFailureSession = sessionId;
+            mAttachmentFailureCode = attachmentFailureCode(finishedSession);
             mAgentFleetSessionResume.onAttachmentEnded(sessionId);
         }
+    }
+
+    private static String attachmentFailureCode(TerminalSession terminal) {
+        if (terminal == null || terminal.isRunning() || terminal.getEmulator() == null) return null;
+        com.termux.terminal.TerminalEmulator emulator = terminal.getEmulator();
+        String tail = emulator.getScreen().getSelectedText(0, Math.max(0, emulator.mRows - 32), emulator.mColumns, emulator.mRows - 1);
+        return AgentFleetAttachmentFailure.permanentCode(terminal.getExitStatus(), tail);
     }
 
     static boolean shouldReconnectFinishedManagedSession(
@@ -764,6 +789,7 @@ public final class TermuxActivity extends ComponentActivity implements ServiceCo
         if (mIsInvalidState) return;
 
         mIsVisible = false;
+        FleetSnapshotStore.INSTANCE.removeObserver(this);
 
         mShouldRestoreAgentFleetSession = managedSessionId(getIntent()) != null;
         if (mAgentFleetSessionResume != null) mAgentFleetSessionResume.onBackground();
@@ -793,6 +819,7 @@ public final class TermuxActivity extends ComponentActivity implements ServiceCo
 
     @Override
     public void onDestroy() {
+        FleetSnapshotStore.INSTANCE.removeObserver(this);
         LocalSuggestionRuntime.onSurfaceStopped(getApplicationContext(), this);
         super.onDestroy();
 
@@ -1001,6 +1028,46 @@ public final class TermuxActivity extends ComponentActivity implements ServiceCo
                 public boolean selectAttachment(String sessionId) {
                     return mTermuxService != null && mTermuxService.selectAgentFleetWorkspaceSession(sessionId);
                 }
+
+                @Override
+                public boolean isOffline(String sessionId) {
+                    FleetSession session = sessions.sessionFor(sessionId);
+                    FleetSnapshot snapshot = FleetSnapshotStore.INSTANCE.latestSnapshot();
+                    if (session == null || snapshot == null) return false;
+                    return snapshot.getHosts().stream().anyMatch(host ->
+                        host.getId().equals(session.getHostId()) && host.getStatus().equals("offline"));
+                }
+
+                @Override
+                public String recoveryCode(String sessionId) {
+                    if (sessionId.equals(mAttachmentFailureSession) && mAttachmentFailureCode != null) return mAttachmentFailureCode;
+                    if (mTermuxService != null) {
+                        TermuxSession attached = mTermuxService.getAgentFleetWorkspaceSession(sessionId);
+                        if (attached != null) {
+                            String failure = attachmentFailureCode(attached.getTerminalSession());
+                            if (failure != null) return failure;
+                        }
+                    }
+                    FleetSession session = sessions.sessionFor(sessionId);
+                    FleetSnapshot snapshot = FleetSnapshotStore.INSTANCE.latestSnapshot();
+                    if (session == null || snapshot == null) return null;
+                    FleetHost host = snapshot.getHosts().stream().filter(value -> value.getId().equals(session.getHostId())).findFirst().orElse(null);
+                    if (host == null) return null;
+                    if (!host.getErrorCode().isEmpty()) {
+                        String code = TransportContract.INSTANCE.stableCode(host.getErrorCode());
+                        return code == null ? "HOST_RUNTIME_INCOMPATIBLE" : code;
+                    }
+                    if (host.getStatus().equals("healthy") && !host.getCapabilities().contains("terminal.exact-attach.v1")) return "EXACT_ATTACH_UNSUPPORTED";
+                    if (host.getStatus().equals("healthy") && snapshot.getSessions().stream().noneMatch(value -> value.getId().equals(sessionId))) return "SESSION_UNAVAILABLE";
+                    return null;
+                }
+
+                @Override
+                public String recoveryMessage(String code) {
+                    com.termux.app.fleet.TransportRecovery recovery = TransportContract.INSTANCE.recoveryFor(code);
+                    if (code.equals("EXACT_ATTACH_UNSUPPORTED")) return "Update this host to reconnect sessions safely.";
+                    return recovery == null ? "This session is unavailable. Open Sessions to choose another." : recovery.getTitle() + " · " + recovery.getAction();
+                }
             },
             new AgentFleetSessionResumeController.Scheduler() {
                 @Override
@@ -1016,9 +1083,12 @@ public final class TermuxActivity extends ComponentActivity implements ServiceCo
             new AgentFleetSessionResumeController.Listener() {
                 @Override
                 public void onSelected(String sessionId) {
+                    mAttachmentFailureSession = null;
+                    mAttachmentFailureCode = null;
                     Intent current = getIntent();
                     if (!sessionId.equals(managedSessionId(current))) return;
                     mShouldRestoreAgentFleetSession = false;
+                    if (mAgentFleetNativeSession != null) mAgentFleetNativeSession.attachmentRecovery(null, true);
                     selectAgentFleetTarget(current, 0);
                     if (mAgentFleetNativeSession != null)
                         mAgentFleetNativeSession.reapplyPresentation();
@@ -1030,7 +1100,19 @@ public final class TermuxActivity extends ComponentActivity implements ServiceCo
 
                 @Override
                 public void onError(String message) {
-                    if (mIsVisible) showToast(message, true);
+                    onUnavailable(managedSessionId(getIntent()), message, false);
+                }
+
+                @Override
+                public void onRecovering(String sessionId) {
+                    if (mIsVisible && sessionId.equals(managedSessionId(getIntent())) && mAgentFleetNativeSession != null)
+                        mAgentFleetNativeSession.attachmentRecovery("Reconnecting…", true);
+                }
+
+                @Override
+                public void onUnavailable(String sessionId, String message, boolean retryable) {
+                    if (mIsVisible && sessionId != null && sessionId.equals(managedSessionId(getIntent())) && mAgentFleetNativeSession != null)
+                        mAgentFleetNativeSession.attachmentRecovery(message, retryable);
                 }
             }
         );
@@ -1040,6 +1122,20 @@ public final class TermuxActivity extends ComponentActivity implements ServiceCo
         if (!mIsVisible || !mShouldRestoreAgentFleetSession || mTermuxService == null || mAgentFleetSessionResume == null)
             return;
         mAgentFleetSessionResume.onForeground(managedSessionId(getIntent()));
+    }
+
+    @Override
+    public void retryAgentFleetAttachment() {
+        if (mIsVisible && mAgentFleetSessionResume != null) mAgentFleetSessionResume.retry();
+    }
+
+    private void observeManagedAvailability() {
+        FleetSnapshotStore.INSTANCE.removeObserver(this);
+        if (!mIsVisible || managedSessionId(getIntent()) == null) return;
+        FleetSnapshotStore.INSTANCE.observePassive(this, this, state -> {
+            if (mIsVisible && mAgentFleetSessionResume != null) mAgentFleetSessionResume.onAvailabilityChanged();
+            return kotlin.Unit.INSTANCE;
+        });
     }
 
     private void restoreAgentFleetPresentationIfNeeded() {

@@ -69,7 +69,6 @@ class ClientBehaviorContractTest {
             Triple("hardLimits", listOf("attention.hard-limit"), "session-or-dashboard"),
             Triple("deliveryFailures", listOf("schedule.failed", "schedule.interrupted"), "session-or-dashboard"),
             Triple("deliverySuccess", listOf("schedule.delivered"), "session-or-dashboard"),
-            Triple("hostState", listOf("host.offline", "host.recovered"), "host-or-dashboard"),
             Triple("versionDrift", listOf("host-runtime.mismatch-verified-expected"), "host-or-dashboard"),
             Triple("pairing", listOf("pairing.awaiting-review"), "pairing-review")
         ), (0 until categories.length()).map { index ->
@@ -82,6 +81,9 @@ class ClientBehaviorContractTest {
             )
         })
         val android = alerts.getJSONObject("platforms").getJSONObject("android")
+        assertEquals(listOf("hostState"), alerts.getJSONArray("statusOnly").let { values ->
+            (0 until values.length()).map(values::getString)
+        })
         assertEquals("foreground-only", android.getString("observation"))
         assertEquals("in-app", android.getString("delivery"))
         assertEquals("explicit-user-action-only", android.getString("notificationPermission"))

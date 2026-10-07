@@ -22,7 +22,7 @@ class FleetAlertTrackerTest {
         val categories = fixture.getJSONArray("categories")
         assertEquals(
             (0 until categories.length()).map { categories.getJSONObject(it).getString("id") },
-            FleetAlertCategory.entries.map(FleetAlertCategory::canonicalId)
+            FleetAlertCategory.entries.filterNot { it == FleetAlertCategory.HostState }.map(FleetAlertCategory::canonicalId)
         )
         val pause = fixture.getJSONObject("pause")
         assertEquals(FLEET_ALERT_PAUSE_DURATION_MILLIS / 1_000L, pause.getLong("durationSeconds"))
@@ -76,7 +76,6 @@ class FleetAlertTrackerTest {
         assertEquals(
             listOf(
                 "Codex usage limit detected",
-                "gaming recovered",
                 "Pairing request from device-pair-new"
             ),
             alerts.map(FleetAlert::title)
@@ -142,7 +141,6 @@ class FleetAlertTrackerTest {
         assertEquals(
             listOf(
                 FleetAlertCategory.HardLimits,
-                FleetAlertCategory.HostState,
                 FleetAlertCategory.DeliverySuccess,
                 FleetAlertCategory.DeliveryFailures,
                 FleetAlertCategory.VersionDrift,
@@ -153,7 +151,6 @@ class FleetAlertTrackerTest {
         assertEquals(
             listOf(
                 FleetAlertTarget.Session("session-hard-limit"),
-                FleetAlertTarget.Host("gaming"),
                 FleetAlertTarget.Session("session-success"),
                 FleetAlertTarget.Session("session-failure"),
                 FleetAlertTarget.Host("gaming"),
@@ -256,8 +253,8 @@ class FleetAlertTrackerTest {
             verified("git-expected")
         )
 
-        assertEquals(5, alerts.size)
-        assertEquals(5, alerts.map { it.category }.toSet().size)
+        assertEquals(4, alerts.size)
+        assertEquals(4, alerts.map { it.category }.toSet().size)
         assertEquals(
             FleetAlertTrackerState(hosts = 1, schedules = 1, versionDrifts = 1, recentAttention = 1, recentPairing = 1),
             tracker.state()

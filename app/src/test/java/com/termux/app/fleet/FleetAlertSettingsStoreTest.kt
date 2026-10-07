@@ -24,11 +24,19 @@ class FleetAlertSettingsStoreTest {
     }
 
     @Test
-    fun defaultsEnableAllSixCategoriesWithoutPause() {
+    fun defaultsEnableActionableCategoriesWithoutPause() {
         val value = store.load()
-        FleetAlertCategory.entries.forEach { assertTrue(it.canonicalId, value.isEnabled(it)) }
+        FleetAlertCategory.entries.forEach { assertEquals(it.canonicalId, it != FleetAlertCategory.HostState, value.isEnabled(it)) }
         assertNull(value.pauseUntilEpochMillis)
         assertFalse(value.isPaused(NOW))
+    }
+
+    @Test
+    fun legacyEnabledHostStateIsQuietAfterLoadingAndSaving() {
+        context.getSharedPreferences(PREFERENCES, Context.MODE_PRIVATE).edit().putBoolean("host_state", true).commit()
+        assertFalse(store.load().hostState)
+        assertFalse(store.setCategory(FleetAlertCategory.HostState, true).hostState)
+        assertFalse(store.load().isEnabled(FleetAlertCategory.HostState))
     }
 
     @Test

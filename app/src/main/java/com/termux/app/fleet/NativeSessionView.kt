@@ -210,12 +210,12 @@ fun NativeSessionScreen(
         feedNearBottom,
         viewerOpen,
         state.focusQuestionSerial,
-        state.providerState.mutationsAllowed
+        state.mutationsAllowed
     ) {
         if (actionSheetId.isNotBlank() && allPendingActions.none { it.id == actionSheetId }) actionSheetId = ""
         if (pendingAction == null) {
             dismissedActionId = ""
-        } else if (!state.providerState.mutationsAllowed) {
+        } else if (!state.mutationsAllowed) {
             actionSheetId = ""
         } else if (state.focusQuestionSerial > 0 && pendingAction.id == state.focusQuestionId) {
             dismissedActionId = ""
@@ -252,13 +252,14 @@ fun NativeSessionScreen(
                     onKillSession = onKillSession,
                     onRefreshModel = onRefreshModel,
                     onSetModel = onSetModel,
-                    onCancelModel = onCancelModel
+                    onCancelModel = onCancelModel,
+                    onRetryConnection = onRetry
                 )
             }
         },
         bottomBar = {
           Column {
-            if (pendingAction != null && state.providerState.mutationsAllowed) {
+            if (pendingAction != null && state.mutationsAllowed) {
                 Surface(
                     modifier = Modifier.windowInsetsPadding(WindowInsets.navigationBars),
                     color = MaterialTheme.colorScheme.surface,
@@ -284,7 +285,7 @@ fun NativeSessionScreen(
             if (pendingAction == null || pendingAction.source == "codex_async_question") {
               if (state.sourceMode == "shell" && !aiComposer) {
                 ShellCommandBar(onShellCommand, onShellKey, onControlC)
-            } else if (aiComposer && inlineComposer && state.providerState.mutationsAllowed) {
+            } else if (aiComposer && inlineComposer && state.mutationsAllowed) {
                 NativeAiComposer(
                     state.interactionMode, state.items, state.revision, state.liveEventSerial,
                     suggestionSurfaceActive, localSuggestions, onComposerText, onAttach, onCamera
@@ -325,7 +326,7 @@ fun NativeSessionScreen(
         }
     if (
         sheetAction != null &&
-        state.providerState.mutationsAllowed &&
+        state.mutationsAllowed &&
         actionSheetId == sheetAction.id
     ) {
         Dialog(
@@ -405,7 +406,8 @@ fun AgentFleetTerminalSessionChrome(
     onControlC: () -> Unit = {},
     onShellKey: (String) -> Unit = {},
     onCloseSession: () -> Unit = {},
-    onKillSession: () -> Unit = {}
+    onKillSession: () -> Unit = {},
+    onRetryConnection: () -> Unit = {}
 ) {
     CompactSessionHeader(
         state = state,
@@ -420,7 +422,8 @@ fun AgentFleetTerminalSessionChrome(
         onKillSession = onKillSession,
         onRefreshModel = onRefreshModel,
         onSetModel = onSetModel,
-        onCancelModel = onCancelModel
+        onCancelModel = onCancelModel,
+        onRetryConnection = onRetryConnection
     )
 }
 
@@ -439,6 +442,7 @@ private fun CompactSessionHeader(
     onRefreshModel: () -> Unit,
     onSetModel: (String, String, Boolean, Boolean) -> Unit,
     onCancelModel: () -> Unit,
+    onRetryConnection: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     var actionMenu by rememberSaveable(state.hostId, state.internalSession, destinationLabel) { mutableStateOf(false) }
@@ -465,7 +469,12 @@ private fun CompactSessionHeader(
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis
                     )
-                    NativeSessionStatusLine(state, tickerActive)
+                    val recovery = state.attachmentRecovery
+                    if (recovery == null) NativeSessionStatusLine(state, tickerActive)
+                    else Row(Modifier.fillMaxWidth().height(20.dp).testTag("session-attachment-recovery"), verticalAlignment = Alignment.CenterVertically) {
+                        Text(recovery.message, Modifier.weight(1f), fontSize = 11.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        if (recovery.retryable) TextButton(onClick = onRetryConnection, modifier = Modifier.height(20.dp).testTag("session-attachment-retry"), contentPadding = PaddingValues(horizontal = 4.dp, vertical = 0.dp)) { Text("Retry", fontSize = 11.sp) }
+                    }
                 }
                 Box {
                     TextButton(
@@ -486,10 +495,12 @@ private fun CompactSessionHeader(
                         if (aiComposer) {
                             DropdownMenuItem(
                                 text = { Text("Ctrl+C") },
+                                enabled = state.viewMode != NativeViewMode.Native || state.mutationsAllowed || state.sourceMode == "shell",
                                 onClick = { actionMenu = false; onControlC() }
                             )
                             DropdownMenuItem(
                                 text = { Text("Shift+Tab") },
+                                enabled = state.viewMode != NativeViewMode.Native || state.mutationsAllowed || state.sourceMode == "shell",
                                 onClick = { actionMenu = false; onShellKey("SHIFT_TAB") }
                             )
                         }
@@ -991,7 +1002,7 @@ private fun ConversationFeed(
             val compatibility = state.conversationView == ConversationView.Conversation && state.items.isNotEmpty() &&
                 state.items.none { it.messagePurpose.isNotBlank() || it.activitySummary != null } && state.sourceMode != "shell"
             val preceding = 1 + (if (state.attention != null) 1 else 0) +
-                (if (state.providerStateKnown && !state.providerState.mutationsAllowed && state.sourceMode != "shell") 1 else 0) +
+                (if (state.providerStateKnown && !state.providerState.mutationsAllowed && state.providerState.reasonCode != "PROVIDER_STATE_REFRESHING" && state.sourceMode != "shell") 1 else 0) +
                 (if (earlierQuestions.isNotEmpty()) 1 else 0) + (if (compatibility) 1 else 0)
             listState.scrollToItem(index + preceding, anchorOffset)
         }
@@ -1062,10 +1073,10 @@ private fun ConversationFeed(
             }
             if (earlierQuestions.isNotEmpty()) {
                 item("earlier-questions") {
-                    EarlierQuestions(earlierQuestions, state.providerState.mutationsAllowed, onOpenEarlierQuestion, onOpenTerminal)
+                    EarlierQuestions(earlierQuestions, state.mutationsAllowed, onOpenEarlierQuestion, onOpenTerminal)
                 }
             }
-            if (state.providerStateKnown && !state.providerState.mutationsAllowed && state.sourceMode != "shell") {
+            if (state.providerStateKnown && !state.providerState.mutationsAllowed && state.providerState.reasonCode != "PROVIDER_STATE_REFRESHING" && state.sourceMode != "shell") {
                 item("provider-confidence") {
                     ProviderConfidenceCard(state.providerState, onOpenTerminal)
                 }

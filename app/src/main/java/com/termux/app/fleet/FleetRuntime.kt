@@ -201,7 +201,7 @@ class FleetRuntime(private val context: Context) {
             ?: throw FleetUnavailableException("Bash is missing from the restored Termux environment.")
         val arguments = arrayOf(
             wtmux.absolutePath,
-            "--noninteractive",
+            "--noninteractive", "--attach-existing",
             "--host", session.hostId,
             "--project", session.project,
             "--session", session.internalName
@@ -298,7 +298,7 @@ class FleetRuntime(private val context: Context) {
         val uri = Uri.Builder().scheme(TERMUX_SERVICE.URI_SCHEME_SERVICE_EXECUTE).path(bash.absolutePath).build()
         val intent = Intent(TERMUX_SERVICE.ACTION_SERVICE_EXECUTE, uri, context, TermuxService::class.java).apply {
             putExtra(TERMUX_SERVICE.EXTRA_ARGUMENTS, arrayOf(
-                wtmux.absolutePath, "--noninteractive", "--host", session.hostId,
+                wtmux.absolutePath, "--noninteractive", "--attach-existing", "--host", session.hostId,
                 "--project", session.project, "--session", session.internalName
             ))
             putExtra(TERMUX_SERVICE.EXTRA_WORKDIR, userHome.absolutePath)
@@ -839,7 +839,7 @@ class FleetRuntime(private val context: Context) {
     }
 
     fun attachCommand(session: FleetSession): String = listOf(
-        "wtmux", "--noninteractive", "--host", session.hostId,
+        "wtmux", "--noninteractive", "--attach-existing", "--host", session.hostId,
         "--project", session.project, "--session", session.internalName
     ).joinToString(" ") { shellDisplayQuote(it) }
 

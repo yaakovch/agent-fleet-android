@@ -18,6 +18,9 @@ public final class AgentFleetSessionResumeController {
         boolean hasRunningAttachment(String sessionId);
         void startAttachment(FleetSession session) throws Exception;
         boolean selectAttachment(String sessionId);
+        default boolean isOffline(String sessionId) { return false; }
+        @Nullable default String recoveryCode(String sessionId) { return null; }
+        default String recoveryMessage(String code) { return code; }
     }
 
     public interface Scheduler {
@@ -28,10 +31,11 @@ public final class AgentFleetSessionResumeController {
     public interface Listener {
         void onSelected(String sessionId);
         void onError(String message);
+        default void onRecovering(String sessionId) {}
+        default void onUnavailable(String sessionId, String message, boolean retryable) { onError(message); }
     }
 
     private static final int MAX_POLL_ATTEMPTS = 60;
-    private static final int MAX_VISIBLE_RESTARTS = 5;
     private static final long STABLE_ATTACHMENT_MILLIS = 30_000L;
     private static final long[] VISIBLE_RESTART_DELAYS = {1_000L, 2_000L, 5_000L, 10_000L, 30_000L};
 
@@ -46,6 +50,10 @@ public final class AgentFleetSessionResumeController {
     private String targetSessionId;
     private String startingSessionId;
     private int visibleRestartCount;
+    private boolean waitingForAvailability;
+    private boolean retryScheduled;
+    private String blockedCode;
+    private boolean forceProbe;
 
     public AgentFleetSessionResumeController(
         SessionLookup sessionLookup,
@@ -62,13 +70,25 @@ public final class AgentFleetSessionResumeController {
     /** Re-select the running attachment or recreate it once if it has ended. */
     public void onForeground(@Nullable String sessionId) {
         if (closed) return;
-        if (foreground && validSessionId(sessionId) && sessionId.equals(targetSessionId)) return;
+        if (foreground && validSessionId(sessionId) && sessionId.equals(targetSessionId)) {
+            // A notification can arrive after an exit callback was lost. Preserve
+            // in-flight work, but recheck an attachment that is no longer running.
+            if (startingSessionId != null || retryScheduled || waitingForAvailability || blockedCode != null ||
+                attachmentHost.hasRunningAttachment(sessionId)) return;
+            generation++;
+            scheduler.cancelAll();
+            drive(generation, 0);
+            return;
+        }
         foreground = true;
         generation++;
         scheduler.cancelAll();
         targetSessionId = validSessionId(sessionId) ? sessionId : null;
         startingSessionId = null;
         visibleRestartCount = 0;
+        waitingForAvailability = false;
+        retryScheduled = false;
+        blockedCode = null;
         if (targetSessionId != null) drive(generation, 0);
     }
 
@@ -78,13 +98,43 @@ public final class AgentFleetSessionResumeController {
         generation++;
         scheduler.cancelAll();
         startingSessionId = null;
-        if (visibleRestartCount >= MAX_VISIBLE_RESTARTS) {
-            listener.onError("The connection keeps ending. Switch away and reopen this session to retry.");
-            return;
-        }
+        listener.onRecovering(sessionId);
         long expectedGeneration = generation;
-        long delay = VISIBLE_RESTART_DELAYS[visibleRestartCount++];
-        scheduler.postDelayed(() -> drive(expectedGeneration, 0), delay);
+        long delay = VISIBLE_RESTART_DELAYS[Math.min(visibleRestartCount, VISIBLE_RESTART_DELAYS.length - 1)];
+        visibleRestartCount = Math.min(visibleRestartCount + 1, VISIBLE_RESTART_DELAYS.length);
+        retryScheduled = true;
+        scheduler.postDelayed(() -> {
+            if (expectedGeneration != generation || closed || !foreground) return;
+            retryScheduled = false;
+            drive(expectedGeneration, 0);
+        }, delay);
+    }
+
+    /** Availability updates cannot supersede an attachment launch already in flight. */
+    public void onAvailabilityChanged() {
+        if (closed || !foreground || targetSessionId == null || startingSessionId != null) return;
+        if (!waitingForAvailability && blockedCode == null) return;
+        if (attachmentHost.hasRunningAttachment(targetSessionId)) return;
+        if (blockedCode != null && blockedCode.equals(attachmentHost.recoveryCode(targetSessionId))) return;
+        if (attachmentHost.isOffline(targetSessionId)) return;
+        generation++;
+        scheduler.cancelAll();
+        retryScheduled = false;
+        waitingForAvailability = false;
+        blockedCode = null;
+        drive(generation, 0);
+    }
+
+    public void retry() {
+        if (closed || !foreground || targetSessionId == null || startingSessionId != null) return;
+        generation++;
+        scheduler.cancelAll();
+        retryScheduled = false;
+        waitingForAvailability = false;
+        blockedCode = null;
+        visibleRestartCount = 0;
+        forceProbe = true;
+        drive(generation, 0);
     }
 
     public void onBackground() {
@@ -92,6 +142,10 @@ public final class AgentFleetSessionResumeController {
         targetSessionId = null;
         startingSessionId = null;
         visibleRestartCount = 0;
+        waitingForAvailability = false;
+        retryScheduled = false;
+        blockedCode = null;
+        forceProbe = false;
         generation++;
         scheduler.cancelAll();
     }
@@ -115,13 +169,28 @@ public final class AgentFleetSessionResumeController {
             return;
         }
 
+        String recoveryCode = attachmentHost.recoveryCode(sessionId);
+        if (recoveryCode != null && !retryableCode(recoveryCode)) {
+            blockedCode = recoveryCode;
+            listener.onUnavailable(sessionId, attachmentHost.recoveryMessage(recoveryCode), false);
+            return;
+        }
+        if (!forceProbe && attachmentHost.isOffline(sessionId)) {
+            waitingForAvailability = true;
+            listener.onUnavailable(sessionId, "Host is offline. Reconnecting when it returns.", true);
+            return;
+        }
+        forceProbe = false;
+
         if (!sessionId.equals(startingSessionId)) {
             FleetSession session = sessionLookup.find(sessionId);
             if (session == null) {
-                listener.onError("The remembered session is unavailable. Open it again from Sessions.");
+                blockedCode = "SESSION_UNAVAILABLE";
+                listener.onUnavailable(sessionId, "This session is unavailable. Open Sessions to choose another.", false);
                 return;
             }
             startingSessionId = sessionId;
+            listener.onRecovering(sessionId);
             try {
                 attachmentHost.startAttachment(session);
             } catch (Exception error) {
@@ -137,7 +206,7 @@ public final class AgentFleetSessionResumeController {
 
         if (attempt >= MAX_POLL_ATTEMPTS) {
             startingSessionId = null;
-            listener.onError("The session could not reconnect. Open it again from Sessions.");
+            onAttachmentEnded(sessionId);
             return;
         }
         schedule(expectedGeneration, attempt + 1);
@@ -159,5 +228,14 @@ public final class AgentFleetSessionResumeController {
 
     private static boolean validSessionId(@Nullable String value) {
         return value != null && value.matches("[A-Za-z0-9._: -]{1,180}");
+    }
+
+    private static boolean retryableCode(String code) {
+        switch (code) {
+            case "NETWORK_UNREACHABLE": case "DNS_UNAVAILABLE": case "HOST_RESPONSE_INVALID":
+            case "HOST_RUNTIME_UNAVAILABLE": case "ENDPOINT_TRUST_UNAVAILABLE": case "HANDSHAKE_TIMEOUT":
+            case "HEARTBEAT_TIMEOUT": case "SNAPSHOT_TIMEOUT": return true;
+            default: return false;
+        }
     }
 }

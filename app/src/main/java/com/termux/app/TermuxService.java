@@ -749,7 +749,7 @@ public final class TermuxService extends Service implements TermuxTask.TermuxTas
         Resources res = getResources();
 
         // Set pending intent to be launched when notification is clicked
-        Intent notificationIntent = TermuxActivity.newInstance(this);
+        Intent notificationIntent = TermuxActivity.newInstance(this).setAction(Intent.ACTION_MAIN);
         PendingIntent contentIntent = PendingIntent.getActivity(this, 0, notificationIntent, 0);
 
 

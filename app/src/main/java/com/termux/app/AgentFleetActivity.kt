@@ -2631,7 +2631,6 @@ private fun FleetAlertSettingsCard(
             FleetAlertSettingRow("Usage limits", FleetAlertCategory.HardLimits, settings, onSettings)
             FleetAlertSettingRow("Delivery failures", FleetAlertCategory.DeliveryFailures, settings, onSettings)
             FleetAlertSettingRow("Delivery success", FleetAlertCategory.DeliverySuccess, settings, onSettings)
-            FleetAlertSettingRow("Host offline and recovery", FleetAlertCategory.HostState, settings, onSettings)
             FleetAlertSettingRow("Runtime version drift", FleetAlertCategory.VersionDrift, settings, onSettings)
             FleetAlertSettingRow("Pairing requests", FleetAlertCategory.Pairing, settings, onSettings)
         }

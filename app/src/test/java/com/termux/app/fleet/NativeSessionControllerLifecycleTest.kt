@@ -14,6 +14,28 @@ import org.robolectric.RuntimeEnvironment
 @RunWith(RobolectricTestRunner::class)
 class NativeSessionControllerLifecycleTest {
     @Test
+    fun repeatedSameSessionBindingRetainsVisibleConversation() {
+        val context: Context = RuntimeEnvironment.getApplication()
+        val controller = NativeSessionController(FakeHost(context), ComposeView(context))
+        val intent = Intent().putExtra(AgentFleetContract.EXTRA_NATIVE_SESSION, true)
+            .putExtra(AgentFleetContract.EXTRA_HOST_ID, "startup-host")
+            .putExtra(AgentFleetContract.EXTRA_INTERNAL_SESSION, "startup-session")
+            .putExtra(AgentFleetContract.EXTRA_WORKSPACE_SESSION_ID, "startup-host:startup-session")
+        controller.bind(intent)
+        val field = NativeSessionController::class.java.getDeclaredField("uiState").apply { isAccessible = true }
+        @Suppress("UNCHECKED_CAST")
+        val state = field.get(controller) as androidx.compose.runtime.MutableState<NativeSessionUiState>
+        val message = ConversationItem("newest", "message", "2026-10-07T00:00:00Z", "assistant", "", "Retained message", "", "complete", "", emptyList(), emptyList())
+        state.value = state.value.copy(items = listOf(message), connection = "Live")
+        val generation = NativeSessionController::class.java.getDeclaredField("generation").apply { isAccessible = true }
+        val before = generation.getInt(controller)
+        controller.bind(intent)
+        assertEquals(listOf(message), state.value.items)
+        assertEquals(before, generation.getInt(controller))
+        controller.close()
+    }
+
+    @Test
     fun providerStateIsUnknownUntilAuthoritativeFrameArrives() {
         val context: Context = RuntimeEnvironment.getApplication()
         val controller = NativeSessionController(FakeHost(context), ComposeView(context))

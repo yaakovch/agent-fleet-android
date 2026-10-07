@@ -6,6 +6,17 @@ import org.junit.Test
 
 class AgentFleetSessionResumeControllerTest {
     @Test
+    fun notificationReentryRechecksAnAttachmentThatDiedWithoutItsCallback() {
+        val session = session()
+        val host = FakeHost(running = true)
+        val controller = controller(session, host, FakeScheduler(), mutableListOf(), mutableListOf())
+        controller.onForeground(session.id)
+        host.running = false
+        controller.onForeground(session.id)
+        assertEquals(1, host.starts)
+    }
+
+    @Test
     fun endedAttachmentStartsOnceAndSelectsItsReplacement() {
         val session = session()
         val host = FakeHost()
@@ -123,6 +134,74 @@ class AgentFleetSessionResumeControllerTest {
         assertEquals(0, host.starts)
     }
 
+
+    @Test
+    fun offlineWaitsForAvailabilityAndNeverLaunchesDuplicateAttempts() {
+        val session = session()
+        val host = FakeHost(offline = true)
+        val scheduler = FakeScheduler()
+        val controller = controller(session, host, scheduler, mutableListOf(), mutableListOf())
+        controller.onForeground(session.id)
+        assertEquals(0, host.starts)
+        assertTrue(scheduler.delays.isEmpty())
+        controller.onForeground(session.id)
+        controller.onAvailabilityChanged()
+        assertEquals(0, host.starts)
+        host.offline = false
+        controller.onAvailabilityChanged()
+        controller.onAvailabilityChanged()
+        controller.retry()
+        controller.onForeground(session.id)
+        assertEquals(1, host.starts)
+        host.running = true
+        scheduler.runNext()
+        assertEquals(1, host.selections)
+    }
+
+    @Test
+    fun permanentTrustAndMissingSessionErrorsDoNotStartOrRetry() {
+        for (code in listOf("HOST_KEY_CHANGED", "SSH_AUTH_REQUIRED", "SESSION_UNAVAILABLE", "EXACT_ATTACH_UNSUPPORTED")) {
+            val session = session()
+            val host = FakeHost(code = code)
+            val scheduler = FakeScheduler()
+            val errors = mutableListOf<String>()
+            val controller = controller(session, host, scheduler, mutableListOf(), errors)
+            controller.onForeground(session.id)
+            controller.onAvailabilityChanged()
+            controller.retry()
+            assertEquals(code, 0, host.starts)
+            assertTrue(code, scheduler.delays.isEmpty())
+            assertTrue(code, errors.isNotEmpty())
+        }
+    }
+
+    @Test
+    fun recoveryBackoffContinuesAtThirtySecondsAndBackgroundCancelsIt() {
+        val session = session()
+        val host = FakeHost(running = true)
+        val scheduler = FakeScheduler()
+        val controller = controller(session, host, scheduler, mutableListOf(), mutableListOf())
+        controller.onForeground(session.id)
+        val observed = mutableListOf<Long>()
+        repeat(8) {
+            host.running = false
+            controller.onAttachmentEnded(session.id)
+            observed += scheduler.delays.last()
+            scheduler.runNext()
+            host.running = true
+            scheduler.runNext()
+        }
+        assertEquals(listOf(1000L, 2000L, 5000L, 10000L, 30000L, 30000L, 30000L, 30000L), observed)
+        assertEquals(8, host.starts)
+        host.running = false
+        controller.onAttachmentEnded(session.id)
+        val cancelled = scheduler.peek()
+        controller.onBackground()
+        cancelled?.run()
+        scheduler.runAll()
+        assertEquals(8, host.starts)
+    }
+
     private fun controller(
         session: FleetSession,
         host: FakeHost,
@@ -144,11 +223,15 @@ class AgentFleetSessionResumeControllerTest {
 
     private class FakeHost(
         var running: Boolean = false,
-        private val startFailure: Exception? = null
+        private val startFailure: Exception? = null,
+        var offline: Boolean = false,
+        var code: String? = null
     ) : AgentFleetSessionResumeController.AttachmentHost {
         var starts = 0
         var selections = 0
 
+        override fun isOffline(sessionId: String) = offline
+        override fun recoveryCode(sessionId: String) = code
         override fun hasRunningAttachment(sessionId: String): Boolean = running
         override fun startAttachment(session: FleetSession) {
             starts++
@@ -162,8 +245,10 @@ class AgentFleetSessionResumeControllerTest {
 
     private class FakeScheduler : AgentFleetSessionResumeController.Scheduler {
         private val pending = java.util.ArrayDeque<Runnable>()
+        val delays = mutableListOf<Long>()
+        fun peek(): Runnable? = pending.peekFirst()
 
-        override fun postDelayed(runnable: Runnable, delayMillis: Long) { pending += runnable }
+        override fun postDelayed(runnable: Runnable, delayMillis: Long) { pending += runnable; delays += delayMillis }
         override fun cancelAll() { pending.clear() }
         fun runNext() { pending.pollFirst()?.run() }
         fun runAll() { while (pending.isNotEmpty()) pending.removeFirst().run() }

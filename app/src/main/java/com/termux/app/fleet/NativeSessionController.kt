@@ -27,6 +27,7 @@ interface NativeSessionHost {
     fun pickAgentFleetCamera()
     fun setAgentFleetNativeView(nativeAvailable: Boolean, nativeView: Boolean, automaticTerminal: Boolean, aiComposer: Boolean)
     fun closeAgentFleetSessionTab()
+    fun retryAgentFleetAttachment() {}
 }
 
 internal fun nativeSessionCompositionStrategy(retainAcrossDetach: Boolean): ViewCompositionStrategy =
@@ -61,6 +62,8 @@ class NativeSessionController @JvmOverloads constructor(
     private var aiComposer = false
     private var localSession = false
     private var workspaceSessionId = ""
+    private var contentBinding = ""
+    private var targetBinding = ""
     private var composerTarget = ""
     private val streamLaunchGate = ConversationStreamLaunchGate()
     @Volatile private var streamProcess: Process? = null
@@ -85,7 +88,7 @@ class NativeSessionController @JvmOverloads constructor(
     private val modelRequestGate = ModelControlRequestGate()
     private val modelPoll = object : Runnable {
         override fun run() {
-            if (visible && enabled && !localSession) refreshModelControl(includeCatalog = false, showLoading = false)
+            if (visible && enabled && !localSession && uiState.value.providerState.mutationsAllowed) refreshModelControl(includeCatalog = false, showLoading = false)
             if (visible) {
                 main.postDelayed(
                     this,
@@ -104,7 +107,7 @@ class NativeSessionController @JvmOverloads constructor(
                     state = uiState.value,
                     aiComposer = aiComposer,
                     onToggleTerminal = ::toggleTerminal,
-                    onRetry = ::restartNow,
+                    onRetry = ::retryConnection,
                     onLoadOlder = ::loadOlder,
                     onLoadActivity = ::loadActivity,
                     onCancelActivity = ::cancelActivity,
@@ -112,10 +115,10 @@ class NativeSessionController @JvmOverloads constructor(
                     onApproval = ::respondApproval,
                     onQuestion = ::respondQuestion,
                     onShellCommand = ::sendShellCommand,
-                    onShellKey = activity::sendAgentFleetKey,
+                    onShellKey = { key -> if (canSendInput()) activity.sendAgentFleetKey(key) },
                     onDirectory = ::openDirectory,
                     onRefreshDirectory = ::refreshDirectories,
-                    onControlC = { activity.sendAgentFleetControlC() },
+                    onControlC = { if (canSendInput()) activity.sendAgentFleetControlC() },
                     onCloseSession = ::closeSession,
                     onKillSession = ::killSession,
                     onScheduleContinue = ::scheduleLimitContinue,
@@ -145,47 +148,77 @@ class NativeSessionController @JvmOverloads constructor(
                     onSetModel = ::setModelControl,
                     onCancelModel = ::cancelModelControl,
                     aiComposer = aiComposer,
-                    onControlC = { activity.sendAgentFleetControlC() },
-                    onShellKey = activity::sendAgentFleetKey,
+                    onControlC = { if (canSendInput()) activity.sendAgentFleetControlC() },
+                    onShellKey = { key -> if (canSendInput()) activity.sendAgentFleetKey(key) },
                     onCloseSession = ::closeSession,
-                    onKillSession = ::killSession
+                    onKillSession = ::killSession,
+                    onRetryConnection = ::retryConnection
                 )
             }
         }
     }
 
     fun bind(intent: Intent?) {
+        val host = intent?.getStringExtra(AgentFleetContract.EXTRA_HOST_ID).orEmpty()
+        val session = intent?.getStringExtra(AgentFleetContract.EXTRA_INTERNAL_SESSION).orEmpty()
+        val label = intent?.getStringExtra(AgentFleetContract.EXTRA_SESSION_NAME).orEmpty().ifBlank { session }
+        val nextWorkspace = intent?.getStringExtra(AgentFleetContract.EXTRA_WORKSPACE_SESSION_ID).orEmpty()
+        val project = intent?.getStringExtra(AgentFleetContract.EXTRA_PROJECT).orEmpty()
+        val nextLocal = intent?.getBooleanExtra(AgentFleetContract.EXTRA_LOCAL_SESSION, false) == true
+        val nextEnabled = intent?.getBooleanExtra(AgentFleetContract.EXTRA_NATIVE_SESSION, false) == true &&
+            NativeSessionSettings.isEnabled(activity.nativeContext) && (nextLocal || (host.isNotBlank() && session.isNotBlank()))
+        val snapshot = FleetSnapshotStore.latestSnapshot()
+        val metadata = DrawerSessionStore(activity.nativeContext.applicationContext).sessionFor(nextWorkspace)
+        val binding = JSONArray(listOf(host, session, nextWorkspace, project, nextLocal.toString(),
+            metadata?.tool.orEmpty(), metadata?.backend.orEmpty(), metadata?.executionTargetId.orEmpty(),
+            metadata?.projectPath.orEmpty(), snapshot?.hosts?.firstOrNull { it.id == host }?.wtmuxVersion.orEmpty(),
+            snapshot?.executionTargets?.firstOrNull { it.id == metadata?.executionTargetId && it.physicalHostId == metadata?.physicalHostId }?.fingerprint.orEmpty())).toString()
+        val bindingView = NativeSessionSettings.conversationView(activity.nativeContext)
+        val cacheBinding = binding + "\u0000" + bindingView.wire
+        if (targetBinding == binding && enabled == nextEnabled) {
+            if (uiState.value.conversationView != bindingView) restartForView()
+            aiComposer = intent?.getBooleanExtra(AgentFleetContract.EXTRA_COMPOSE_INPUT, false) == true
+            uiState.value = uiState.value.copy(sessionLabel = label.ifBlank { uiState.value.sessionLabel })
+            when (intent?.getStringExtra(AgentFleetContract.EXTRA_INITIAL_SURFACE)) {
+                AgentFleetContract.SURFACE_NATIVE -> applyViewMode(NativeViewMode.Native)
+                AgentFleetContract.SURFACE_TERMINAL -> applyViewMode(NativeViewMode.ManualTerminal)
+                else -> reapplyPresentation()
+            }
+            return
+        }
         generation++
         modelRequestGate.reset()
         stopProcess()
         FleetSnapshotStore.removeObserver(this)
-        fleetSnapshot = null
+        fleetSnapshot = snapshot
         dismissedAttentionId = null
         retryBlocked = false
-        val host = intent?.getStringExtra(AgentFleetContract.EXTRA_HOST_ID).orEmpty()
-        val session = intent?.getStringExtra(AgentFleetContract.EXTRA_INTERNAL_SESSION).orEmpty()
-        val label = intent?.getStringExtra(AgentFleetContract.EXTRA_SESSION_NAME).orEmpty().ifBlank { session }
+        retryIndex = 0
+        if (workspaceSessionId == nextWorkspace && targetBinding != binding) NativeConversationContentCache.removeSession(targetBinding)
+        targetBinding = binding
+        contentBinding = cacheBinding
+        val cached = if (nextEnabled && !nextLocal) NativeConversationContentCache.get(cacheBinding) else null
         aiComposer = intent?.getBooleanExtra(AgentFleetContract.EXTRA_COMPOSE_INPUT, false) == true
-        localSession = intent?.getBooleanExtra(AgentFleetContract.EXTRA_LOCAL_SESSION, false) == true
-        workspaceSessionId = intent?.getStringExtra(AgentFleetContract.EXTRA_WORKSPACE_SESSION_ID).orEmpty()
-        val project = intent?.getStringExtra(AgentFleetContract.EXTRA_PROJECT).orEmpty()
+        localSession = nextLocal
+        workspaceSessionId = nextWorkspace
         composerTarget = agentFleetComposerTarget(
             host,
             project,
             if (localSession) "local" else session
         )
-        enabled = intent?.getBooleanExtra(AgentFleetContract.EXTRA_NATIVE_SESSION, false) == true &&
-            NativeSessionSettings.isEnabled(activity.nativeContext) && (localSession || (host.isNotBlank() && session.isNotBlank()))
-        if (uiState.value.hostId != host || uiState.value.internalSession != (if (localSession) "local" else session)) {
-            completedQuestions.clear()
-        }
+        enabled = nextEnabled
+        completedQuestions.clear()
         uiState.value = NativeSessionUiState(
             label.ifBlank { if (localSession) "Local shell" else "Session" },
             host,
             if (localSession) "local" else session,
-            adapter = if (localSession) "shell" else "connecting",
+            adapter = if (localSession) "shell" else cached?.adapter ?: "connecting",
             sourceMode = if (localSession) "shell" else "ai",
-            connection = if (localSession) "Live" else "Connecting…",
+            connection = if (localSession) "Live" else if (cached?.items?.isNotEmpty() == true) "Refreshing…" else "Connecting…",
+            items = cached?.items.orEmpty(),
+            revision = cached?.revision.orEmpty(),
+            nextCursor = cached?.nextCursor,
+            hasMore = cached?.hasMore == true,
             cwd = if (localSession) home.absolutePath else "",
             surfaceActive = visible,
             conversationView = NativeSessionSettings.conversationView(activity.nativeContext)
@@ -217,6 +250,16 @@ class NativeSessionController @JvmOverloads constructor(
         if (shouldRunStream() && streamProcess == null) startStream()
         main.removeCallbacks(modelPoll)
         main.post(modelPoll)
+    }
+
+    fun attachmentRecovery(message: String?, retryable: Boolean) {
+        uiState.value = uiState.value.copy(attachmentRecovery = message?.let { SessionAttachmentRecovery(it, retryable) })
+        updateComposerState()
+    }
+
+    private fun retryConnection() {
+        activity.retryAgentFleetAttachment()
+        restartNow()
     }
 
     fun reapplyPresentation() {
@@ -349,8 +392,10 @@ class NativeSessionController @JvmOverloads constructor(
         }
     }
 
+    fun canSendInput(): Boolean = localSession || uiState.value.viewMode != NativeViewMode.Native || uiState.value.mutationsAllowed
+
     private fun sendComposerText(text: String, appendEnter: Boolean): Boolean {
-        if (!localSession && !uiState.value.providerState.mutationsAllowed) {
+        if (!localSession && !uiState.value.mutationsAllowed) {
             uiState.value = uiState.value.copy(
                 error = "Native input is read-only for this provider state. Open Terminal to send."
             )
@@ -373,7 +418,8 @@ class NativeSessionController @JvmOverloads constructor(
                 visible && native,
                 uiState.value.items,
                 uiState.value.revision,
-                uiState.value.liveEventSerial
+                uiState.value.liveEventSerial,
+                localSession || uiState.value.mutationsAllowed
             )
         }
         activity.setAgentFleetNativeView(
@@ -439,6 +485,9 @@ class NativeSessionController @JvmOverloads constructor(
         if (previousViewArguments != conversationViewArguments() && streamProcess != null) restartForView()
         val sessionId = "${uiState.value.hostId}:${uiState.value.internalSession}"
         val session = snapshot.sessions.firstOrNull { it.id == sessionId }
+        if (session == null && snapshot.hosts.any { it.id == uiState.value.hostId && it.status == "healthy" }) {
+            NativeConversationContentCache.removeSession(targetBinding)
+        }
         val hiddenId = dismissedAttentionId
         if (hiddenId != null && snapshot.attention.none { it.id == hiddenId }) dismissedAttentionId = null
         val attention = activeAttentionForSession(snapshot, sessionId, dismissedAttentionId)
@@ -449,7 +498,7 @@ class NativeSessionController @JvmOverloads constructor(
             attentionBusy = if (sameAttention) uiState.value.attentionBusy else false,
             attentionError = if (sameAttention) uiState.value.attentionError else null
         )
-        if (uiState.value.modelControl == null) {
+        if (uiState.value.modelControl == null && uiState.value.providerState.mutationsAllowed) {
             refreshModelControl(includeCatalog = false, showLoading = false)
         }
     }
@@ -570,6 +619,7 @@ class NativeSessionController @JvmOverloads constructor(
     }
 
     private fun closeSession() {
+        NativeConversationContentCache.removeSession(targetBinding)
         FleetSnapshotStore.removeObserver(this)
         activity.closeAgentFleetSessionTab()
     }
@@ -709,7 +759,11 @@ class NativeSessionController @JvmOverloads constructor(
     private fun startStream() {
         val launchTicket = streamLaunchGate.begin(shouldRunStream()) ?: return
         val token = generation
-        uiState.value = uiState.value.copy(connection = if (retryIndex == 0) "Connecting…" else "Reconnecting…", error = null)
+        uiState.value = uiState.value.copy(
+            connection = if (uiState.value.items.isNotEmpty()) "Refreshing…" else if (retryIndex == 0) "Connecting…" else "Reconnecting…",
+            providerState = ProviderState.unavailable(), providerStateKnown = false, error = null
+        )
+        updateComposerState()
         thread(name = "native-session-stream", isDaemon = true) {
             var process: Process? = null
             var stderrReader: Thread? = null
@@ -746,7 +800,15 @@ class NativeSessionController @JvmOverloads constructor(
                             launchedProcess.destroyForciblyCompat()
                             break
                         }
-                        main.post { if (token == generation) applyFrame(frame) }
+                        main.post {
+                            if (token == generation) {
+                                applyFrame(frame)
+                                if ((frame is ConversationFrame.Snapshot && frame.session == uiState.value.internalSession) ||
+                                    (frame is ConversationFrame.Event && frame.session == uiState.value.internalSession)) {
+                                    NativeConversationContentCache.record(contentBinding, line)
+                                }
+                            }
+                        }
                     }
                 }
                 launchedProcess.waitFor()
@@ -801,6 +863,7 @@ class NativeSessionController @JvmOverloads constructor(
     }
 
     private fun restartForView() {
+        contentBinding = targetBinding + "\u0000" + NativeSessionSettings.conversationView(activity.nativeContext).wire
         if (responsesInFlight > 0) { viewRestartPending = true; return }
         viewRestartPending = false
         uiState.value = uiState.value.copy(conversationView = NativeSessionSettings.conversationView(activity.nativeContext), activityPages = emptyMap())
@@ -826,7 +889,7 @@ class NativeSessionController @JvmOverloads constructor(
             providerActivityAuthoritative = false,
             providerState = ProviderState.unavailable(),
             providerStateKnown = false,
-            connection = "Connecting…"
+            connection = if (uiState.value.items.isNotEmpty()) "Refreshing…" else "Connecting…"
         )
         if (shouldRunStream()) startStream()
     }
@@ -865,7 +928,7 @@ class NativeSessionController @JvmOverloads constructor(
                     adapter = frame.adapter,
                     sourceMode = frame.mode,
                     interactionMode = frame.interactionMode,
-                    connection = "Live",
+                    connection = if (frame.providerState?.reasonCode == "PROVIDER_STATE_REFRESHING") "Refreshing…" else "Live",
                     revision = frame.revision,
                     items = mergeConversationItems(emptyList(), completedQuestions.reconcile(incoming, uiState.value.items)),
                     nextCursor = frame.nextCursor,
@@ -1032,7 +1095,7 @@ class NativeSessionController @JvmOverloads constructor(
         if (uiState.value.items.firstOrNull { it.id == value.id }?.state in setOf("running", "complete")) return
         val revision = value.revision ?: return
         val provider = uiState.value.providerState
-        if (!provider.mutationsAllowed) {
+        if (!uiState.value.mutationsAllowed) {
             uiState.value = uiState.value.copy(
                 error = "Native actions are read-only for this provider state. Open Terminal to respond."
             )
@@ -1067,7 +1130,7 @@ class NativeSessionController @JvmOverloads constructor(
         if (currentState == "running" || currentState == "complete") return
         val revision = value.revision ?: return
         val provider = uiState.value.providerState
-        if (!provider.mutationsAllowed) {
+        if (!uiState.value.mutationsAllowed) {
             uiState.value = uiState.value.copy(
                 error = "Native actions are read-only for this provider state. Open Terminal to respond."
             )

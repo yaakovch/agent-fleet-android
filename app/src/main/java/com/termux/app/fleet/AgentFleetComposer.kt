@@ -70,7 +70,8 @@ object AgentFleetComposer {
         visible: Boolean,
         items: List<ConversationItem>,
         revision: String,
-        liveEventSerial: Long
+        liveEventSerial: Long,
+        mutationsAllowed: Boolean = false
     ) {
         nativeState = AgentFleetComposerNativeState(
             target = target,
@@ -79,7 +80,8 @@ object AgentFleetComposer {
             visible = visible,
             items = items,
             revision = revision,
-            liveEventSerial = liveEventSerial
+            liveEventSerial = liveEventSerial,
+            mutationsAllowed = mutationsAllowed
         )
     }
 
@@ -379,7 +381,8 @@ internal data class AgentFleetComposerNativeState(
     val visible: Boolean = false,
     val items: List<ConversationItem> = emptyList(),
     val revision: String = "",
-    val liveEventSerial: Long = 0
+    val liveEventSerial: Long = 0,
+    val mutationsAllowed: Boolean = false
 )
 
 internal data class AgentFleetComposerUploadTicket(val target: String, val generation: Long)
@@ -601,6 +604,7 @@ internal fun AgentFleetComposerContent(
     }
 
     val nativeForTarget = nativeState.target == target && nativeState.visible
+    val inputAllowed = !nativeForTarget || nativeState.mutationsAllowed
     val planMode = nativeState.target == target && nativeState.interactionMode == "plan"
     var observedLiveSerial by remember(target) { mutableStateOf(nativeState.liveEventSerial) }
     var observedSuggestionKey by remember(target) { mutableStateOf("") }
@@ -693,7 +697,7 @@ internal fun AgentFleetComposerContent(
                                 localSuggestions.clear()
                             }
                         },
-                        enabled = !uploading && hasContent,
+                        enabled = !uploading && hasContent && inputAllowed,
                         modifier = Modifier.fillMaxWidth().testTag("agent-fleet-composer-insert"),
                         contentPadding = DenseButtonPadding
                     ) { Text("Insert", fontSize = density.nativeMetadataSp.sp) }
@@ -704,7 +708,7 @@ internal fun AgentFleetComposerContent(
                                 localSuggestions.clear()
                             }
                         },
-                        enabled = !uploading,
+                        enabled = !uploading && inputAllowed,
                         modifier = Modifier.fillMaxWidth().testTag("agent-fleet-composer-send"),
                         contentPadding = DenseButtonPadding,
                         shape = RoundedCornerShape(12.dp)

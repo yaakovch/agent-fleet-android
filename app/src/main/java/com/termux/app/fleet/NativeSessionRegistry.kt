@@ -485,6 +485,8 @@ private class ForwardingNativeSessionHost(
         delegate?.host?.setAgentFleetNativeView(nativeAvailable, nativeView, automaticTerminal, aiComposer)
     }
 
+    override fun retryAgentFleetAttachment() { delegate?.host?.retryAgentFleetAttachment() }
+
     override fun closeAgentFleetSessionTab() {
         delegate?.host?.closeAgentFleetSessionTab()
     }
