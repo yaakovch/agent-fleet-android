@@ -85,6 +85,29 @@ For a publish-bound change, run the focused regression and then `full`; do not
 also run `fast`, because `full` contains that Compose coverage. `fast` remains
 the normal iteration loop for UI changes that are not immediately releasing.
 
+For a release checkout on the WSL filesystem, select the installed Linux build
+SDK explicitly when running the canonical release pipeline:
+
+```bash
+ANDROID_HOME="$HOME/.local/share/android-sdk" ANDROID_SDK_ROOT="$HOME/.local/share/android-sdk" bash scripts/release/app-release.sh
+```
+
+The default release SDK search prefers Windows; that selects a Windows Gradle
+build, and `cmd.exe` cannot use a UNC checkout as its working directory. This
+build SDK choice leaves the protected Windows API36 emulator backend unchanged.
+
+Native startup acceptance uses `NativeStartupAcceptanceTest` with the private
+`scripts/debug/native-startup-probe.py` tmux/OpenSSH fixture. Reserve its ports
+before starting it and retain the ephemeral key only in private test storage.
+The full timing method performs 20 cache-cold Activity opens, 20 actual
+Terminal/Native switches, a notification tap, exact attachment replacement,
+an actual Send tap and a unique visible reply. Select
+`#notificationRecoveryProbe` for a shorter diagnostic run. Wait for the button's
+input authority rather than its Text child's accessibility enabled flag, and
+advance the Compose test clock while waiting for stream callbacks. Remove the
+fixture file and forwarding before normal full release validation. This is an
+emulator fixture; it does not operate the physical phone.
+
 Force the Gradle-managed emulator for CI parity or after changing emulator
 orchestration:
 
