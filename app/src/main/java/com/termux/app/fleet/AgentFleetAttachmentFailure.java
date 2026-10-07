@@ -10,7 +10,9 @@ public final class AgentFleetAttachmentFailure {
     @Nullable public static String permanentCode(int exitStatus, String output) {
         if (exitStatus == 0 || exitStatus == 130 || output == null) return null;
         String tail = output.substring(Math.max(0, output.length() - 8192)).toLowerCase(Locale.ROOT);
-        if (tail.matches("(?s).*\\b(session_unavailable|session_invalid):.*")) return "SESSION_UNAVAILABLE";
+        if (tail.matches("(?s).*\\b(session_unavailable|session_invalid):.*") ||
+            tail.matches("(?s).*\\[wtmux\\]\\[error\\] (session_unavailable|session_invalid)(?:\\r?\\n|$).*"))
+            return "SESSION_UNAVAILABLE";
         if (exitStatus != 255) return null;
         if (tail.contains("remote host identification has changed") || tail.contains("host key verification failed")) return "HOST_KEY_CHANGED";
         if (tail.contains("permission denied (publickey") || tail.contains("permission denied (password") ||

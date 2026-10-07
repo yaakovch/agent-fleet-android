@@ -11,6 +11,7 @@ import json
 import os
 from pathlib import Path
 import shlex
+import shutil
 import signal
 import subprocess
 import sys
@@ -24,7 +25,9 @@ def run(*args: str, **kwargs: object) -> str:
 
 def environment(root: Path) -> dict[str, str]:
     state = json.loads((root / "state.json").read_text())
-    return {**os.environ, "WTMUX_SCHEDULER_TMUX_SOCKET": state["socket"],
+    return {**os.environ, "PATH": str(root / "bin") + os.pathsep + os.environ["PATH"],
+            "WTMUX_RUNTIME_BIN_DIR": str(root / "bin"),
+            "WTMUX_SCHEDULER_TMUX_SOCKET": state["socket"],
             "WTMUX_CONVERSATION_STATE_DIR": str(root / "outcomes"),
             "WTMUX_CONFIG_PATH": str(root / "host.conf"), "CODEX_HOME": str(root / ".codex-fixture")}
 
@@ -48,6 +51,22 @@ def ssh(root: Path) -> None:
         raise SystemExit("Only read-only fixture streams and exact attachment are accepted")
     with (root / "requests.jsonl").open("a") as log:
         log.write(json.dumps({"at": time.time(), "channel": command[1], "session": state["session"]}) + "\n")
+    if command[1] == "conversation":
+        process = subprocess.Popen(command, env=environment(root), stdout=subprocess.PIPE, start_new_session=True)
+        try:
+            assert process.stdout is not None
+            for line in process.stdout:
+                frame = json.loads(line)
+                with (root / "response-metadata.jsonl").open("a") as log:
+                    log.write(json.dumps({"at": time.time(), "type": frame.get("type"),
+                        "session": frame.get("session"), "items": len(frame.get("items", []))}) + "\n")
+                sys.stdout.buffer.write(line)
+                sys.stdout.buffer.flush()
+        finally:
+            if process.poll() is None:
+                os.killpg(process.pid, signal.SIGTERM)
+            process.wait()
+        raise SystemExit(process.returncode)
     os.execve(helper, command, environment(root))
 
 
@@ -71,9 +90,13 @@ def agent(root: Path) -> None:
 def start(args: argparse.Namespace, root: Path) -> None:
     root.mkdir(mode=0o700, parents=True, exist_ok=False)
     script = Path(__file__).resolve()
-    state = {"source": str(args.source.resolve()), "session": "native-startup",
+    state = {"source": str(args.source.resolve()), "session": "native-startup", "tmux": shutil.which("tmux"),
              "socket": "native-startup-" + uuid.uuid4().hex[:12], "processes": []}
     (root / "state.json").write_text(json.dumps(state))
+    (root / "bin").mkdir()
+    shim = root / "bin/tmux"
+    shim.write_text('#!/bin/sh\nexec ' + shlex.quote(state["tmux"]) + ' -L ' + shlex.quote(state["socket"]) + ' "$@"\n')
+    shim.chmod(0o700)
     (root / ".codex-fixture/sessions").mkdir(parents=True)
     (root / "host.conf").write_text("# wtmux shared-registry loader v2\nWTMUX_MACHINE_IDS=()\n")
     for name in ("ssh-host", "ssh-client"):

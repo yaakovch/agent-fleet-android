@@ -13,6 +13,8 @@ class AgentFleetAttachmentFailureTest {
         assertEquals("HOST_KEY_CHANGED", AgentFleetAttachmentFailure.permanentCode(255, "WARNING: REMOTE HOST IDENTIFICATION HAS CHANGED!"))
         assertEquals("SSH_AUTH_REQUIRED", AgentFleetAttachmentFailure.permanentCode(255, "user@host: Permission denied (publickey,password)."))
         assertEquals("SESSION_UNAVAILABLE", AgentFleetAttachmentFailure.permanentCode(1, "wtmux: SESSION_UNAVAILABLE: the exact session no longer exists"))
+        assertEquals("SESSION_UNAVAILABLE", AgentFleetAttachmentFailure.permanentCode(1, "[wtmux][error] SESSION_UNAVAILABLE\n"))
+        assertNull(AgentFleetAttachmentFailure.permanentCode(1, "The documentation mentions SESSION_UNAVAILABLE without an error prefix."))
         assertNull(AgentFleetAttachmentFailure.permanentCode(0, "Permission denied (publickey)."))
         assertNull(AgentFleetAttachmentFailure.permanentCode(130, "Permission denied (publickey)."))
         assertNull(AgentFleetAttachmentFailure.permanentCode(1, "Permission denied (publickey)."))

@@ -14,6 +14,8 @@ import android.widget.TextView
 import androidx.compose.ui.test.junit4.createEmptyComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.performTextInput
+import androidx.compose.ui.test.assertIsEnabled
+import androidx.compose.ui.test.performScrollToIndex
 import androidx.lifecycle.Lifecycle
 import androidx.test.core.app.ActivityScenario
 import androidx.test.core.app.ApplicationProvider
@@ -38,7 +40,11 @@ class NativeStartupAcceptanceTest {
     @get:Rule val serviceRule = ServiceTestRule()
     private val instrumentation get() = InstrumentationRegistry.getInstrumentation()
 
-    @Test fun newestContentAppearsQuicklyAndNotificationReentryRecoversActualSsh() {
+    @Test fun newestContentAppearsQuicklyAndNotificationReentryRecoversActualSsh() = verifyStartup(20)
+
+    @Test fun notificationRecoveryProbe() = verifyStartup(1)
+
+    private fun verifyStartup(samples: Int) {
         val raw = shell("cat /sdcard/Download/agent-fleet-startup-fixture.json").trim()
         assumeTrue("Requires the isolated native-startup-probe fixture", raw.startsWith("{"))
         check(android.os.Build.HARDWARE in setOf("ranchu", "goldfish") &&
@@ -61,7 +67,7 @@ class NativeStartupAcceptanceTest {
             key.writeText(fixture.getString("privateKey"))
             key.setReadable(false, false); key.setReadable(true, true)
             config.parentFile?.mkdirs()
-            config.writeText(original?.toString(Charsets.UTF_8).orEmpty() + fixture.getString("config").replace("@KEY_PATH@", key.absolutePath))
+            config.writeText("WTMUX_MACHINE_IDS=()\n" + fixture.getString("config").replace("@KEY_PATH@", key.absolutePath))
             NativeSessionSettings.setEnabled(context, true)
             DrawerSessionStore(context).recordOpened(descriptor, DrawerSessionSurface.Native)
             DrawerSessionStore(context).setActiveFullscreen(descriptor.id)
@@ -77,7 +83,17 @@ class NativeStartupAcceptanceTest {
                 putExtra(AgentFleetContract.EXTRA_SESSION_NAME, descriptor.name)
                 putExtra(AgentFleetContract.EXTRA_INITIAL_SURFACE, AgentFleetContract.SURFACE_NATIVE)
             }
-            repeat(20) {
+            // Termux creates the PTY when an activity first sizes its terminal.
+            // Establish the healthy attachment before measuring cache-cold opens.
+            ActivityScenario.launch<TermuxActivity>(intent).use { scenario ->
+                tapText("Terminal")
+                await(15_000) {
+                    service.getAgentFleetWorkspaceSession(descriptor.id)?.terminalSession?.emulator?.screen?.transcriptText?.contains("TERMINAL_STARTUP_READY") == true
+                }
+                tapText("Native")
+                awaitVisible(scenario, "NATIVE_STARTUP_READY", 15_000)
+            }
+            repeat(samples) {
                 NativeConversationContentCache.clear()
                 val started = SystemClock.elapsedRealtime()
                 ActivityScenario.launch<TermuxActivity>(intent).use { scenario ->
@@ -87,7 +103,7 @@ class NativeStartupAcceptanceTest {
             }
             ActivityScenario.launch<TermuxActivity>(intent).use { scenario ->
                 awaitVisible(scenario, "NATIVE_STARTUP_READY")
-                repeat(20) {
+                repeat(samples) {
                     tapText("Terminal")
                     await { textNode("Native") != null }
                     val started = SystemClock.elapsedRealtime()
@@ -110,22 +126,50 @@ class NativeStartupAcceptanceTest {
                     service.getAgentFleetWorkspaceSession(descriptor.id)?.terminalSession?.let { it.isRunning && it.mHandle != oldHandle } == true
                 }
                 awaitVisible(scenario, "NATIVE_STARTUP_READY")
-                compose.onNodeWithTag("agent-fleet-message-input").performTextInput("native-input-notification")
+                scenario.onActivity { activity ->
+                    val current = activity.currentSession
+                    assertSame("The visible composer must use the replacement attachment",
+                        service.getAgentFleetWorkspaceSession(descriptor.id)!!.terminalSession, current)
+                    assertTrue("Replacement selected by the visible activity must be running", current!!.isRunning)
+                    assertNotNull("Replacement must have a sized PTY", current.emulator)
+                }
+                val input = "native-input-notification-${SystemClock.elapsedRealtime()}"
+                compose.onNodeWithTag("agent-fleet-message-input").performTextInput(input)
+                // Wait for the keyboard resize before using screen coordinates.
+                // A semantics text action can finish while the IME is still moving Send.
+                instrumentation.waitForIdleSync()
+                shell("input keyevent KEYCODE_BACK")
+                await { textNode("Send")?.isEnabled == true }
+                screenshot("native-startup-before-send.png")
+                SystemClock.sleep(250)
+                await { AgentFleetComposer.nativeStateForTest().mutationsAllowed }
+                compose.onNodeWithTag("agent-fleet-composer-send").assertIsEnabled()
                 tapText("Send")
-                awaitVisible(scenario, "INPUT_RECEIVED: native-input-notification")
+                await { AgentFleetComposer.nativeStateForTest().items.any { "INPUT_RECEIVED: $input" in it.text } }
+                compose.onNodeWithTag("native-message-list").performScrollToIndex(0)
+                awaitVisible(scenario, "INPUT_RECEIVED: $input")
                 assertEquals(descriptor.id, service.getAgentFleetWorkspaceSessionId(service.getAgentFleetWorkspaceSession(descriptor.id)?.terminalSession))
                 assertEquals(1, service.termuxSessions.count { it.executionCommand?.commandDescription == AgentFleetContract.WORKSPACE_SESSION_PREFIX + descriptor.id })
                 screenshot("native-startup-recovered.png")
             }
-            fun p95(values: List<Long>) = values.sorted()[18]
+            fun p95(values: List<Long>) = values.sorted()[if (samples == 20) 18 else 0]
             assertTrue("Warm p95 ${p95(warm)} ms exceeded 500 ms", p95(warm) <= 500)
             assertTrue("Cold p95 ${p95(cold)} ms exceeded 5000 ms", p95(cold) <= 5_000)
-            PlatformTestStorageRegistry.getInstance().openOutputFile("native-startup-receipt.json").use {
+            PlatformTestStorageRegistry.getInstance().openOutputFile(if (samples == 20) "native-startup-receipt.json" else "native-recovery-probe-receipt.json").use {
                 it.write(JSONObject().put("host", descriptor.hostId).put("session", descriptor.internalName)
                     .put("warmMillis", JSONArray(warm)).put("coldMillis", JSONArray(cold))
                     .put("warmP95Millis", p95(warm)).put("coldP95Millis", p95(cold))
                     .put("notificationTapped", true).put("recoveredSshInput", true).toString(2).toByteArray())
             }
+        } catch (error: Throwable) {
+            screenshot("native-startup-failure.png")
+            PlatformTestStorageRegistry.getInstance().openOutputFile("native-startup-partial-timings.json").use {
+                it.write(JSONObject().put("coldMillis", JSONArray(cold)).put("warmMillis", JSONArray(warm)).toString(2).toByteArray())
+            }
+            PlatformTestStorageRegistry.getInstance().openOutputFile("native-startup-terminal-failure.txt").use {
+                it.write(service.getAgentFleetWorkspaceSession(descriptor.id)?.terminalSession?.emulator?.screen?.transcriptText.orEmpty().takeLast(8_192).toByteArray())
+            }
+            throw error
         } finally {
             instrumentation.runOnMainSync { service.finishAgentFleetWorkspaceSession(descriptor.id) }
             NativeConversationContentCache.clear()
@@ -141,17 +185,33 @@ class NativeStartupAcceptanceTest {
     private fun await(timeout: Long = 5_000, ready: () -> Boolean) {
         val deadline = SystemClock.elapsedRealtime() + timeout
         while (SystemClock.elapsedRealtime() < deadline) {
+            compose.mainClock.advanceTimeByFrame()
             if (ready()) return
             SystemClock.sleep(10)
         }
-        check(ready()) { "Expected fixture UI/attachment state within ${timeout}ms" }
+        if (!ready()) {
+            screenshot("native-startup-timeout.png")
+            throw IllegalStateException("Expected fixture UI/attachment state within ${timeout}ms")
+        }
     }
 
     private fun awaitVisible(scenario: ActivityScenario<TermuxActivity>, marker: String, timeout: Long = 5_000) {
-        await(timeout) {
+        try { await(timeout) {
             var found = false
-            scenario.onActivity { found = visibleMarker(it.window.decorView, marker) }
+            scenario.onActivity { found = it.hasWindowFocus() && visibleMarker(it.window.decorView, marker) }
             found
+        } } catch (error: Throwable) {
+            scenario.onActivity { activity ->
+                val field = TermuxActivity::class.java.getDeclaredField("mAgentFleetNativeSession").apply { isAccessible = true }
+                val controller = field.get(activity)
+                val details = JSONObject()
+                for (name in listOf("uiState", "generation", "visible", "enabled", "localSession", "streamProcess")) {
+                    val property = controller.javaClass.getDeclaredField(name).apply { isAccessible = true }
+                    details.put(name, property.get(controller)?.toString().orEmpty().take(8_192))
+                }
+                PlatformTestStorageRegistry.getInstance().openOutputFile("native-startup-controller-failure.json").use { it.write(details.toString(2).toByteArray()) }
+            }
+            throw error
         }
     }
 
@@ -174,6 +234,7 @@ class NativeStartupAcceptanceTest {
     }
 
     private fun tapText(text: String) {
+        await { textNode(text) != null }
         val node = checkNotNull(textNode(text)) { "Visible tap target missing: $text" }
         val bounds = Rect(); node.getBoundsInScreen(bounds)
         val at = SystemClock.uptimeMillis()
