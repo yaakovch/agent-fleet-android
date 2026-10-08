@@ -123,8 +123,9 @@ def start(args: argparse.Namespace, root: Path) -> None:
     (root / "authorized_keys").write_text((root / "ssh-client.pub").read_text())
     (root / "authorized_keys").chmod(0o600)
     tmux = ["tmux", "-L", state["socket"]]
-    run(*tmux, "new-session", "-d", "-s", state["session"], "-x", "130", "-y", "45", "-c", str(root),
+    command = (shlex.join([shutil.which("codex") or "codex"]) if args.actual_codex else
         shlex.join([sys.executable, str(script), "agent", "--provider", "codex", "--root", str(root)]))
+    run(*tmux, "new-session", "-d", "-s", state["session"], "-x", "130", "-y", "45", "-c", str(args.source if args.actual_codex else root), command)
     for name, value in {"managed": "1", "tool": "codex", "project": "native-startup", "backend": "linux",
                         "display_name": "Native startup", "project_path": str(root), "execution_target_id": "linux"}.items():
         run(*tmux, "set-option", "-t", state["session"], "@wtmux_" + name, value)
@@ -176,6 +177,7 @@ if __name__ == "__main__":
     parser.add_argument("--address", default="127.0.0.1")
     parser.add_argument("--ssh-port", type=int, default=9804)
     parser.add_argument("--provider", choices=["codex"])
+    parser.add_argument("--actual-codex", action="store_true", help="Start the installed Codex UI without sending a request")
     options = parser.parse_args()
     if options.command == "start":
         if options.source is None:

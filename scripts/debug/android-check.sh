@@ -100,7 +100,53 @@ cmd_exe="/mnt/c/Windows/System32/cmd.exe"
 adb_windows="$(wslpath -w "$adb")"
 emulator_windows="$(wslpath -w "$emulator")"
 
-adb_run() { /init "$cmd_exe" /c "$adb_windows" -P "$adb_port" "$@"; }
+windows_run() {
+  if [[ -e /proc/sys/fs/binfmt_misc/WSLInterop ]]; then
+    "$cmd_exe" "$@"
+  else
+    /init "$cmd_exe" "$@"
+  fi
+}
+# Mirrored WSL networking can reach the existing Windows-owned isolated ADB
+# server directly. Prefer the Linux client there: no Windows process handoff is
+# needed per command. Probe only the reserved server, never the default 5037.
+linux_adb="$linux_sdk/platform-tools/adb"
+use_linux_adb=0
+select_adb_client() {
+  [[ -x "$linux_adb" ]] || return 0
+  if python3 - "$adb_port" <<'PYADB'
+import socket, sys
+try:
+    with socket.create_connection(('127.0.0.1', int(sys.argv[1])), timeout=1) as connection:
+        connection.sendall(b'000Chost:version')
+        response = connection.makefile('rb')
+        if response.read(4) != b'OKAY': raise ValueError('Not ADB')
+        length = int(response.read(4), 16)
+        if length != 4 or int(response.read(length), 16) != 41: raise ValueError('ADB protocol mismatch')
+except (OSError, ValueError):
+    raise SystemExit(1)
+PYADB
+  then use_linux_adb=1; fi
+}
+select_adb_client
+adb_run() {
+  if [[ "$use_linux_adb" == 1 ]]; then
+    local -a client_args=("$@")
+    local index argument
+    for index in "${!client_args[@]}"; do
+      argument="${client_args[$index]}"
+      if [[ "$argument" == \\* || "$argument" =~ ^[A-Za-z]:[\\/] ]]; then
+        client_args[$index]="$(wslpath -u "$argument")"
+      fi
+    done
+    "$linux_adb" -P "$adb_port" "${client_args[@]}"
+  elif [[ -e /proc/sys/fs/binfmt_misc/WSLInterop ]]; then
+    "$adb" -P "$adb_port" "$@"
+  else
+    /init "$cmd_exe" /c "$adb_windows" -P "$adb_port" "$@"
+  fi
+}
+
 pull_profile_output() {
   local archive="$artifacts/profile-output.tar"
   mkdir -p "$artifacts/profile-output"
@@ -125,6 +171,7 @@ with tarfile.open(archive) as source:
 PYPROFILE
 }
 adb_run start-server >>"$log" 2>&1
+select_adb_client
 
 emulator_serial() {
   adb_run devices 2>/dev/null | tr -d '\r' | awk '$1 ~ /^emulator-/ && $2 == "device" && !found { print $1; found=1 }'
@@ -134,7 +181,7 @@ serial="$(emulator_serial)"
 if [[ -z "$serial" ]]; then
   [[ -x "$emulator" ]] || fail "Android emulator executable was not found"
   say "starting $avd (the phone will not be used)"
-  /init "$cmd_exe" /d /c "set ADB_SERVER_PORT=$adb_port&& set ANDROID_ADB_SERVER_PORT=$adb_port&& $emulator_windows -avd $avd -no-window -no-snapshot-load -no-snapshot-save -no-boot-anim -no-audio" \
+  windows_run /d /c "set ADB_SERVER_PORT=$adb_port&& set ANDROID_ADB_SERVER_PORT=$adb_port&& $emulator_windows -avd $avd -no-window -no-snapshot-load -no-snapshot-save -no-boot-anim -no-audio" \
     >"$artifacts/emulator.log" 2>&1 &
   for _ in $(seq 1 90); do
     sleep 2

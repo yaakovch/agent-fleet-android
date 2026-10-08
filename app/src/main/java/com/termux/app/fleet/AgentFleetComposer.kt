@@ -37,6 +37,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.ComposeView
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.ViewCompositionStrategy
 import androidx.compose.ui.semantics.contentDescription
@@ -591,6 +592,7 @@ internal fun AgentFleetComposerContent(
     localSuggestionDebugFakeOutput: String? = null
 ) {
     val context = LocalContext.current
+    val compactComposer = LocalConfiguration.current.orientation == android.content.res.Configuration.ORIENTATION_LANDSCAPE
     val density by AgentFleetDisplayDensityStore.observe(context).collectAsState()
     var text by rememberSaveable(target) { mutableStateOf("") }
     val savedBinding = LocalSavedSessionBinding.current ?: AgentFleetComposer.savedBindingForTarget(target)
@@ -675,14 +677,14 @@ internal fun AgentFleetComposerContent(
                     },
                     modifier = Modifier
                         .weight(1f)
-                        .heightIn(min = 148.dp)
+                        .heightIn(min = if (compactComposer) 56.dp else 148.dp)
                         .testTag("agent-fleet-message-input")
                         .semantics {
                             contentDescription = if (planMode) "Plan mode message input" else "Message input"
                         },
                     placeholder = { Text(if (planMode) "Plan message…" else "Message…", fontSize = density.nativeBodySp.sp) },
                     minLines = 1,
-                    maxLines = 7,
+                    maxLines = if (compactComposer) 1 else 7,
                     textStyle = MaterialTheme.typography.bodyMedium.copy(fontSize = density.nativeBodySp.sp),
                     shape = RoundedCornerShape(14.dp),
                     colors = if (planMode) OutlinedTextFieldDefaults.colors(
@@ -692,20 +694,18 @@ internal fun AgentFleetComposerContent(
                         unfocusedPlaceholderColor = PlanAmber
                     ) else OutlinedTextFieldDefaults.colors()
                 )
-                Column(
-                    modifier = Modifier.widthIn(min = 70.dp, max = 82.dp).testTag("agent-fleet-composer-action-stack"),
-                    verticalArrangement = Arrangement.spacedBy(2.dp)
-                ) {
+                val actionModifier = if (compactComposer) Modifier.widthIn(min = 70.dp, max = 82.dp) else Modifier.fillMaxWidth()
+                val actions: @Composable () -> Unit = {
                     TextButton(
                         onClick = onAttach,
                         enabled = !uploading && attachments.size < MAX_ATTACHMENTS,
-                        modifier = Modifier.fillMaxWidth().testTag("agent-fleet-composer-attach"),
+                        modifier = actionModifier.testTag("agent-fleet-composer-attach"),
                         contentPadding = DenseButtonPadding
                     ) { Text(if (uploading) "Wait…" else "Attach", fontSize = density.nativeMetadataSp.sp) }
                     TextButton(
                         onClick = onCamera,
                         enabled = !uploading && attachments.size < MAX_ATTACHMENTS,
-                        modifier = Modifier.fillMaxWidth().testTag("agent-fleet-composer-camera"),
+                        modifier = actionModifier.testTag("agent-fleet-composer-camera"),
                         contentPadding = DenseButtonPadding
                     ) { Text("Camera", fontSize = density.nativeMetadataSp.sp) }
                     TextButton(
@@ -716,7 +716,7 @@ internal fun AgentFleetComposerContent(
                             }
                         },
                         enabled = !uploading && hasContent && inputAllowed,
-                        modifier = Modifier.fillMaxWidth().testTag("agent-fleet-composer-insert"),
+                        modifier = actionModifier.testTag("agent-fleet-composer-insert"),
                         contentPadding = DenseButtonPadding
                     ) { Text("Insert", fontSize = density.nativeMetadataSp.sp) }
                     Button(
@@ -727,11 +727,13 @@ internal fun AgentFleetComposerContent(
                             }
                         },
                         enabled = !uploading && inputAllowed,
-                        modifier = Modifier.fillMaxWidth().testTag("agent-fleet-composer-send"),
+                        modifier = actionModifier.testTag("agent-fleet-composer-send"),
                         contentPadding = DenseButtonPadding,
                         shape = RoundedCornerShape(12.dp)
                     ) { Text(agentFleetPrimaryActionLabel(hasContent), fontSize = density.nativeMetadataSp.sp) }
                 }
+                if (compactComposer) Row(Modifier.testTag("agent-fleet-composer-action-stack"), horizontalArrangement = Arrangement.spacedBy(2.dp)) { actions() }
+                else Column(Modifier.widthIn(min = 70.dp, max = 82.dp).testTag("agent-fleet-composer-action-stack"), verticalArrangement = Arrangement.spacedBy(2.dp)) { actions() }
             }
             if (nativeForTarget && localSuggestions.targetKey == "composer") {
                 LocalSuggestionChoices(

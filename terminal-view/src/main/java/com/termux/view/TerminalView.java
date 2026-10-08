@@ -7,6 +7,8 @@ import android.content.ClipData;
 import android.content.ClipboardManager;
 import android.content.Context;
 import android.graphics.Canvas;
+import android.graphics.Paint;
+import android.graphics.RectF;
 import android.graphics.Typeface;
 import android.os.Build;
 import android.os.Handler;
@@ -27,6 +29,8 @@ import android.view.View;
 import android.view.ViewConfiguration;
 import android.view.ViewTreeObserver;
 import android.view.accessibility.AccessibilityManager;
+import android.view.accessibility.AccessibilityNodeInfo;
+import android.os.Bundle;
 import android.view.autofill.AutofillManager;
 import android.view.autofill.AutofillValue;
 import android.view.inputmethod.BaseInputConnection;
@@ -65,6 +69,81 @@ public final class TerminalView extends View {
         boolean wasActive = mLocalScrollbackActive;
         mLocalScrollbackActive = false;
         if (wasActive && mLocalHistoryListener != null) mLocalHistoryListener.onClosed();
+    }
+
+    public enum PresentationState { LOADING, READY, FAILED }
+    private PresentationState mPresentationState = PresentationState.READY;
+    private final Handler mPresentationHandler = new Handler(Looper.getMainLooper());
+    private boolean mShowLiveOffered;
+    private long mPresentationStarted;
+    private long mSizeAppliedUptime;
+    private int mPendingColumns, mPendingRows, mPendingCellWidth, mPendingCellHeight;
+    private boolean mSizePending;
+    private long mTerminalPaintCount;
+    private final Paint mPresentationPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+    private final RectF mShowLiveBounds = new RectF();
+    public PresentationState getPresentationState() { return mPresentationState; }
+    public boolean isShowLiveOffered() { return mShowLiveOffered; }
+    public long getTerminalPaintCount() { return mTerminalPaintCount; }
+
+    private void beginPresentation() {
+        if (mLocalScrollbackActive) return;
+        if (mPresentationState != PresentationState.LOADING) {
+            mPresentationStarted = SystemClock.uptimeMillis();
+            mShowLiveOffered = false;
+        }
+        mPresentationState = PresentationState.LOADING;
+        mPresentationHandler.removeCallbacks(mCheckPresentation);
+        mPresentationHandler.postDelayed(mCheckPresentation, 150);
+        invalidate();
+    }
+
+    public void showLive() {
+        mPresentationHandler.removeCallbacks(mCheckPresentation);
+        mPresentationState = PresentationState.READY;
+        mShowLiveOffered = false;
+        invalidate();
+        sendAccessibilityEvent(android.view.accessibility.AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED);
+    }
+
+    private final Runnable mCheckPresentation = new Runnable() {
+        @Override public void run() {
+            if (mPresentationState != PresentationState.LOADING || mTermSession == null) return;
+            if (mTermSession.getPid() == -1) {
+                showLive(); mPresentationState = PresentationState.FAILED; return;
+            }
+            long now = SystemClock.uptimeMillis();
+            if (!mSizePending && mEmulator != null && mTermSession.getOutputBytesProcessed() > 0
+                    && mTermSession.getPendingOutputBytes() == 0
+                    && now - Math.max(mTermSession.getLastOutputUptime(), mSizeAppliedUptime) >= 150) {
+                showLive(); return;
+            }
+            if (!mShowLiveOffered && now - mPresentationStarted >= 2000) {
+                mShowLiveOffered = true;
+                invalidate();
+                sendAccessibilityEvent(android.view.accessibility.AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED);
+            }
+            mPresentationHandler.postDelayed(this, 50);
+        }
+    };
+
+    private final Runnable mApplySize = this::applySettledSize;
+    private void applySettledSize() {
+        mSizePending = false;
+        mSizeAppliedUptime = SystemClock.uptimeMillis();
+        if (mTermSession == null || mRenderer == null) return;
+        TerminalEmulator emulator = mTermSession.getEmulator();
+        if (emulator == null || emulator.mColumns != mPendingColumns || emulator.mRows != mPendingRows) {
+            mTermSession.updateSize(mPendingColumns, mPendingRows, mPendingCellWidth, mPendingCellHeight);
+        }
+        mEmulator = mTermSession.getEmulator();
+        mClient.onEmulatorSet();
+        if (mTerminalCursorBlinkerRunnable != null) mTerminalCursorBlinkerRunnable.setEmulator(mEmulator);
+        if (mLocalScrollbackEmulator != null)
+            mLocalScrollbackEmulator.resize(mPendingColumns, mPendingRows, mPendingCellWidth, mPendingCellHeight);
+        mTopRow = Math.max(mTopRow, -displayedEmulator().getScreen().getActiveTranscriptRows());
+        scrollTo(0, 0);
+        invalidate();
     }
 
     /** The currently displayed terminal session, whose emulator is {@link #mEmulator}. */
@@ -319,8 +398,11 @@ public final class TerminalView extends View {
         mTopRow = 0;
         clearLocalScrollback();
 
+        mPresentationHandler.removeCallbacks(mApplySize);
+        mSizePending = false;
         mTermSession = session;
         mEmulator = null;
+        beginPresentation();
         mCombiningAccent = 0;
 
         updateSize();
@@ -509,21 +591,20 @@ public final class TerminalView extends View {
             }
         }
 
-        if (!skipScrolling && mTopRow != 0) {
-            // Scroll down if not already there.
-            if (mTopRow < -3) {
-                // Awaken scroll bars only if scrolling a noticeable amount
-                // - we do not want visible scroll bars during normal typing
-                // of one row at a time.
-                awakenScrollBars();
-            }
-            mTopRow = 0;
+        if (!skipScrolling && mTopRow < 0) {
+            // Keep the same text under the reader while new rows enter history.
+            mTopRow = Math.max(-rowsInHistory, mTopRow - mEmulator.getScrollCounter());
         }
 
         mEmulator.clearScrollCounter();
 
-        invalidate();
-        if (mAccessibilityEnabled) setContentDescription(getText());
+        if (mTermSession != null && mTermSession.getPid() == -1) {
+            showLive(); mPresentationState = PresentationState.FAILED;
+        }
+        if (mPresentationState != PresentationState.LOADING) {
+            invalidate();
+            if (mAccessibilityEnabled) setContentDescription(getText());
+        }
     }
 
     /** This must be called by the hosting activity in {@link Activity#onContextMenuClosed(Menu)}
@@ -752,6 +833,11 @@ public final class TerminalView extends View {
     @Override
     @TargetApi(23)
     public boolean onTouchEvent(MotionEvent event) {
+        if (mPresentationState == PresentationState.LOADING) {
+            if (mShowLiveOffered && event.getAction() == MotionEvent.ACTION_UP
+                    && mShowLiveBounds.contains(event.getX(), event.getY())) performClick();
+            return true;
+        }
         if (mEmulator == null) return true;
         final int action = event.getAction();
 
@@ -1135,33 +1221,46 @@ public final class TerminalView extends View {
 
     /** Check if the terminal size in rows and columns should be updated. */
     public void updateSize() {
-        int viewWidth = getWidth();
-        int viewHeight = getHeight();
-        if (viewWidth == 0 || viewHeight == 0 || mTermSession == null) return;
-
-        // Set to 80 and 24 if you want to enable vttest.
-        int newColumns = Math.max(4, (int) (viewWidth / mRenderer.mFontWidth));
-        int newRows = Math.max(4, (viewHeight - mRenderer.mFontLineSpacingAndAscent) / mRenderer.mFontLineSpacing);
-
-        if (mEmulator == null || (newColumns != mEmulator.mColumns || newRows != mEmulator.mRows)) {
-            mTermSession.updateSize(newColumns, newRows, (int) mRenderer.getFontWidth(), mRenderer.getFontLineSpacing());
-            mEmulator = mTermSession.getEmulator();
-            mClient.onEmulatorSet();
-
-            // Update mTerminalCursorBlinkerRunnable inner class mEmulator on session change
-            if (mTerminalCursorBlinkerRunnable != null)
-                mTerminalCursorBlinkerRunnable.setEmulator(mEmulator);
-
-            mTopRow = 0;
-            leaveLocalHistory();
-            mLocalScrollbackEmulator = null;
-            scrollTo(0, 0);
-            invalidate();
+        if (getWidth() <= 0 || getHeight() <= 0 || mTermSession == null || mRenderer == null) return;
+        int columns = (int) (getWidth() / mRenderer.mFontWidth);
+        int rows = (getHeight() - mRenderer.mFontLineSpacingAndAscent) / mRenderer.mFontLineSpacing;
+        if (columns < 4 || rows < 4) {
+            mPresentationHandler.removeCallbacks(mApplySize);
+            mSizePending = false;
+            return;
         }
+        int cellWidth = (int) mRenderer.getFontWidth(), cellHeight = mRenderer.getFontLineSpacing();
+        if (mPendingColumns == columns && mPendingRows == rows && mPendingCellWidth == cellWidth
+                && mPendingCellHeight == cellHeight && (mSizePending || (mEmulator != null
+                && mEmulator.mColumns == columns && mEmulator.mRows == rows))) return;
+        mPendingColumns = columns; mPendingRows = rows;
+        mPendingCellWidth = cellWidth; mPendingCellHeight = cellHeight;
+        mSizePending = true;
+        beginPresentation();
+        mPresentationHandler.removeCallbacks(mApplySize);
+        mPresentationHandler.postDelayed(mApplySize, 150);
     }
 
     @Override
     protected void onDraw(Canvas canvas) {
+        if (mPresentationState == PresentationState.LOADING) {
+            canvas.drawColor(0xff0b0f14);
+            float density = getResources().getDisplayMetrics().density;
+            mPresentationPaint.setTextSize(16 * density);
+            mPresentationPaint.setColor(0xffe5e7eb);
+            mPresentationPaint.setTextAlign(Paint.Align.CENTER);
+            canvas.drawText("Preparing terminal…", getWidth() / 2f, getHeight() / 2f, mPresentationPaint);
+            if (mShowLiveOffered) {
+                float top = getHeight() / 2f + 20 * density;
+                mShowLiveBounds.set(getWidth() / 2f - 64 * density, top, getWidth() / 2f + 64 * density, top + 48 * density);
+                mPresentationPaint.setColor(0xff263449);
+                canvas.drawRoundRect(mShowLiveBounds, 8 * density, 8 * density, mPresentationPaint);
+                mPresentationPaint.setColor(0xffe5e7eb);
+                canvas.drawText("Show live", getWidth() / 2f, top + 30 * density, mPresentationPaint);
+            }
+            return;
+        }
+        mTerminalPaintCount++;
         if (mEmulator == null) {
             canvas.drawColor(0XFF000000);
         } else {
@@ -1176,6 +1275,29 @@ public final class TerminalView extends View {
             // render the text selection handles
             renderTextSelection();
         }
+    }
+
+    @Override public boolean performClick() {
+        super.performClick();
+        if (mPresentationState == PresentationState.LOADING && mShowLiveOffered) { showLive(); return true; }
+        return false;
+    }
+
+    @Override public void onInitializeAccessibilityNodeInfo(AccessibilityNodeInfo info) {
+        super.onInitializeAccessibilityNodeInfo(info);
+        if (mPresentationState == PresentationState.LOADING) {
+            info.setText(mShowLiveOffered ? "Preparing terminal. Show live" : "Preparing terminal");
+            if (mShowLiveOffered) {
+                info.setClickable(true);
+                info.addAction(new AccessibilityNodeInfo.AccessibilityAction(AccessibilityNodeInfo.ACTION_CLICK, "Show live"));
+            }
+        }
+    }
+
+    @Override public boolean performAccessibilityAction(int action, Bundle args) {
+        if (action == AccessibilityNodeInfo.ACTION_CLICK && mPresentationState == PresentationState.LOADING && mShowLiveOffered)
+            return performClick();
+        return super.performAccessibilityAction(action, args);
     }
 
     public TerminalSession getCurrentSession() {
@@ -1599,6 +1721,8 @@ public final class TerminalView extends View {
     @Override
     protected void onAttachedToWindow() {
         super.onAttachedToWindow();
+        updateSize();
+        if (mPresentationState == PresentationState.LOADING) beginPresentation();
 
         if (mTextSelectionCursorController != null) {
             getViewTreeObserver().addOnTouchModeChangeListener(mTextSelectionCursorController);
@@ -1608,6 +1732,9 @@ public final class TerminalView extends View {
     @Override
     protected void onDetachedFromWindow() {
         super.onDetachedFromWindow();
+        mPresentationHandler.removeCallbacks(mCheckPresentation);
+        mPresentationHandler.removeCallbacks(mApplySize);
+        mSizePending = false;
 
         if (mTextSelectionCursorController != null) {
             // Might solve the following exception

@@ -12,6 +12,8 @@ final class ByteQueue {
         mBuffer = new byte[size];
     }
 
+    public synchronized int available() { return mStoredBytes; }
+
     public synchronized void close() {
         mOpen = false;
         notify();

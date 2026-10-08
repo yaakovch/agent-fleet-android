@@ -3,6 +3,7 @@ package com.termux.terminal;
 import android.annotation.SuppressLint;
 import android.os.Handler;
 import android.os.Message;
+import android.os.SystemClock;
 import android.system.ErrnoException;
 import android.system.Os;
 import android.system.OsConstants;
@@ -16,6 +17,7 @@ import java.io.InputStream;
 import java.lang.reflect.Field;
 import java.nio.charset.StandardCharsets;
 import java.util.UUID;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.CopyOnWriteArrayList;
 
 /**
@@ -42,7 +44,7 @@ public final class TerminalSession extends TerminalOutput {
      * A queue written to from a separate thread when the process outputs, and read by main thread to process by
      * terminal emulator.
      */
-    final ByteQueue mProcessToTerminalIOQueue = new ByteQueue(4096);
+    final ByteQueue mProcessToTerminalIOQueue = new ByteQueue(64 * 1024);
     /**
      * A queue written to from the main thread due to user interaction, and read by another thread which forwards by
      * writing to the {@link #mTerminalFileDescriptor}.
@@ -71,6 +73,20 @@ public final class TerminalSession extends TerminalOutput {
     public String mSessionName;
 
     final Handler mMainThreadHandler = new MainThreadHandler();
+    private final AtomicBoolean mInputScheduled = new AtomicBoolean();
+    private volatile boolean mReaderFinished;
+    private volatile long mOutputBytesProcessed;
+    private volatile long mLastOutputUptime;
+    private Integer mPendingExitCode;
+
+    public int getPendingOutputBytes() { return mProcessToTerminalIOQueue.available(); }
+    public long getOutputBytesProcessed() { return mOutputBytesProcessed; }
+    public long getLastOutputUptime() { return mLastOutputUptime; }
+
+    private void scheduleInput() {
+        if (mInputScheduled.compareAndSet(false, true))
+            mMainThreadHandler.sendEmptyMessageDelayed(MSG_NEW_INPUT, 8);
+    }
 
     private final String mShellPath;
     private final String mCwd;
@@ -145,15 +161,18 @@ public final class TerminalSession extends TerminalOutput {
             @Override
             public void run() {
                 try (InputStream termIn = new FileInputStream(terminalFileDescriptorWrapped)) {
-                    final byte[] buffer = new byte[4096];
+                    final byte[] buffer = new byte[16 * 1024];
                     while (true) {
                         int read = termIn.read(buffer);
                         if (read == -1) return;
                         if (!mProcessToTerminalIOQueue.write(buffer, 0, read)) return;
-                        mMainThreadHandler.sendEmptyMessage(MSG_NEW_INPUT);
+                        scheduleInput();
                     }
                 } catch (Exception e) {
                     // Ignore, just shutting down.
+                } finally {
+                    mReaderFinished = true;
+                    scheduleInput();
                 }
             }
         }.start();
@@ -367,18 +386,36 @@ public final class TerminalSession extends TerminalOutput {
     @SuppressLint("HandlerLeak")
     class MainThreadHandler extends Handler {
 
-        final byte[] mReceiveBuffer = new byte[4 * 1024];
+        final byte[] mReceiveBuffer = new byte[16 * 1024];
 
         @Override
         public void handleMessage(Message msg) {
-            int bytesRead = mProcessToTerminalIOQueue.read(mReceiveBuffer, false);
-            if (bytesRead > 0) {
+            if (msg.what == MSG_NEW_INPUT) mInputScheduled.set(false);
+            if (mShellPid == -1) return;
+            if (msg.what == MSG_PROCESS_EXITED) mPendingExitCode = (Integer) msg.obj;
+
+            // Bound parser work so input/layout remain responsive. The emulator keeps
+            // UTF-8 and escape-sequence state across every append.
+            long deadline = SystemClock.uptimeMillis() + 8;
+            int total = 0;
+            do {
+                int bytesRead = mProcessToTerminalIOQueue.read(mReceiveBuffer, false);
+                if (bytesRead <= 0) break;
                 mEmulator.append(mReceiveBuffer, bytesRead);
+                total += bytesRead;
+            } while (total < 64 * 1024 && SystemClock.uptimeMillis() < deadline);
+            if (total > 0) {
+                mOutputBytesProcessed += total;
+                mLastOutputUptime = SystemClock.uptimeMillis();
                 notifyScreenUpdate();
             }
+            if (mProcessToTerminalIOQueue.available() > 0) scheduleInput();
 
-            if (msg.what == MSG_PROCESS_EXITED) {
-                int exitCode = (Integer) msg.obj;
+            // The waiter can finish before the reader. Drain the complete PTY tail
+            // before closing either queue; otherwise final output can be discarded.
+            if (mPendingExitCode != null && mReaderFinished && mProcessToTerminalIOQueue.available() == 0) {
+                int exitCode = mPendingExitCode;
+                mPendingExitCode = null;
                 cleanupResources(exitCode);
 
                 String exitDescription = "\r\n[Process completed";

@@ -428,3 +428,12 @@ fixture activity is measurement-only and is absent from production release APKs.
 The runner clears only the protected profile output directory and crash buffer
 before each profile run. It captures artifacts in one binary tar transfer;
 Windows ADB can consume a filename loop's stdin and silently skip later files.
+
+
+### Stable terminal entry checks (2026-10-08)
+
+`TerminalEntryPresentationTest` uses only synthetic PTY output. It records a 2,000-line burst, twenty matched entries, reading-position retention, a continuously busy terminal's Show live action, and complete output on process exit. Run it with the protected runner's `focused` mode and `AGENT_FLEET_CAPTURE_DEVICE_OUTPUT=1`. Timing and paint evidence appears beside `input-identity.json`; it is private test evidence, never production diagnostics.
+
+`TerminalCodexAcceptanceTest` is opt-in through `/sdcard/Download/agent-fleet-terminal-codex-fixture.json`. The existing private startup probe accepts `start --actual-codex` to open the installed Codex UI on a separate tmux server without sending a prompt. Use its pinned SSH fixture and registered loopback relay, then remove the fixture file and reverse mapping before normal full release validation. Retain the actual terminal, keyboard, rotation, zoom and reconnection captures with APK identities.
+
+On mirrored WSL networking, the runner can use the Linux ADB client against the existing Windows-owned isolated server on port 5038. It first checks the server's ADB protocol at that explicit loopback port. Windows local paths are translated for the Linux client. The emulator serial, API 36, x86_64 and qemu checks still precede device mutations. The Windows client remains the fallback where that loopback server is unreachable. The default ADB server and physical phone remain outside this workflow.
