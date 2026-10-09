@@ -74,12 +74,49 @@ class AgentFleetDiagnosticsTest {
     }
 
     @Test
-    fun exportedArchiveContainsOnlyTheLayeredRedactedReport() {
+    fun creationMetadataDropsMessagesIdentifiersAndUnknownCodes() {
+        val now = 1_791_547_866_063L
+        val event = AgentFleetDiagnosticEvent("private-id", "private-date", now,
+            "session.create.windows", "failure", 12L, "TIMEOUT", "private transcript", "private-host", "private-session")
+        val body = creationOperationsNdjson(listOf(event, event.copy(code = "secret-token")), now)
+        val rows = body.trim().lines().map { org.json.JSONObject(it) }
+        assertEquals("timeout", rows[0].getString("code"))
+        assertEquals(6, rows[0].length())
+        assertEquals("operation_failed", rows[1].getString("code"))
+        assertFalse(body.contains("private"))
+        assertFalse(body.contains("secret"))
+        assertFalse(body.contains("message"))
+    }
+
+    @Test
+    fun journalStorageFailureDoesNotBreakTheReportedOperation() {
+        val directory = Files.createTempDirectory("diagnostic-unwritable-parent").toFile()
+        val blocker = File(directory, "parent").apply { writeText("not a directory") }
+        val journal = AgentFleetDiagnosticJournal(File(blocker, "events.ndjson"))
+        val event = journal.record("session.create.windows", "healthy")
+        assertEquals("healthy", event.status)
+        assertTrue(journal.events().isEmpty())
+    }
+
+    @Test
+    fun creationMetadataBoundsAgeCountAndDuration() {
+        val now = 1_791_547_866_063L
+        val event = AgentFleetDiagnosticEvent("id", "unused", now, "session.create.linux", "pending",
+            Long.MAX_VALUE, "", "")
+        val body = creationOperationsNdjson(listOf(event.copy(operation = "secret"),
+            event.copy(epochMs = now - AgentFleetDiagnosticJournal.MAX_EVENT_AGE_MS - 1),
+            event.copy(epochMs = now + 60_001)) + List(220) { event }, now)
+        assertEquals(200, body.trim().lines().size)
+        assertEquals(86_400_000L, org.json.JSONObject(body.trim().lines().first()).getLong("durationMs"))
+    }
+
+    @Test
+    fun exportedArchiveContainsLayeredReportAndCreationCodesWithoutPrivateContent() {
         val context: Context = RuntimeEnvironment.getApplication()
         val journal = AgentFleetDiagnosticJournal(context)
         val secret = "secret-fixture-abcdefghijklmnopqrstuvwxyz0123456789"
         journal.record(
-            "repository.download", "failure", code = "download_failed",
+            "session.create", "failure", code = "timeout",
             message = "token=$secret failed at /home/person/private/project/report.pdf",
             hostId = "gaming", sessionId = "gaming:wtmux"
         )
@@ -92,9 +129,17 @@ class AgentFleetDiagnosticsTest {
         )
         val archive = runner.export(report)
         ZipFile(archive).use { zip ->
-            assertEquals(setOf("diagnostics-v2.json"), zip.entries().asSequence().map { it.name }.toSet())
+            assertEquals(setOf("diagnostics-v2.json", "operations-v1.ndjson"), zip.entries().asSequence().map { it.name }.toSet())
             val content = zip.entries().asSequence().joinToString("\n") { entry -> zip.getInputStream(entry).bufferedReader().readText() }
             assertTrue(content.contains("\"schemaVersion\": 2"))
+            val event = org.json.JSONObject(zip.getInputStream(zip.getEntry("operations-v1.ndjson")).bufferedReader().readText().trim())
+            assertEquals("session.create", event.getString("operation"))
+            assertEquals("timeout", event.getString("code"))
+            assertFalse(event.has("message"))
+            assertFalse(event.has("hostId"))
+            assertFalse(event.has("sessionId"))
+            assertFalse(report.exportPreview().contains(secret))
+            assertFalse(report.exportPreview().contains("private/project"))
             assertFalse(content.contains(secret))
             assertFalse(content.contains("/home/person"))
             assertFalse(content.contains("report.pdf"))

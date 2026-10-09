@@ -295,9 +295,11 @@ checks with a twenty-second budget, and reports if the full run exceeds the
 forty-five-second target. The journal retains at most 200 events, 256 KiB, and
 seven days in app-private storage.
 
-Export always shows a preview first. The ZIP contains only
-`diagnostics.json` and `events.ndjson` with schema
-`agent-fleet-diagnostics-v1`. It excludes prompts, responses, transcripts,
+Export always shows a preview first. The ZIP contains `diagnostics-v2.json` and `operations-v1.ndjson`. The v2 report
+retains its strict layered schema. Operation rows contain only bounded timestamps,
+fixed operation/status/code values and duration; raw event messages, identifiers
+and paths are excluded. Inspect the actual ZIP member list before assuming that
+a report includes the operation journal. Older report-only exports omit it. It excludes prompts, responses, transcripts,
 terminal output, credentials, tokens, invitations, attachments, and repository
 paths.
 

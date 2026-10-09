@@ -580,12 +580,24 @@ class AgentFleetActivity : ComponentActivity() {
         error: Throwable,
         hostId: String? = null,
         sessionId: String? = null,
-        show: Boolean = true
+        show: Boolean = true,
+        durationMs: Long = 0
     ): AgentFleetDiagnosticEvent {
         val event = diagnosticJournal.record(
             operation = operation,
             status = "failure",
-            code = (error as? com.termux.app.fleet.FleetUnavailableException)?.code.orEmpty().ifBlank { "operation_failed" },
+            durationMs = durationMs,
+            code = (error as? com.termux.app.fleet.FleetUnavailableException)?.code.orEmpty().ifBlank {
+                when (error) {
+                    is org.json.JSONException -> "json_response_invalid"
+                    is java.io.IOException -> "io_failure"
+                    is SecurityException -> "security_error"
+                    is IllegalArgumentException -> "validation_failed"
+                    is IllegalStateException -> "state_invalid"
+                    is java.util.concurrent.TimeoutException -> "timeout"
+                    else -> "operation_failed"
+                }
+            },
             message = error.message ?: "Operation failed",
             hostId = hostId,
             sessionId = sessionId
@@ -649,22 +661,31 @@ class AgentFleetActivity : ComponentActivity() {
         hostId: String, project: String, backend: String, tool: String, path: String, locationKind: String,
         callback: (Result<Unit>) -> Unit
     ) {
+        val operation = when (backend) {
+            "linux" -> "session.create.linux"
+            "windows" -> "session.create.windows"
+            else -> "session.create"
+        }
         val snapshot = (fleetState.value as? FleetLoadState.Ready)?.snapshot
         if (snapshot == null) {
             val error = com.termux.app.fleet.FleetUnavailableException("Fleet is still loading. Your selections were kept; try again when it is ready.", "fleet_loading")
-            reportDiagnosticError("session.create", error, hostId, show = false)
+            reportDiagnosticError(operation, error, hostId, show = false)
             callback(Result.failure(error))
             refreshFleet()
             return
         }
+        val started = android.os.SystemClock.elapsedRealtime()
+        diagnosticJournal.record(operation, "pending")
         fleetExecutor.execute {
             val result = runCatching { fleetRuntime.createSession(snapshot, hostId, project, backend, tool, path, locationKind) }
             runOnUiThread {
                 result.onSuccess {
                     FleetSnapshotStore.publish(it)
-                    diagnosticJournal.record("session.create", "healthy", hostId = hostId, message = "Session created")
+                    diagnosticJournal.record(operation, "healthy", durationMs = android.os.SystemClock.elapsedRealtime() - started,
+                        hostId = hostId, message = "Session created")
                     Toast.makeText(this, "Session created", Toast.LENGTH_SHORT).show()
-                }.onFailure { reportDiagnosticError("session.create", it, hostId, show = false) }
+                }.onFailure { reportDiagnosticError(operation, it, hostId, show = false,
+                    durationMs = android.os.SystemClock.elapsedRealtime() - started) }
                 callback(result.map { Unit })
             }
         }
@@ -3316,7 +3337,7 @@ private fun DiagnosticsDialog(
             title = { Text("Preview diagnostic report") },
             text = {
                 Text(
-                    report?.diagnosticsJson().orEmpty(),
+                    report?.exportPreview().orEmpty(),
                     modifier = Modifier.verticalScroll(rememberScrollState()).testTag("diagnostics-preview")
                 )
             },

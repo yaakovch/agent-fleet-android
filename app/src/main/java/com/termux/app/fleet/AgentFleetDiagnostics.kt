@@ -76,6 +76,9 @@ data class AgentFleetDiagnosticReport(
 
     fun diagnosticsJson(): String = LayeredDiagnostics.reportJson(this)
 
+    fun exportPreview(): String = diagnosticsJson() + "\nOperation metadata (no messages or identifiers):\n" +
+        creationOperationsNdjson(events)
+
     fun eventsNdjson(): String = events.joinToString(separator = "\n", postfix = if (events.isEmpty()) "" else "\n") {
         it.toJson().toString()
     }
@@ -135,7 +138,8 @@ class AgentFleetDiagnosticJournal(
             hostId = hostId?.let(::safeDiagnosticIdentifier),
             sessionId = sessionId?.let(::safeDiagnosticIdentifier)
         )
-        persist((events() + event).filter { epoch - it.epochMs <= MAX_EVENT_AGE_MS }.takeLast(MAX_EVENTS))
+        // Diagnostic storage must never turn a completed mutation into a UI failure.
+        runCatching { persist((events() + event).filter { epoch - it.epochMs <= MAX_EVENT_AGE_MS }.takeLast(MAX_EVENTS)) }
         return event
     }
 
@@ -325,6 +329,9 @@ class AgentFleetDiagnosticsRunner(
             zip.putNextEntry(ZipEntry("diagnostics-v2.json"))
             zip.write(report.diagnosticsJson().toByteArray(Charsets.UTF_8))
             zip.closeEntry()
+            zip.putNextEntry(ZipEntry("operations-v1.ndjson"))
+            zip.write(creationOperationsNdjson(report.events).toByteArray(Charsets.UTF_8))
+            zip.closeEntry()
         }
         journal.record("diagnostics.export", "healthy", message = "Metadata-only report exported")
         return file
@@ -405,6 +412,36 @@ class AgentFleetDiagnosticsRunner(
 }
 
 private class DiagnosticAttention(message: String) : Exception(message)
+
+private val CREATION_OPERATION_CODES = setOf(
+    "", "operation_failed", "invalid_request", "invalid_response", "stale_revision",
+    "host_offline", "backpressure", "timeout", "request_timeout", "unsafe_state",
+    "not_found", "internal_failure", "host_error", "transport_error", "fleet_loading",
+    "local_runtime_unavailable", "snapshot_timeout", "host_runtime_missing",
+    "host_runtime_unavailable", "host_key_mismatch", "endpoint_unavailable",
+    "registry_invalid", "process_start_failed", "session_exists", "windows_unavailable",
+    "windows_launch_failed", "created_open_failed", "ssh_failed", "ssh_auth_failed",
+    "ssh_host_key_changed", "ssh_connect_failed", "ssh_timeout", "ssh_not_found",
+    "host_key_unknown", "protocol_incompatible", "json_response_invalid", "validation_failed",
+    "io_failure", "security_error", "state_invalid"
+)
+private val EXPORTED_OPERATIONS = setOf("session.create", "session.create.linux", "session.create.windows",
+    "fleet.refresh", "fleet.reconnect", "runtime.prepare", "runtime.update")
+
+/** Fixed metadata fields only: raw journal content and identifiers never leave the app. */
+internal fun creationOperationsNdjson(events: List<AgentFleetDiagnosticEvent>, now: Long = System.currentTimeMillis()): String =
+    events.asSequence().filter {
+        it.operation in EXPORTED_OPERATIONS &&
+            it.status in setOf("pending", "healthy", "failure") &&
+            it.epochMs >= now - AgentFleetDiagnosticJournal.MAX_EVENT_AGE_MS && it.epochMs <= now + 60_000L
+    }.toList().takeLast(AgentFleetDiagnosticJournal.MAX_EVENTS).joinToString("") { event ->
+        val code = event.code.lowercase(Locale.US)
+        JSONObject().put("schemaVersion", 1)
+            .put("occurredAt", java.time.Instant.ofEpochMilli(event.epochMs).toString())
+            .put("operation", event.operation).put("status", event.status)
+            .put("code", if (code in CREATION_OPERATION_CODES) code else "operation_failed")
+            .put("durationMs", event.durationMs.coerceIn(0, 86_400_000L)).toString() + "\n"
+    }
 
 internal fun safeDiagnosticText(input: String): String {
     var value = input.filterNot(Char::isISOControl).trim()

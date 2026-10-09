@@ -161,6 +161,17 @@ object FleetSnapshotStore {
                 }
             }
             refreshing.set(false)
+            val diagnosticCode = when (result) {
+                is FleetLoadState.Unavailable -> result.code
+                is FleetLoadState.Ready -> result.snapshot.hosts.firstOrNull { it.status != "healthy" }
+                    ?.let { it.errorCode.ifBlank { "host_offline" } }.orEmpty()
+                else -> ""
+            }
+            if (diagnosticCode != lastDiagnosticCode) {
+                lastDiagnosticCode = diagnosticCode
+                AgentFleetDiagnosticJournal(context).record("fleet.refresh",
+                    if (diagnosticCode.isBlank()) "healthy" else "failure", code = diagnosticCode)
+            }
             main.post {
                 if (!FleetRuntimePreparation.active) publishState(result)
                 synchronized(this) {
@@ -174,6 +185,8 @@ object FleetSnapshotStore {
     }
 
     fun publish(snapshot: FleetSnapshot) = publishState(FleetLoadState.Ready(snapshot))
+
+    private var lastDiagnosticCode: String? = null
 
     fun redactTitles() {
         val redacted = synchronized(this) {

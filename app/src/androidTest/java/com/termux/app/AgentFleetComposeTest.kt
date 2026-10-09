@@ -1100,7 +1100,11 @@ class AgentFleetComposeTest {
     @Test
     fun diagnosticsRequiresPreviewBeforeShare() {
         val exports = AtomicInteger()
-        val report = diagnosticReport()
+        val now = System.currentTimeMillis()
+        val report = diagnosticReport().copy(events = listOf(com.termux.app.fleet.AgentFleetDiagnosticEvent(
+            "private-id", "unused", now, "session.create.windows", "failure", 20,
+            "timeout", "private transcript", "private-host", "private-session"
+        )))
         compose.setContent { FixtureApp(diagnosticsUi = DiagnosticsUiState(report = report), onExportDiagnostics = { exports.incrementAndGet() }) }
         compose.onNodeWithTag("nav-more").performClick()
         compose.onNodeWithTag("more-screen").performScrollToNode(hasTestTag("open-diagnostics-button"))
@@ -1110,6 +1114,8 @@ class AgentFleetComposeTest {
         compose.onNodeWithTag("diagnostics-preview")
             .assertIsDisplayed()
             .assertTextContains("\"schemaVersion\": 2", substring = true)
+            .assertTextContains("session.create.windows", substring = true)
+            .assertTextContains("\"code\":\"timeout\"", substring = true)
         assertEquals(0, exports.get())
         compose.onNodeWithTag("diagnostics-share").performClick()
         assertEquals(1, exports.get())

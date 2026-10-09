@@ -865,3 +865,25 @@ Both clients display GFM tables, task checkbox states, strikethrough, explicit a
 New-session creation keeps the selected physical host, execution target, folder, label and tool across snapshot refreshes and failures. The form stays open until confirmed success, disables editing/submission while pending, and displays persistent failure details. A definite pre-execution stale-revision rejection permits one fresh-snapshot retry with a new idempotency key. Unknown outcomes never retry automatically and require checking Sessions before another manual attempt. Only successful creation records a recent folder.
 
 This work changes client behavior without changing the shared wire contract. The original phone's two failed Windows Git Bash attempts remain unclassified until its metadata-only diagnostics archive is received. The owner subsequently approved publishing both app updates. Android release identity is .107/code1121; the physical phone update remains user-operated.
+
+## Session diagnostics follow-up — continuing approved fixes, 2026-10-09
+
+The owner supplied the .107 phone export after Linux and Windows attempts. Its
+ZIP contains only diagnostics-v2.json and discards event codes. Retain the
+strict v2 report and add operations-v1.ndjson on both clients. Each record has
+schemaVersion=1, occurredAt, operation, status, code and durationMs. Export only
+a fixed operation/status/code allowlist, canonical times within seven days,
+at most 200 rows and bounded durations. Unknown codes become operation_failed.
+Never export messages, identifiers, paths, transcripts, credentials or raw logs.
+Android previews the exact metadata; Windows retains its native Save dialog.
+Record creation attempts/outcomes and connection-state changes, rather than
+every snapshot. Android retains its existing private journal; Windows retains
+a bounded process-memory journal. No wire protocol or diagnostics-v2 schema
+changes. Diagnostics storage must not interrupt creation feedback.
+
+Reproduce missing metadata before the fix, test privacy canaries and bounds,
+run source quality and protected Android release UI checks, then publish the
+approved follow-up releases .108/code1122 and private beta.36 through canonical
+processes. Do not claim that this instrumentation repairs the phone connection:
+the exact creation and runtime error is still required. No remote configuration,
+SSH service, host runtime, app restart or physical-phone automation is authorized.

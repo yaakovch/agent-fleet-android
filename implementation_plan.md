@@ -2142,3 +2142,25 @@ Rotation coverage also validates the landscape compact composer and a non-empty 
 - Retry session creation once only after a definite stale rejection, with a fresh snapshot and request key. Preserve the form on both platforms, retain offline selections, prevent duplicate submissions and show persistent uncertainty guidance. Record Android session.create diagnostic events without paths or transcript content.
 - Validate focused parsers/recovery, real Windows bridge retries and launcher state, Android emulator table/copy/scroll and form interactions, then repository gates. Retain source/APK identities and inspected artifacts.
 - Keep the actual phone failure separate from deterministic regressions; obtain More → Diagnostics → Run checks → Export → preview → Share ZIP. The owner subsequently approved committing/pushing and publishing both app updates. No host runtime change or automated physical-phone installation is included.
+
+## Session diagnostics follow-up — continuing approved fixes, 2026-10-09
+
+The owner supplied the .107 phone export after Linux and Windows attempts. Its
+ZIP contains only diagnostics-v2.json and discards event codes. Retain the
+strict v2 report and add operations-v1.ndjson on both clients. Each record has
+schemaVersion=1, occurredAt, operation, status, code and durationMs. Export only
+a fixed operation/status/code allowlist, canonical times within seven days,
+at most 200 rows and bounded durations. Unknown codes become operation_failed.
+Never export messages, identifiers, paths, transcripts, credentials or raw logs.
+Android previews the exact metadata; Windows retains its native Save dialog.
+Record creation attempts/outcomes and connection-state changes, rather than
+every snapshot. Android retains its existing private journal; Windows retains
+a bounded process-memory journal. No wire protocol or diagnostics-v2 schema
+changes. Diagnostics storage must not interrupt creation feedback.
+
+Reproduce missing metadata before the fix, test privacy canaries and bounds,
+run source quality and protected Android release UI checks, then publish the
+approved follow-up releases .108/code1122 and private beta.36 through canonical
+processes. Do not claim that this instrumentation repairs the phone connection:
+the exact creation and runtime error is still required. No remote configuration,
+SSH service, host runtime, app restart or physical-phone automation is authorized.
