@@ -856,3 +856,12 @@ Windows Keep Linux connections active in the background defaults off. Tray-only 
 Export and retain standalone keep-alive tasks/configurations, locate recreators, disable only verified entries and stop only verified owned processes. Remote work follows the owner's remote-command gate. Prepare verified review packages before any active app restart; Gaming Desktop is the canary, then reachable Work/Work-m. Publish Android through the canonical signed updater after release gates; installation and phone smoke remain owner-operated.
 
 Rotation acceptance exposed a landscape-only constraint: the portrait composer action stack can leave fewer than four terminal rows. Landscape uses a compact horizontal action row and one-line message field so valid dimensions can settle. Windows retains its existing desktop layout; both clients retain all composer actions.
+
+
+## Native Markdown and session creation compatibility — 2026-10-09
+
+Both clients display GFM tables, task checkbox states, strikethrough, explicit and bare safe links, line breaks, headings, lists, quotes and code fences. Raw HTML stays literal and remote images remain explicit placeholders. Android tables expose a horizontally scrollable grid and a Copy table action (tab-separated plain text); Windows uses its existing selectable HTML table. These platform controls differ to retain Android text selection and fit narrow screens.
+
+New-session creation keeps the selected physical host, execution target, folder, label and tool across snapshot refreshes and failures. The form stays open until confirmed success, disables editing/submission while pending, and displays persistent failure details. A definite pre-execution stale-revision rejection permits one fresh-snapshot retry with a new idempotency key. Unknown outcomes never retry automatically and require checking Sessions before another manual attempt. Only successful creation records a recent folder.
+
+This work changes client behavior without changing the shared wire contract. The original phone's two failed Windows Git Bash attempts remain unclassified until its metadata-only diagnostics archive is received. The owner subsequently approved publishing both app updates. Android release identity is .107/code1121; the physical phone update remains user-operated.

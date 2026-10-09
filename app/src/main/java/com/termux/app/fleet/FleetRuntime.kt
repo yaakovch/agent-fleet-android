@@ -369,18 +369,17 @@ class FleetRuntime(private val context: Context) {
         require(tool in setOf("shell", "codex", "claude", "copilot")) { "Choose a valid tool." }
         require(validDirectoryPath(path, backend, false)) { "Choose a valid folder." }
         require(locationKind in setOf("project", "custom")) { "Choose a valid location type." }
-        return mutate(
-            "session.create",
-            JSONObject()
+        return createSessionWithStaleRetry(snapshot, hostId, execute = { current, key ->
+            mutate("session.create", JSONObject()
                 .put("hostId", hostId)
                 .put("project", project)
                 .put("backend", backend)
                 .put("tool", tool)
                 .put("path", path)
                 .put("locationKind", locationKind)
-                .put("expectedRevision", snapshot.revision)
-                .put("idempotencyKey", UUID.randomUUID().toString())
-        )
+                .put("expectedRevision", current.revision)
+                .put("idempotencyKey", key))
+        }, refresh = ::loadSnapshot)
     }
 
     fun listDirectory(snapshot: FleetSnapshot, hostId: String, backend: String, path: String): FleetDirectoryListing {

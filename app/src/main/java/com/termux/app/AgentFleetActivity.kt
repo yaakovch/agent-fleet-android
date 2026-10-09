@@ -161,6 +161,7 @@ import com.termux.app.fleet.WorkspaceReducer
 import com.termux.app.fleet.WorkspaceTerminalBroker
 import com.termux.app.fleet.isDesktopPresentation
 import com.termux.app.fleet.workspacePanes
+import com.termux.app.fleet.sessionCreationMayHaveCompleted
 import com.termux.app.fleet.TransportContract
 import java.io.File
 import java.util.concurrent.ConcurrentHashMap
@@ -644,8 +645,29 @@ class AgentFleetActivity : ComponentActivity() {
         fleetRuntime.resetSessionName(snapshot, session)
     }
 
-    private fun createFleetSession(hostId: String, project: String, backend: String, tool: String, path: String, locationKind: String) = mutateFleet("Session created") { snapshot ->
-        fleetRuntime.createSession(snapshot, hostId, project, backend, tool, path, locationKind)
+    private fun createFleetSession(
+        hostId: String, project: String, backend: String, tool: String, path: String, locationKind: String,
+        callback: (Result<Unit>) -> Unit
+    ) {
+        val snapshot = (fleetState.value as? FleetLoadState.Ready)?.snapshot
+        if (snapshot == null) {
+            val error = com.termux.app.fleet.FleetUnavailableException("Fleet is still loading. Your selections were kept; try again when it is ready.", "fleet_loading")
+            reportDiagnosticError("session.create", error, hostId, show = false)
+            callback(Result.failure(error))
+            refreshFleet()
+            return
+        }
+        fleetExecutor.execute {
+            val result = runCatching { fleetRuntime.createSession(snapshot, hostId, project, backend, tool, path, locationKind) }
+            runOnUiThread {
+                result.onSuccess {
+                    FleetSnapshotStore.publish(it)
+                    diagnosticJournal.record("session.create", "healthy", hostId = hostId, message = "Session created")
+                    Toast.makeText(this, "Session created", Toast.LENGTH_SHORT).show()
+                }.onFailure { reportDiagnosticError("session.create", it, hostId, show = false) }
+                callback(result.map { Unit })
+            }
+        }
     }
 
     private fun listFleetDirectory(hostId: String, backend: String, path: String, callback: (Result<FleetDirectoryListing>) -> Unit) {
@@ -1119,7 +1141,7 @@ fun AgentFleetApp(
     onRefresh: () -> Unit,
     onOpenSession: (FleetSession) -> Unit,
     onOpenSessionWithImages: (FleetSession, List<String>) -> Unit,
-    onCreateSession: (String, String, String, String, String, String) -> Unit,
+    onCreateSession: (String, String, String, String, String, String, (Result<Unit>) -> Unit) -> Unit,
     onListDirectory: (String, String, String, (Result<FleetDirectoryListing>) -> Unit) -> Unit,
     onCreateDirectory: (String, String, String, String, (Result<String>) -> Unit) -> Unit,
     onListRepository: (FleetSession, String, Boolean, String, (Result<FleetRepositoryPage>) -> Unit) -> Unit,
@@ -1189,6 +1211,8 @@ fun AgentFleetApp(
     var pendingPairingReviewsScrollSerial by rememberSaveable { mutableStateOf<Long?>(null) }
     var moreAlertRouteSerial by rememberSaveable { mutableStateOf(0L) }
     val currentSnapshot = (fleetState as? FleetLoadState.Ready)?.snapshot
+    var lastCreateSnapshot by remember { mutableStateOf(currentSnapshot) }
+    LaunchedEffect(currentSnapshot) { if (currentSnapshot != null) lastCreateSnapshot = currentSnapshot }
     var handledInitialAction by rememberSaveable { mutableStateOf(-1L) }
     LaunchedEffect(initialActionSerial, currentSnapshot != null) {
         val requested = initialActionSession
@@ -1487,16 +1511,15 @@ fun AgentFleetApp(
             onKillSession(session)
         }
     }
-    if (showCreateSession && currentSnapshot != null) {
+    val createSnapshot = currentSnapshot ?: lastCreateSnapshot
+    if (showCreateSession && createSnapshot != null) {
         CreateSessionDialog(
-            snapshot = currentSnapshot,
+            snapshot = createSnapshot,
             onListDirectory = onListDirectory,
             onCreateDirectory = onCreateDirectory,
-            onDismiss = { showCreateSession = false }
-        ) { host, project, backend, tool, path, locationKind ->
-            showCreateSession = false
-            onCreateSession(host, project, backend, tool, path, locationKind)
-        }
+            onDismiss = { showCreateSession = false },
+            onConfirm = onCreateSession
+        )
     }
     if (showPairing) {
         PairingDialog(pendingPairInvitation.orEmpty(), {
@@ -2068,16 +2091,16 @@ private fun ConfirmKillDialog(session: FleetSession, onDismiss: () -> Unit, onCo
 }
 
 @Composable
-private fun CreateSessionDialog(
+internal fun CreateSessionDialog(
     snapshot: FleetSnapshot,
     onListDirectory: (String, String, String, (Result<FleetDirectoryListing>) -> Unit) -> Unit,
     onCreateDirectory: (String, String, String, String, (Result<String>) -> Unit) -> Unit,
     onDismiss: () -> Unit,
-    onConfirm: (String, String, String, String, String, String) -> Unit
+    onConfirm: (String, String, String, String, String, String, (Result<Unit>) -> Unit) -> Unit
 ) {
-    val hosts = snapshot.physicalHosts.filter { it.status == "healthy" }
+    val hosts = snapshot.physicalHosts
     var hostId by rememberSaveable {
-        mutableStateOf(hosts.firstOrNull()?.id ?: snapshot.physicalHosts.firstOrNull()?.id.orEmpty())
+        mutableStateOf(hosts.firstOrNull { it.status == "healthy" }?.id ?: hosts.firstOrNull()?.id.orEmpty())
     }
     var backend by rememberSaveable {
         mutableStateOf(snapshot.executionTargets.firstOrNull {
@@ -2092,12 +2115,16 @@ private fun CreateSessionDialog(
     var listing by remember { mutableStateOf<FleetDirectoryListing?>(null) }
     var loading by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf("") }
+    var creating by remember { mutableStateOf(false) }
+    var creationError by remember { mutableStateOf("") }
+    var creationMayHaveCompleted by rememberSaveable { mutableStateOf(false) }
+    var browseGeneration by remember { mutableStateOf(0) }
     var recentVersion by remember { mutableStateOf(0) }
     val context = LocalContext.current
     val recentStore = remember(context) { RecentLocationStore(context) }
     val recents = remember(hostId, backend, recentVersion) { recentStore.load(hostId, backend) }
     val targets = snapshot.executionTargets.filter {
-        it.physicalHostId == hostId && it.status != "unavailable"
+        it.physicalHostId == hostId
     }
 
     fun browse(path: String, preferProjects: Boolean = false, recent: Boolean = false) {
@@ -2107,9 +2134,13 @@ private fun CreateSessionDialog(
             error = "The selected execution target is unavailable."
             return
         }
+        val generation = ++browseGeneration
+        val browseHost = hostId
+        val browseBackend = backend
         loading = true
         error = ""
         onListDirectory(transportHost, backend, path) { first ->
+            if (generation != browseGeneration) return@onListDirectory
             first.onSuccess { value ->
                 if (preferProjects) {
                     val projects = value.shortcuts.firstOrNull { it.id == "projects" }
@@ -2124,7 +2155,7 @@ private fun CreateSessionDialog(
                 loading = false
                 error = failure.message ?: "Folder could not be loaded."
                 if (recent && path.isNotBlank()) {
-                    recentStore.remove(hostId, backend, path)
+                    recentStore.remove(browseHost, browseBackend, path)
                     recentVersion++
                 }
             }
@@ -2132,7 +2163,9 @@ private fun CreateSessionDialog(
     }
 
     LaunchedEffect(hostId, targets.map { it.id }) {
-        if (targets.none { it.id == backend }) backend = targets.firstOrNull()?.id ?: "linux"
+        if (selectedPath.isBlank() && !creating && targets.none { it.id == backend }) {
+            backend = targets.firstOrNull { it.status != "unavailable" }?.id ?: backend
+        }
     }
     LaunchedEffect(hostId, backend, locationKind) {
         listing = null
@@ -2140,10 +2173,12 @@ private fun CreateSessionDialog(
         label = ""
         browse("", locationKind == "project")
     }
-    val valid = transportHostId(snapshot, hostId, backend) != null && selectedPath.isNotBlank() &&
+    val valid = !snapshot.isStale && hosts.any { it.id == hostId && it.status == "healthy" } &&
+        targets.any { it.id == backend && it.status != "unavailable" } &&
+        transportHostId(snapshot, hostId, backend) != null && selectedPath.isNotBlank() &&
         label.matches(Regex("[A-Za-z0-9][A-Za-z0-9._ -]{0,63}"))
     AlertDialog(
-        onDismissRequest = onDismiss,
+        onDismissRequest = { if (!creating) onDismiss() },
         title = { Text("New session") },
         text = {
             Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -2156,50 +2191,62 @@ private fun CreateSessionDialog(
                                 it.physicalHostId == host.id && it.status != "unavailable"
                             }
                             if (hostTargets.none { it.id == backend }) backend = hostTargets.firstOrNull()?.id ?: "linux"
-                        }, label = { Text(if (host.id == hostId) "✓ ${host.name}" else host.name) })
+                        }, enabled = !creating && host.status == "healthy", label = { Text(if (host.id == hostId) "✓ ${host.name}" else host.name) })
                     }
                 }
                 Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                     targets.forEach { target ->
                         AssistChip(
                             onClick = { backend = target.id },
+                            enabled = !creating && target.status != "unavailable",
                             label = { Text(if (backend == target.id) "✓ ${target.label}" else target.label) }
                         )
                     }
                 }
                 Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                     listOf("project" to "Projects", "custom" to "Other location").forEach { (choice, title) ->
-                        AssistChip(onClick = { locationKind = choice }, label = { Text(if (locationKind == choice) "✓ $title" else title) })
+                        AssistChip(onClick = { locationKind = choice }, enabled = !creating, label = { Text(if (locationKind == choice) "✓ $title" else title) })
                     }
                 }
                 if (loading) LinearProgressIndicator(Modifier.fillMaxWidth())
+                if (creating) {
+                    LinearProgressIndicator(Modifier.fillMaxWidth().testTag("session-create-progress"))
+                    Text("Creating session…")
+                }
+                if (!creating && creationMayHaveCompleted && creationError.isBlank()) {
+                    Text("Creation may have completed. Check Sessions before starting another session.", modifier = Modifier.testTag("session-create-error"))
+                }
+                if (creationError.isNotBlank()) {
+                    Text(creationError, color = MaterialTheme.colorScheme.error, modifier = Modifier.testTag("session-create-error"))
+                    if (creationMayHaveCompleted) Text("Check Sessions before starting another session.")
+                }
                 if (error.isNotBlank()) {
                     Text(error, color = MaterialTheme.colorScheme.error)
-                    OutlinedButton(onClick = { browse("", locationKind == "project") }) { Text("Retry") }
+                    OutlinedButton(onClick = { browse("", locationKind == "project") }, enabled = !creating) { Text("Retry") }
                 }
                 listing?.let { directory ->
                     Text(directory.path, maxLines = 2, overflow = TextOverflow.Ellipsis, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                        directory.shortcuts.forEach { shortcut -> AssistChip(onClick = { browse(shortcut.path) }, label = { Text(shortcut.label) }) }
+                        directory.shortcuts.forEach { shortcut -> AssistChip(onClick = { browse(shortcut.path) }, enabled = !creating, label = { Text(shortcut.label) }) }
                     }
                     if (locationKind == "custom" && recents.isNotEmpty()) {
                         Text("Recent", fontWeight = FontWeight.SemiBold)
                         Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                            recents.forEach { path -> AssistChip(onClick = { browse(path, recent = true) }, label = { Text(shortLocation(path)) }) }
-                            AssistChip(onClick = { recentStore.clear(hostId, backend); recentVersion++ }, label = { Text("Clear") })
+                            recents.forEach { path -> AssistChip(onClick = { browse(path, recent = true) }, enabled = !creating, label = { Text(shortLocation(path)) }) }
+                            AssistChip(onClick = { recentStore.clear(hostId, backend); recentVersion++ }, enabled = !creating, label = { Text("Clear") })
                         }
                     }
                     Column(Modifier.fillMaxWidth().heightIn(max = 230.dp).verticalScroll(rememberScrollState())) {
-                        directory.parentPath?.let { parent -> TextButton(onClick = { browse(parent) }) { Text("↑ Parent folder") } }
+                        directory.parentPath?.let { parent -> TextButton(onClick = { browse(parent) }, enabled = !creating) { Text("↑ Parent folder") } }
                         directory.entries.forEach { entry ->
-                            TextButton(onClick = { browse(entry.path) }, modifier = Modifier.fillMaxWidth()) {
+                            TextButton(onClick = { browse(entry.path) }, enabled = !creating, modifier = Modifier.fillMaxWidth()) {
                                 Text("📁 ${entry.name}", Modifier.weight(1f), textAlign = androidx.compose.ui.text.style.TextAlign.Start)
                                 Text("›")
                             }
                         }
                     }
                     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                        OutlinedTextField(newFolder, { newFolder = it }, Modifier.weight(1f), label = { Text("New folder") }, singleLine = true)
+                        OutlinedTextField(newFolder, { newFolder = it }, Modifier.weight(1f), label = { Text("New folder") }, singleLine = true, enabled = !creating)
                         OutlinedButton(onClick = {
                             val parent = directory.path
                             val transportHost = transportHostId(snapshot, hostId, backend)
@@ -2208,30 +2255,45 @@ private fun CreateSessionDialog(
                                 result.onSuccess { path -> newFolder = ""; browse(path) }
                                     .onFailure { error = it.message ?: "Folder could not be created." }
                             }
-                        }, enabled = newFolder.isNotBlank()) { Text("Create") }
+                        }, enabled = !creating && newFolder.isNotBlank()) { Text("Create") }
                     }
                     Button(onClick = {
                         selectedPath = directory.path
                         label = shortLocation(directory.path).substringAfterLast('/').ifBlank { "Session" }
-                    }, Modifier.fillMaxWidth()) { Text("Use this folder") }
+                    }, Modifier.fillMaxWidth().testTag("session-create-use-folder"), enabled = !creating) { Text("Use this folder") }
                 }
                 if (selectedPath.isNotBlank()) {
-                    OutlinedTextField(label, { label = it }, Modifier.fillMaxWidth(), label = { Text("Session label") }, singleLine = true)
+                    OutlinedTextField(label, { label = it }, Modifier.fillMaxWidth().testTag("session-create-label"), label = { Text("Session label") }, singleLine = true, enabled = !creating)
                     Text("Tool", fontWeight = FontWeight.SemiBold)
                     Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                         listOf("codex", "claude", "copilot", "shell").forEach { choice ->
-                            AssistChip(onClick = { tool = choice }, label = { Text(if (tool == choice) "✓ $choice" else choice) })
+                            AssistChip(onClick = { tool = choice }, enabled = !creating, label = { Text(if (tool == choice) "✓ $choice" else choice) })
                         }
                     }
                 }
             }
         },
         confirmButton = { TextButton(onClick = {
-            recentStore.record(hostId, backend, selectedPath)
+            if (creating || creationMayHaveCompleted) return@TextButton
             val transportHost = transportHostId(snapshot, hostId, backend) ?: return@TextButton
-            onConfirm(transportHost, label.trim(), backend, tool, selectedPath, locationKind)
-        }, enabled = valid) { Text("Create") } },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } }
+            val submittedHost = hostId
+            val submittedBackend = backend
+            val submittedPath = selectedPath
+            creating = true
+            creationMayHaveCompleted = true
+            creationError = ""
+            onConfirm(transportHost, label.trim(), backend, tool, selectedPath, locationKind) { result ->
+                creating = false
+                result.onSuccess {
+                    recentStore.record(submittedHost, submittedBackend, submittedPath)
+                    onDismiss()
+                }.onFailure {
+                    creationError = it.message ?: "Session could not be created. Your selections were kept."
+                    creationMayHaveCompleted = sessionCreationMayHaveCompleted(it)
+                }
+            }
+        }, enabled = valid && !creating && !creationMayHaveCompleted, modifier = Modifier.testTag("session-create-submit")) { Text("Create") } },
+        dismissButton = { TextButton(onClick = onDismiss, enabled = !creating) { Text("Cancel") } }
     )
 }
 
@@ -3459,7 +3521,7 @@ private fun AgentFleetPreview() {
             onRefresh = {},
             onOpenSession = {},
             onOpenSessionWithImages = { _, _ -> },
-            onCreateSession = { _, _, _, _, _, _ -> },
+            onCreateSession = { _, _, _, _, _, _, callback -> callback(Result.success(Unit)) },
             onListDirectory = { _, _, _, callback -> callback(Result.failure(IllegalStateException("Preview"))) },
             onCreateDirectory = { _, _, _, _, callback -> callback(Result.failure(IllegalStateException("Preview"))) },
             onListRepository = { _, _, _, _, callback -> callback(Result.failure(IllegalStateException("Preview"))) },

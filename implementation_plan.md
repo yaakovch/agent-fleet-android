@@ -2133,3 +2133,12 @@ Execution authorized; active app restart/reload approval remains separate. This 
 5. Prepare rollback-safe keep-alive inspection/disable scripts and verified review packages. Obtain the required remote command decision before remote inspection. Report unavailable targets explicitly. Active app restart remains a final separate approval after concrete review; publish signed Android through app-release.sh only after all required gates pass.
 
 Rotation coverage also validates the landscape compact composer and a non-empty rendered screen. Readiness waits at least 150 ms after applying the final size, as well as after output. Keep actual-Codex fixture credentials private and remove the opt-in fixture before the ordinary full suite.
+
+
+## Native Markdown and session creation compatibility — 2026-10-09
+
+- Reproduce Android formatting gaps with JVM regressions before applying pinned Markwon extensions and parser-based code/table rendering. Retain safe link handling and prevent HTML/image execution or loading.
+- Add Windows task-state rendering and parity regressions for the existing GFM renderer.
+- Retry session creation once only after a definite stale rejection, with a fresh snapshot and request key. Preserve the form on both platforms, retain offline selections, prevent duplicate submissions and show persistent uncertainty guidance. Record Android session.create diagnostic events without paths or transcript content.
+- Validate focused parsers/recovery, real Windows bridge retries and launcher state, Android emulator table/copy/scroll and form interactions, then repository gates. Retain source/APK identities and inspected artifacts.
+- Keep the actual phone failure separate from deterministic regressions; obtain More → Diagnostics → Run checks → Export → preview → Share ZIP. The owner subsequently approved committing/pushing and publishing both app updates. No host runtime change or automated physical-phone installation is included.

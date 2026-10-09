@@ -437,3 +437,10 @@ Windows ADB can consume a filename loop's stdin and silently skip later files.
 `TerminalCodexAcceptanceTest` is opt-in through `/sdcard/Download/agent-fleet-terminal-codex-fixture.json`. The existing private startup probe accepts `start --actual-codex` to open the installed Codex UI on a separate tmux server without sending a prompt. Use its pinned SSH fixture and registered loopback relay, then remove the fixture file and reverse mapping before normal full release validation. Retain the actual terminal, keyboard, rotation, zoom and reconnection captures with APK identities.
 
 On mirrored WSL networking, the runner can use the Linux ADB client against the existing Windows-owned isolated server on port 5038. It first checks the server's ADB protocol at that explicit loopback port. Windows local paths are translated for the Linux client. The emulator serial, API 36, x86_64 and qemu checks still precede device mutations. The Windows client remains the fallback where that loopback server is unreachable. The default ADB server and physical phone remain outside this workflow.
+
+
+### Native Markdown and new-session recovery
+
+`NativeMarkdownCompatibilityTest` covers GFM tables/cell contents, reference links, escaped pipes, task states, strikethrough, safe bare links, line breaks, literal HTML, omitted images, and alternate/indented code fences. `SessionCreationRecoveryTest` limits stale-revision retry to one fresh request and prevents retries after uncertain results.
+
+Run `com.termux.app.AgentFleetCompatibilityTest` through the protected focused runner with `AGENT_FLEET_CAPTURE_DEVICE_OUTPUT=1`. It checks the actual table TextViews, horizontal scroll and full copied table, selected Windows folder retention, pending submission guards, safe retry feedback and uncertain-result guidance. Inspect its captured images before accepting them. Run the full quality gate for handoff; this fixture does not create a session on a user's host or identify an earlier phone failure. Obtain the actual phone event code through More → Diagnostics → Run checks → Export → preview → Share ZIP.

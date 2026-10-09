@@ -7,6 +7,7 @@ import android.util.TypedValue
 import android.view.View
 import android.widget.TextView
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.verticalScroll
@@ -24,6 +25,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.windowInsetsPadding
@@ -64,6 +66,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.Density
@@ -96,6 +99,15 @@ import io.noties.markwon.MarkwonConfiguration
 import io.noties.markwon.MarkwonSpansFactory
 import io.noties.markwon.SpanFactory
 import io.noties.markwon.core.CoreProps
+import io.noties.markwon.ext.tables.Table
+import io.noties.markwon.ext.tables.TablePlugin
+import io.noties.markwon.ext.tasklist.TaskListPlugin
+import io.noties.markwon.ext.strikethrough.StrikethroughPlugin
+import io.noties.markwon.linkify.LinkifyPlugin
+import org.commonmark.node.SoftLineBreak
+import org.commonmark.node.HtmlInline
+import org.commonmark.node.HtmlBlock
+import org.commonmark.node.Image
 import org.commonmark.node.Link
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -2387,26 +2399,36 @@ private fun ShellCommandBar(onCommand: (String) -> Unit, onKey: (String) -> Unit
 @Composable
 internal fun MarkdownText(value: String) {
     val density = LocalAgentFleetDisplayDensity.current
-    val blocks = remember(value) { splitMarkdownBlocks(value) }
+    val context = LocalContext.current
+    val linkColor = MaterialTheme.colorScheme.primary.toArgbCompat()
+    val markwon = remember(context, linkColor) { nativeMarkdownMarkwon(context, linkColor) }
+    val blocks = remember(markwon, value) { nativeMarkdownBlocks(markwon, value) }
     Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(5.dp)) {
         blocks.forEachIndexed { index, block ->
             when (block) {
                 is NativeMarkdownBlock.Prose -> MarkwonText(block.content, density.nativeBodySp)
                 is NativeMarkdownBlock.Code -> CopyableMarkdownCode(block, index)
+                is NativeMarkdownBlock.Grid -> NativeMarkdownTable(block, index, density.nativeBodySp)
             }
         }
     }
 }
 
 @Composable
-private fun MarkwonText(value: String, textSizeSp: Int) {
+private fun MarkwonText(
+    value: android.text.Spanned,
+    textSizeSp: Int,
+    modifier: Modifier = Modifier.fillMaxWidth(),
+    alignment: Table.Alignment = Table.Alignment.LEFT,
+    header: Boolean = false
+) {
     val context = LocalContext.current
     val color = MaterialTheme.colorScheme.onSurface
     val linkColor = MaterialTheme.colorScheme.primary.toArgbCompat()
     val markwon = remember(context, linkColor) { nativeMarkdownMarkwon(context, linkColor) }
     val onFile = LocalHostFileHandler.current
-    val rendered = remember(markwon, value) {
-        android.text.SpannableString(markwon.toMarkdown(value)).also { text ->
+    val rendered = remember(value) {
+        android.text.SpannableString(value).also { text ->
             HostFileReferences.extract(text.toString()).forEach { reference ->
                 if (text.getSpans(reference.start, reference.end, android.text.style.ClickableSpan::class.java).isEmpty()) {
                     text.setSpan(hostFileClickableSpan(reference.target), reference.start, reference.end, android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
@@ -2415,7 +2437,7 @@ private fun MarkwonText(value: String, textSizeSp: Int) {
         }
     }
     AndroidView(
-        modifier = Modifier.fillMaxWidth(),
+        modifier = modifier,
         factory = {
             TextView(it).apply {
                 setTextIsSelectable(true)
@@ -2430,12 +2452,54 @@ private fun MarkwonText(value: String, textSizeSp: Int) {
             view.setTextColor(color.toArgbCompat())
             view.setLinkTextColor(linkColor)
             view.setTextSize(TypedValue.COMPLEX_UNIT_SP, textSizeSp.toFloat())
+            view.gravity = when (alignment) {
+                Table.Alignment.RIGHT -> android.view.Gravity.END
+                Table.Alignment.CENTER -> android.view.Gravity.CENTER_HORIZONTAL
+                else -> android.view.Gravity.START
+            }
+            view.setTypeface(android.graphics.Typeface.DEFAULT, if (header) android.graphics.Typeface.BOLD else android.graphics.Typeface.NORMAL)
             if (view.getTag(com.termux.R.id.host_file_content) !== rendered) {
                 markwon.setParsedMarkdown(view, rendered)
                 view.setTag(com.termux.R.id.host_file_content, rendered)
             }
         }
     )
+}
+
+@Composable
+private fun NativeMarkdownTable(block: NativeMarkdownBlock.Grid, index: Int, textSizeSp: Int) {
+    val clipboard = LocalClipboardManager.current
+    val columnCount = block.rows.maxOfOrNull { it.columns().size } ?: return
+    val widths = remember(block) { List(columnCount) { column ->
+        val longest = block.rows.maxOf { row -> row.columns().getOrNull(column)?.content()?.length ?: 0 }
+        (longest * 6 + 32).coerceIn(140, 280).dp
+    } }
+    val ruleColor = MaterialTheme.colorScheme.outlineVariant
+    Column(Modifier.fillMaxWidth().testTag("markdown-table-$index")) {
+        TextButton(onClick = { clipboard.setText(AnnotatedString(block.copyText)) }, modifier = Modifier.testTag("markdown-table-copy-$index")) {
+            Text("Copy table")
+        }
+        Column(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).testTag("markdown-table-scroll-$index")) {
+            block.rows.forEachIndexed { rowIndex, row ->
+                Row(Modifier.background(
+                    if (row.header()) MaterialTheme.colorScheme.surfaceVariant else MaterialTheme.colorScheme.surface
+                ).border(1.dp, ruleColor).drawBehind {
+                    var x = 0f
+                    widths.dropLast(1).forEach { width ->
+                        x += width.toPx()
+                        drawLine(ruleColor, androidx.compose.ui.geometry.Offset(x, 0f),
+                            androidx.compose.ui.geometry.Offset(x, size.height), 1.dp.toPx())
+                    }
+                }.testTag("markdown-table-row-$rowIndex")) {
+                    row.columns().forEachIndexed { column, cell ->
+                        MarkwonText(cell.content(), textSizeSp,
+                            Modifier.width(widths[column]).padding(10.dp),
+                            cell.alignment(), row.header())
+                    }
+                }
+            }
+        }
+    }
 }
 
 private fun hostFileClickableSpan(target: String) = object : android.text.style.ClickableSpan() {
@@ -2480,7 +2544,25 @@ private val nativeMarkdownCache = WeakHashMap<android.content.Context, CachedNat
 
 internal fun nativeMarkdownMarkwon(context: android.content.Context, linkColor: Int? = null): Markwon = synchronized(nativeMarkdownCache) {
     nativeMarkdownCache[context]?.takeIf { it.linkColor == linkColor }?.reference?.get() ?: Markwon.builder(context)
+        .usePlugin(StrikethroughPlugin.create())
+        .usePlugin(TablePlugin.create(context))
+        .usePlugin(TaskListPlugin.create(context))
+        .usePlugin(LinkifyPlugin.create(android.text.util.Linkify.WEB_URLS or android.text.util.Linkify.EMAIL_ADDRESSES))
         .usePlugin(object : AbstractMarkwonPlugin() {
+            override fun configureVisitor(builder: io.noties.markwon.MarkwonVisitor.Builder) {
+                builder.on(SoftLineBreak::class.java) { visitor, _ -> visitor.ensureNewLine() }
+                builder.on(HtmlInline::class.java) { visitor, node -> visitor.builder().append(node.literal) }
+                builder.on(HtmlBlock::class.java) { visitor, node ->
+                    visitor.blockStart(node)
+                    visitor.builder().append(node.literal.trimEnd('\n'))
+                    visitor.blockEnd(node)
+                }
+                builder.on(Image::class.java) { visitor, node ->
+                    visitor.builder().append("[Image omitted: ")
+                    if (node.firstChild == null) visitor.builder().append("remote image") else visitor.visitChildren(node)
+                    visitor.builder().append(']')
+                }
+            }
             override fun configureTheme(builder: io.noties.markwon.core.MarkwonTheme.Builder) {
                 if (linkColor != null) builder.linkColor(linkColor)
             }
@@ -2510,45 +2592,6 @@ internal fun nativeMarkdownMarkwon(context: android.content.Context, linkColor: 
         })
         .build()
         .also { nativeMarkdownCache[context] = CachedNativeMarkdown(linkColor, WeakReference(it)) }
-}
-
-private sealed interface NativeMarkdownBlock {
-    data class Prose(val content: String) : NativeMarkdownBlock
-    data class Code(val language: String, val content: String) : NativeMarkdownBlock
-}
-
-private fun splitMarkdownBlocks(value: String): List<NativeMarkdownBlock> {
-    if (!value.contains("```")) return listOf(NativeMarkdownBlock.Prose(value))
-    val result = mutableListOf<NativeMarkdownBlock>()
-    val prose = StringBuilder()
-    val code = StringBuilder()
-    var language = ""
-    var inside = false
-    value.lineSequence().forEach { line ->
-        if (line.startsWith("```")) {
-            if (inside) {
-                result += NativeMarkdownBlock.Code(language, code.toString().trimEnd('\n'))
-                code.clear()
-                language = ""
-            } else {
-                if (prose.isNotEmpty()) {
-                    result += NativeMarkdownBlock.Prose(prose.toString().trimEnd('\n'))
-                    prose.clear()
-                }
-                language = line.removePrefix("```").trim().take(32)
-            }
-            inside = !inside
-        } else if (inside) {
-            code.append(line).append('\n')
-        } else {
-            prose.append(line).append('\n')
-        }
-    }
-    if (inside) {
-        prose.append("```").append(language).append('\n').append(code)
-    }
-    if (prose.isNotEmpty()) result += NativeMarkdownBlock.Prose(prose.toString().trimEnd('\n'))
-    return result.ifEmpty { listOf(NativeMarkdownBlock.Prose(value)) }
 }
 
 @Composable

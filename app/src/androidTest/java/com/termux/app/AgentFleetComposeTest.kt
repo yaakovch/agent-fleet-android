@@ -1887,7 +1887,7 @@ class AgentFleetComposeTest {
                 onRefresh = onRefresh,
                 onOpenSession = onOpenSession,
                 onOpenSessionWithImages = { _, _ -> },
-                onCreateSession = { _, _, _, _, _, _ -> },
+                onCreateSession = { _, _, _, _, _, _, callback -> callback(Result.success(Unit)) },
                 onListDirectory = { _, _, _, callback -> callback(Result.success(FleetDirectoryListing("linux", "/home", null, emptyList(), emptyList(), false))) },
                 onCreateDirectory = { _, _, _, _, callback -> callback(Result.success("/home/new")) },
                 onListRepository = onListRepository,
