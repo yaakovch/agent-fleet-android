@@ -1175,6 +1175,10 @@ class AgentFleetComposeTest {
         }
         compose.onNodeWithTag("native-message-input").performTextInput("Preserve this composer draft")
         compose.waitForIdle()
+        val automation = androidx.test.platform.app.InstrumentationRegistry.getInstrumentation().uiAutomation
+        // IME/window animation can move Android TextViews after Compose is idle.
+        automation.waitForIdle(300, 5_000)
+        compose.waitForIdle()
         fun findLink(view: android.view.View): android.widget.TextView? {
             if (view is android.widget.TextView && view.text.toString() == "Host report") return view
             if (view is android.view.ViewGroup) for (index in 0 until view.childCount) {
@@ -1182,6 +1186,7 @@ class AgentFleetComposeTest {
             }
             return null
         }
+        discoveryScreenshot("native-host-file-before-tap")
         var x = 0f
         var y = 0f
         compose.runOnIdle {
@@ -1196,11 +1201,14 @@ class AgentFleetComposeTest {
             val layout = link.layout
             x = location[0] + link.totalPaddingLeft + (layout.getPrimaryHorizontal(0) + layout.getPrimaryHorizontal(link.text.length)) / 2
             y = location[1] + link.totalPaddingTop + (layout.getLineTop(0) + layout.getLineBottom(0)) / 2f
+            val visible = android.graphics.Rect()
+            Assert.assertTrue("Native link must be visible before a real tap: local=$visible screen=($x,$y) origin=${location.toList()}", link.getLocalVisibleRect(visible) && visible.contains((x - location[0]).toInt(), (y - location[1]).toInt()))
         }
-        val automation = androidx.test.platform.app.InstrumentationRegistry.getInstrumentation().uiAutomation
         val now = android.os.SystemClock.uptimeMillis()
         val down = android.view.MotionEvent.obtain(now, now, android.view.MotionEvent.ACTION_DOWN, x, y, 0)
         val up = android.view.MotionEvent.obtain(now, now + 50, android.view.MotionEvent.ACTION_UP, x, y, 0)
+        down.source = android.view.InputDevice.SOURCE_TOUCHSCREEN
+        up.source = android.view.InputDevice.SOURCE_TOUCHSCREEN
         try {
             Assert.assertTrue(automation.injectInputEvent(down, true))
             Assert.assertTrue(automation.injectInputEvent(up, true))
