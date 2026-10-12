@@ -38,7 +38,7 @@ fun TerminalInputControls(state: TerminalInputController, composerAvailable: Boo
                 }
             }
             if (landscape) Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState())) {
-                modifiers(); keyButtons(state, listOf("ESC", "TAB", "LEFT", "UP", "DOWN", "RIGHT", "ENTER"))
+                modifiers(); keyButtons(state, listOf("ESC", "TAB", "LEFT", "UP", "DOWN", "RIGHT", "SHIFT_LEFT", "ENTER"))
             } else {
                 Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState())) { modifiers(); keyButtons(state, listOf("ESC", "TAB")) }
                 Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState())) { keyButtons(state, listOf("LEFT", "UP", "DOWN", "RIGHT", "SHIFT_LEFT", "ENTER")) }

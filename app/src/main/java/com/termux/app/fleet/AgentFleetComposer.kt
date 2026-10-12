@@ -610,7 +610,9 @@ internal fun AgentFleetComposerContent(
     var text by rememberSaveable(target) { mutableStateOf(input?.draft.orEmpty()) }
     val savedBinding = LocalSavedSessionBinding.current ?: AgentFleetComposer.savedBindingForTarget(target)
     val savedMessage by savedBinding?.message?.collectAsState() ?: remember { mutableStateOf("") }
-    LaunchedEffect(savedBinding, savedMessage) { if (savedBinding != null) text = savedMessage }
+    LaunchedEffect(savedBinding, savedMessage, input) {
+        if (savedBinding != null) { text = savedMessage; input?.draft = savedMessage }
+    }
     LaunchedEffect(input?.draft) { if (input != null && savedBinding == null) text = input.draft }
     fun changeText(value: String) { text = value; input?.draft = value; savedBinding?.updateMessage(value) }
     val localSuggestions = remember(target, localSuggestionsAvailableOverride, localSuggestionModeOverride, localSuggestionDebugFakeOutput) {

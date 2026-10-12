@@ -13,6 +13,22 @@ import org.robolectric.RuntimeEnvironment
 
 @RunWith(RobolectricTestRunner::class)
 class NativeSessionControllerLifecycleTest {
+    @Test fun directShellDefaultsToTerminalWhenTheNativeSurfaceBinds() {
+        val context: Context = RuntimeEnvironment.getApplication()
+        val input = TerminalInputController().apply { bind("shell", false) }
+        val controller = NativeSessionController(FakeHost(context, input), ComposeView(context))
+        try {
+            controller.bind(Intent().putExtra(AgentFleetContract.EXTRA_NATIVE_SESSION, true)
+                .putExtra(AgentFleetContract.EXTRA_HOST_ID, "fixture")
+                .putExtra(AgentFleetContract.EXTRA_INTERNAL_SESSION, "shell"))
+            val field = NativeSessionController::class.java.getDeclaredField("uiState").apply { isAccessible = true }
+            @Suppress("UNCHECKED_CAST")
+            val state = field.get(controller) as androidx.compose.runtime.MutableState<NativeSessionUiState>
+            assertEquals(NativeViewMode.ManualTerminal, state.value.viewMode)
+            assertTrue(input.direct)
+        } finally { controller.close() }
+    }
+
     @Test fun lateSavedViewDoesNotUndoTheUsersSurfaceChoice() {
         val context: Context = RuntimeEnvironment.getApplication()
         val controller = NativeSessionController(FakeHost(context), ComposeView(context))
@@ -158,7 +174,8 @@ class NativeSessionControllerLifecycleTest {
     }
 
     private class FakeHost(
-        override val nativeContext: Context
+        override val nativeContext: Context,
+        override val terminalInput: TerminalInputController? = null
     ) : NativeSessionHost {
         override val nativeInlineComposer: Boolean = false
 

@@ -847,13 +847,15 @@ private fun NativeAiComposer(
     var wasDirect by remember { mutableStateOf(input?.direct == true) }
     LaunchedEffect(input?.direct, active) {
         if (input?.direct == true) wasDirect = true
-        else if (wasDirect && active) { wasDirect = false; composerFocus.requestFocus() }
+        else if (input != null && wasDirect && active) { wasDirect = false; composerFocus.requestFocus() }
     }
     var value by rememberSaveable { mutableStateOf(input?.draft.orEmpty()) }
     val savedBinding = LocalSavedSessionBinding.current
     val savedMessage by savedBinding?.message?.collectAsState() ?: remember { mutableStateOf("") }
-    LaunchedEffect(savedBinding, savedMessage) { if (savedBinding != null) value = savedMessage }
-    androidx.compose.runtime.LaunchedEffect(input?.draft) { if (input != null) value = input.draft }
+    LaunchedEffect(savedBinding, savedMessage, input) {
+        if (savedBinding != null) { value = savedMessage; input?.draft = savedMessage }
+    }
+    LaunchedEffect(input, input?.draft, savedBinding) { if (input != null && savedBinding == null) value = input.draft }
     fun changeValue(next: String) { value = next; input?.draft = next; savedBinding?.updateMessage(next) }
     var observedLiveSerial by remember { mutableStateOf(liveEventSerial) }
     var observedSuggestionKey by remember { mutableStateOf("") }

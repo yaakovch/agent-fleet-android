@@ -108,6 +108,65 @@ class TerminalDirectInputTest {
         } finally { compose.runOnUiThread { terminal.finishIfRunning() } }
     }
 
+    @Test fun workspaceShellOpensDirectAndWritesToItsRealTerminal() {
+        val session = FleetSession("fixture:shell", "fixture", "shell", "Shell", "Shell", "fixture", "shell", "linux", "active", false, null, 0)
+        val snapshot = FleetSnapshot("shell-default", "2026-10-12T17:00:00Z",
+            listOf(FleetHost("fixture", "Fixture", "healthy", "wsl", null, emptySet())), listOf(session), emptyList(), emptyList())
+        val initial = emptyWorkspaceLayout()
+        val state = mutableStateOf(AndroidWorkspaceState(WorkspaceReducer.assign(initial, initial.focusedPaneId, session.id)))
+        val broker = WorkspaceTerminalBroker(compose.activity)
+        val transitions = mutableListOf<String>()
+        val registry = NativeSessionRegistry<WorkspaceRetainedNativeSession>(compose.activity)
+        lateinit var terminal: TerminalSession
+        compose.runOnUiThread {
+            terminal = TerminalSession("/system/bin/sh", "/", arrayOf("sh", "-c", "stty -echo -icanon -icrnl min 1 time 0; printf 'READY\\r\\n'; dd bs=1 count=1 2>/dev/null | od -An -tx1; sleep 120"),
+                arrayOf("PATH=/system/bin", "TERM=xterm-256color"), 2000, TermuxTerminalSessionClientBase())
+            @Suppress("UNCHECKED_CAST")
+            val binding = broker.state(session.id) as androidx.compose.runtime.MutableState<WorkspaceTerminalBinding>
+            binding.value = WorkspaceTerminalBinding(session.id, terminal = terminal, status = "live", message = "Live")
+        }
+        try {
+            compose.setContent { AgentFleetTheme(darkTheme = true) {
+                CompositionLocalProvider(LocalWorkspaceNativeSessionRegistry provides registry) {
+                    DesktopWorkspaceScreen(snapshot, snapshot.sessions, state = state.value, broker = broker,
+                        onStateChange = { transitions.add(workspacePanes(it.layout.root).single().viewMode.toString()); state.value = it }, onMoreSession = { _, _ -> }, onRefresh = {})
+                }
+            } }
+            compose.waitForIdle()
+            assertEquals("Actual shell layout; transitions=$transitions", WorkspaceViewMode.Terminal, workspacePanes(state.value.layout.root).single().viewMode)
+            compose.onNodeWithTag("workspace-mode-terminal").assertIsSelected()
+            compose.onNodeWithTag("terminal-input-direct").assertTextContains("✓ Direct input")
+            compose.onNodeWithTag("terminal-input-composer").assertDoesNotExist()
+            await(terminal, "READY")
+            compose.onNodeWithTag("terminal-key-ENTER").performScrollTo().assertIsEnabled().performClick()
+            await(terminal, "0d")
+        } finally { compose.runOnUiThread { registry.destroy(); broker.close(); terminal.finishIfRunning() } }
+    }
+
+    @Test fun nativeSavedDraftRemainsAuthoritativeForTheSharedInput() {
+        val directory = java.io.File(compose.activity.cacheDir, "native-direct-draft-${System.nanoTime()}").apply { mkdirs() }
+        val binding = SavedSessionBinding(directory)
+        binding.install(VerifiedSessionIdentity("fixture", "draft", "a".repeat(64), "/fixture", "linux", "codex"), "linux")
+        binding.updateMessage("Saved native draft")
+        val input = TerminalInputController().apply { bind("draft", true); connection(true); available = { true } }
+        try {
+            compose.setContent { AgentFleetTheme(darkTheme = true) {
+                CompositionLocalProvider(LocalTerminalInputController provides input, LocalSavedSessionBinding provides binding) {
+                    NativeSessionScreen(
+                        state = NativeSessionUiState("Draft", "fixture", "draft", adapter = "codex", connection = "Live",
+                            providerStateKnown = true, providerState = ProviderState("verified", "PROVIDER_STATE_VERIFIED", "fixture", 1,
+                                ProviderComponent("codex-parser", "3.0.0"), ProviderComponent("codex-actions", "2.0.0"), true, "none")),
+                        aiComposer = true, inlineComposer = true, localSuggestionsAvailableOverride = false,
+                        onToggleTerminal = {}, onRetry = {}, onLoadOlder = {}, onApproval = { _, _ -> }, onQuestion = { _, _ -> },
+                        onShellCommand = {}, onShellKey = {}, onDirectory = {}, onRefreshDirectory = {}, onControlC = {},
+                        onCloseSession = {}, onKillSession = {}, onScheduleContinue = {}, onDismissAttention = {})
+                }
+            } }
+            compose.onNodeWithTag("native-message-input").assertTextContains("Saved native draft")
+            assertEquals("Saved native draft", input.draft)
+        } finally { SavedSessionStates.writer.submit {}.get(); directory.deleteRecursively() }
+    }
+
     @Test fun composerDraftAttachmentsAndProfilesSurviveModeSwitch() {
         val input = TerminalInputController().apply { bind("draft", true); connection(true); available = { true } }
         val attachments = mutableStateOf(listOf("/synthetic/image.jpg"))
@@ -168,6 +227,7 @@ class TerminalDirectInputTest {
                 AgentFleetTheme(darkTheme = true) { Box(Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing)) { TerminalInputControls(input) } }
             }
         }
+        compose.onNodeWithTag("terminal-key-SHIFT_LEFT").performScrollTo().assertIsDisplayed()
         compose.onNodeWithTag("terminal-input-expand").performClick()
         assertTrue(input.expanded)
         compose.onNodeWithTag("terminal-function-row-7").performScrollTo()

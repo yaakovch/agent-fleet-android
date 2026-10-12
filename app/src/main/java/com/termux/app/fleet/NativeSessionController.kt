@@ -251,8 +251,9 @@ class NativeSessionController @JvmOverloads constructor(
         } else DrawerSessionSurface.Native
         val initialMode = when {
             !enabled -> NativeViewMode.ManualTerminal
-            requestedSurface == AgentFleetContract.SURFACE_TERMINAL -> NativeViewMode.ManualTerminal
             requestedSurface == AgentFleetContract.SURFACE_NATIVE -> NativeViewMode.Native
+            activity.terminalInput?.direct == true -> NativeViewMode.ManualTerminal
+            requestedSurface == AgentFleetContract.SURFACE_TERMINAL -> NativeViewMode.ManualTerminal
             storedSurface == DrawerSessionSurface.Terminal -> NativeViewMode.ManualTerminal
             else -> NativeViewMode.Native
         }

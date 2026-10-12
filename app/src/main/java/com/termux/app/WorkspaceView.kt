@@ -606,7 +606,19 @@ private fun WorkspacePaneView(
     input.onDirect = { onView(pane.id, WorkspaceViewMode.Terminal) }
     input.onComposer = { onView(pane.id, if (input.previousNative) WorkspaceViewMode.Native else WorkspaceViewMode.Terminal) }
     input.send = { name, modifiers -> session != null && input.canInput() && broker.key(session.id, name, modifiers) }
-    SideEffect { input.focus(focused); input.connection(available && binding?.status == "live"); input.readingViewChanged(pane.viewMode == WorkspaceViewMode.Native) }
+    var shellEntryPending by remember(input) { mutableStateOf(session?.tool == "shell" && input.direct) }
+    SideEffect {
+        input.focus(focused)
+        input.connection(available && binding?.status == "live")
+        if (!shellEntryPending) input.readingViewChanged(pane.viewMode == WorkspaceViewMode.Native)
+    }
+    LaunchedEffect(input, shellEntryPending, pane.viewMode) {
+        if (shellEntryPending) {
+            if (pane.viewMode == WorkspaceViewMode.Native) onView(pane.id, WorkspaceViewMode.Terminal)
+            else shellEntryPending = false
+        }
+    }
+    val terminalView = pane.viewMode == WorkspaceViewMode.Terminal || shellEntryPending
     DisposableEffect(input) { onDispose { input.clearModifiers() } }
     val borderColor = when {
         dragTarget -> MaterialTheme.colorScheme.tertiary
@@ -678,13 +690,13 @@ private fun WorkspacePaneView(
                     // Retain the editor, uploads and launchers while Direct input is visible.
                     EmbeddedNative(
                         pane.id, session, broker, input,
-                        focused && pane.viewMode == WorkspaceViewMode.Native,
-                        pane.viewMode == WorkspaceViewMode.Native,
-                        if (pane.viewMode == WorkspaceViewMode.Native) Modifier.fillMaxSize().padding(top = 36.dp) else Modifier.size(0.dp),
+                        focused && !terminalView,
+                        !terminalView,
+                        if (!terminalView) Modifier.fillMaxSize().padding(top = 36.dp) else Modifier.size(0.dp),
                         onTerminal = { onView(pane.id, WorkspaceViewMode.Terminal) },
                         onClose = { onClose(pane.id) }
                     )
-                    if (pane.viewMode == WorkspaceViewMode.Terminal) EmbeddedTerminal(
+                    if (terminalView) EmbeddedTerminal(
                         session, broker, input, focused, Modifier.fillMaxSize().padding(top = 36.dp)
                     )
                 }
@@ -1143,6 +1155,7 @@ private fun EmbeddedNative(
 private fun agentFleetWorkspaceNativeIntent(session: FleetSession): Intent = Intent().apply {
     putExtra(AgentFleetContract.EXTRA_COMPOSE_INPUT, AgentFleetContract.supportsComposerInput(session.tool))
     putExtra(AgentFleetContract.EXTRA_NATIVE_SESSION, true)
+    putExtra(AgentFleetContract.EXTRA_INITIAL_SURFACE, AgentFleetContract.SURFACE_NATIVE)
     putExtra(AgentFleetContract.EXTRA_HOST_ID, session.hostId)
     putExtra(AgentFleetContract.EXTRA_PROJECT, session.project)
     putExtra(AgentFleetContract.EXTRA_INTERNAL_SESSION, session.internalName)
