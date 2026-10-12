@@ -286,6 +286,11 @@ public final class TermuxActivity extends ComponentActivity implements ServiceCo
         mAgentFleetTerminalScrollback.setTerminalView(mTerminalView);
         configureAgentFleetSessionResume();
         updateAgentFleetInputMode(getIntent());
+        if (savedInstanceState != null && managedSessionId(getIntent()) != null) {
+            mDirectInput.restore(savedInstanceState.getBoolean("fleet.direct", mDirectInput.getDirect()), savedInstanceState.getBoolean("fleet.compatibility"), savedInstanceState.getBoolean("fleet.keysExpanded"), savedInstanceState.getBoolean("fleet.previousNative", true));
+            mDirectInput.setDraft(savedInstanceState.getString("fleet.draft", ""));
+            if (mDirectInput.getDirect()) mAgentFleetNativeSession.enterDirectInput();
+        }
 
         registerForContextMenu(mTerminalView);
 
@@ -344,6 +349,8 @@ public final class TermuxActivity extends ComponentActivity implements ServiceCo
     @Override
     protected void onNewIntent(Intent intent) {
         super.onNewIntent(intent);
+        String directTarget = managedSessionId(intent);
+        if (directTarget != null) mDirectInput.resetEntry(directTarget, intent.getBooleanExtra(AgentFleetContract.EXTRA_COMPOSE_INPUT, false));
         Intent current = getIntent();
         if (managedSessionId(intent) == null && managedSessionId(current) != null &&
             Intent.ACTION_MAIN.equals(intent.getAction())) {
@@ -368,10 +375,47 @@ public final class TermuxActivity extends ComponentActivity implements ServiceCo
         observeManagedAvailability();
     }
 
+    private final com.termux.app.fleet.TerminalInputController mDirectInput = new com.termux.app.fleet.TerminalInputController();
+
+    @Override public com.termux.app.fleet.TerminalInputController getTerminalInput() { return mDirectInput; }
+
+    public boolean isAgentFleetTerminalInputLive() {
+        TerminalSession session = getCurrentSession();
+        String id = managedSessionId(getIntent());
+        if (!mIsVisible || session == null || !session.isRunning() || mTermuxService == null) return false;
+        return id == null || (id.equals(mTermuxService.getAgentFleetWorkspaceSessionId(session)) && mAttachmentFailureSession == null && mDirectAttachmentReady);
+    }
+
+    public void openAgentFleetDirectTerminal() {
+        if (mAgentFleetTerminalScrollback != null) mAgentFleetTerminalScrollback.returnToLive();
+        if (mAgentFleetNativeSession != null) mAgentFleetNativeSession.enterDirectInput();
+    }
+
+    public void restoreAgentFleetComposerView() {
+        if (mAgentFleetNativeSession != null) mAgentFleetNativeSession.restoreComposerView(mDirectInput.getPreviousNative());
+    }
+
+    public boolean isAgentFleetNativeReadingView() { return mAgentFleetNativeSession != null && mAgentFleetNativeSession.isNativeViewVisible(); }
+
+    private boolean mDirectAttachmentReady;
+
+    public boolean sendAgentFleetTerminalKey(String key, int modifiers) {
+        if (!isAgentFleetTerminalInputLive()) return false;
+        TerminalSession session = getCurrentSession();
+        String sequence = com.termux.app.fleet.TerminalKeys.encode(key, modifiers, session.getEmulator());
+        if (sequence == null) return false;
+        session.write(sequence);
+        return true;
+    }
+
     private void updateAgentFleetInputMode(Intent intent) {
         String sessionId = managedSessionId(intent);
         if (sessionId != null)
             new DrawerSessionStore(getApplicationContext()).setActiveFullscreen(sessionId);
+        if (sessionId != null) {
+            mDirectInput.bind(sessionId, intent.getBooleanExtra(AgentFleetContract.EXTRA_COMPOSE_INPUT, false));
+            mTerminalView.setInputBridge(mDirectInput);
+        } else mTerminalView.setInputBridge(null);
         ComposeView composer = findViewById(R.id.agent_fleet_composer);
         AgentFleetComposer.bind(this, composer,
             intent != null && intent.getBooleanExtra(AgentFleetContract.EXTRA_COMPOSE_INPUT, false));
@@ -397,6 +441,7 @@ public final class TermuxActivity extends ComponentActivity implements ServiceCo
     }
 
     public boolean sendAgentFleetComposerText(String text, boolean appendEnter) {
+        if (!isAgentFleetTerminalInputLive()) return false;
         if (mAgentFleetNativeSession != null && !mAgentFleetNativeSession.canSendInput()) return false;
         if (text == null || text.length() > 32768 || text.indexOf('\0') >= 0 || (!appendEnter && text.isEmpty()))
             return false;
@@ -409,12 +454,7 @@ public final class TermuxActivity extends ComponentActivity implements ServiceCo
         return true;
     }
 
-    public boolean sendAgentFleetControlC() {
-        TerminalSession session = getCurrentSession();
-        if (session == null || !session.isRunning()) return false;
-        session.write("\u0003");
-        return true;
-    }
+    public boolean sendAgentFleetControlC() { return sendAgentFleetTerminalKey("CTRL_C", 0); }
 
     public boolean isAgentFleetManagedSession() {
         return mAgentFleetNativeSession != null && mAgentFleetNativeSession.isManagedSession();
@@ -442,6 +482,7 @@ public final class TermuxActivity extends ComponentActivity implements ServiceCo
     public void activateAgentFleetSession(FleetSession session, DrawerSessionSurface surface) {
         if (session == null || surface == null || mTermuxService == null) return;
         Intent target = agentFleetTargetIntent(session, surface);
+        mDirectInput.resetEntry(session.getId(), target.getBooleanExtra(AgentFleetContract.EXTRA_COMPOSE_INPUT, false));
         setIntent(target);
         updateAgentFleetInputMode(target);
         selectAgentFleetTarget(target, 0);
@@ -485,26 +526,14 @@ public final class TermuxActivity extends ComponentActivity implements ServiceCo
             mAgentFleetNativeSession.showPendingQuestion();
     }
 
-    public boolean sendAgentFleetKey(String key) {
-        TerminalSession session = getCurrentSession();
-        if (session == null || !session.isRunning()) return false;
-        String sequence = agentFleetKeySequence(key);
-        if (sequence == null) return false;
-        session.write(sequence);
-        return true;
-    }
+    public boolean sendAgentFleetKey(String key) { return sendAgentFleetTerminalKey(key, 0); }
 
     public TerminalScrollbackController getAgentFleetTerminalScrollback() { return mAgentFleetTerminalScrollback; }
 
-    static String agentFleetKeySequence(String key) {
-        if ("TAB".equals(key)) return "\t";
-        if ("SHIFT_TAB".equals(key)) return "\033[Z";
-        if ("UP".equals(key)) return "\033[A";
-        if ("DOWN".equals(key)) return "\033[B";
-        return null;
-    }
+    static String agentFleetKeySequence(String key) { return com.termux.app.fleet.TerminalKeys.encode(key); }
 
     public void setAgentFleetNativeView(boolean nativeAvailable, boolean nativeView, boolean automaticTerminal, boolean aiComposer) {
+        mDirectInput.readingViewChanged(nativeView);
         boolean terminalWasHidden = mTerminalView != null && mTerminalView.getAlpha() == 0f;
         if (mTerminalView != null) {
             mTerminalView.setAlpha(nativeView ? 0f : 1f);
@@ -517,11 +546,11 @@ public final class TermuxActivity extends ComponentActivity implements ServiceCo
 
         View composer = findViewById(R.id.agent_fleet_composer);
         if (composer != null)
-            composer.setVisibility(aiComposer && !automaticTerminal ? View.VISIBLE : View.GONE);
+            composer.setVisibility(managedSessionId(getIntent()) != null ? View.VISIBLE : View.GONE);
 
         View toolbar = getTerminalToolbarViewPager();
         if (toolbar != null)
-            toolbar.setVisibility(!nativeView && mPreferences.shouldShowTerminalToolbar() ? View.VISIBLE : View.GONE);
+            toolbar.setVisibility(managedSessionId(getIntent()) == null && !nativeView && mPreferences.shouldShowTerminalToolbar() ? View.VISIBLE : View.GONE);
 
         View returnButton = findViewById(R.id.agent_fleet_native_return);
         if (returnButton != null)
@@ -766,6 +795,7 @@ public final class TermuxActivity extends ComponentActivity implements ServiceCo
     @Override
     public void onResume() {
         super.onResume();
+        mDirectInput.focus(true);
 
         Logger.logVerbose(LOG_TAG, "onResume");
 
@@ -785,6 +815,7 @@ public final class TermuxActivity extends ComponentActivity implements ServiceCo
 
     @Override
     protected void onStop() {
+        mDirectInput.focus(false);
         super.onStop();
 
         Logger.logDebug(LOG_TAG, "onStop");
@@ -881,6 +912,11 @@ public final class TermuxActivity extends ComponentActivity implements ServiceCo
     public void onSaveInstanceState(@NonNull Bundle savedInstanceState) {
         super.onSaveInstanceState(savedInstanceState);
         saveTerminalToolbarTextInput(savedInstanceState);
+        savedInstanceState.putString("fleet.draft", mDirectInput.getDraft());
+        savedInstanceState.putBoolean("fleet.direct", mDirectInput.getDirect());
+        savedInstanceState.putBoolean("fleet.compatibility", mDirectInput.getCompatibility());
+        savedInstanceState.putBoolean("fleet.keysExpanded", mDirectInput.getExpanded());
+        savedInstanceState.putBoolean("fleet.previousNative", mDirectInput.getPreviousNative());
         saveAgentFleetExternalImageRequest(
             savedInstanceState,
             mAgentFleetPickerRequest,
@@ -1086,10 +1122,12 @@ public final class TermuxActivity extends ComponentActivity implements ServiceCo
             new AgentFleetSessionResumeController.Listener() {
                 @Override
                 public void onSelected(String sessionId) {
-                    mAttachmentFailureSession = null;
-                    mAttachmentFailureCode = null;
                     Intent current = getIntent();
                     if (!sessionId.equals(managedSessionId(current))) return;
+                    mDirectAttachmentReady = true;
+                    mDirectInput.connection(true);
+                    mAttachmentFailureSession = null;
+                    mAttachmentFailureCode = null;
                     mShouldRestoreAgentFleetSession = false;
                     if (mAgentFleetNativeSession != null) mAgentFleetNativeSession.attachmentRecovery(null, true);
                     selectAgentFleetTarget(current, 0);
@@ -1098,6 +1136,8 @@ public final class TermuxActivity extends ComponentActivity implements ServiceCo
                     if (mTerminalView != null) mTerminalView.post(() -> {
                         mTerminalView.updateSize();
                         mTerminalView.onScreenUpdated();
+                        if (sessionId.equals(managedSessionId(getIntent())) && mDirectInput.getDirect() && isAgentFleetTerminalInputLive())
+                            com.termux.app.fleet.TerminalKeyboard.show(mTerminalView);
                     });
                 }
 
@@ -1108,12 +1148,14 @@ public final class TermuxActivity extends ComponentActivity implements ServiceCo
 
                 @Override
                 public void onRecovering(String sessionId) {
+                    if (sessionId.equals(managedSessionId(getIntent()))) { mDirectAttachmentReady = false; mDirectInput.connection(false); }
                     if (mIsVisible && sessionId.equals(managedSessionId(getIntent())) && mAgentFleetNativeSession != null)
                         mAgentFleetNativeSession.attachmentRecovery("Reconnecting…", true);
                 }
 
                 @Override
                 public void onUnavailable(String sessionId, String message, boolean retryable) {
+                    if (sessionId != null && sessionId.equals(managedSessionId(getIntent()))) { mDirectAttachmentReady = false; mDirectInput.connection(false); }
                     if (mIsVisible && sessionId != null && sessionId.equals(managedSessionId(getIntent())) && mAgentFleetNativeSession != null)
                         mAgentFleetNativeSession.attachmentRecovery(message, retryable);
                 }

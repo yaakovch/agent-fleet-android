@@ -21,6 +21,7 @@ import kotlin.concurrent.thread
 
 interface NativeSessionHost {
     val nativeContext: Context
+    val terminalInput: TerminalInputController? get() = null
     val nativeInlineComposer: Boolean
     fun sendAgentFleetComposerText(text: String, appendEnter: Boolean): Boolean
     fun sendAgentFleetControlC(): Boolean
@@ -112,7 +113,7 @@ class NativeSessionController @JvmOverloads constructor(
         composeView.setViewCompositionStrategy(nativeSessionCompositionStrategy(retainCompositionAcrossDetach))
         composeView.setContent {
             AgentFleetTheme {
-                CompositionLocalProvider(LocalSavedSessionBinding provides savedBinding.value) {
+                CompositionLocalProvider(LocalSavedSessionBinding provides savedBinding.value, LocalTerminalInputController provides activity.terminalInput) {
                 NativeSessionScreen(
                     state = uiState.value,
                     aiComposer = aiComposer,
@@ -152,6 +153,7 @@ class NativeSessionController @JvmOverloads constructor(
         terminalChromeView?.setViewCompositionStrategy(nativeSessionCompositionStrategy(retainCompositionAcrossDetach))
         terminalChromeView?.setContent {
             AgentFleetTheme {
+                androidx.compose.runtime.CompositionLocalProvider(LocalTerminalInputController provides activity.terminalInput) {
                 val history = activity.getAgentFleetTerminalScrollback()
                 AgentFleetTerminalSessionChrome(
                     state = uiState.value,
@@ -171,6 +173,7 @@ class NativeSessionController @JvmOverloads constructor(
                     onRefreshHistory = { history?.refresh() },
                     onLiveTerminal = { history?.returnToLive() }
                 )
+                }
             }
         }
     }
@@ -390,13 +393,25 @@ class NativeSessionController @JvmOverloads constructor(
     }
 
     private fun toggleTerminal() {
+        if (activity.terminalInput?.direct == true) { showNative(); return }
         when (uiState.value.viewMode) {
             NativeViewMode.Native -> applyViewMode(NativeViewMode.ManualTerminal, persist = true)
             NativeViewMode.AutomaticTerminal, NativeViewMode.ManualTerminal -> applyViewMode(NativeViewMode.Native, persist = true)
         }
     }
 
+    fun enterDirectInput() {
+        viewSelectionSerial++
+        applyViewMode(NativeViewMode.ManualTerminal)
+    }
+
+    fun restoreComposerView(native: Boolean) {
+        viewSelectionSerial++
+        applyViewMode(if (native) NativeViewMode.Native else NativeViewMode.ManualTerminal)
+    }
+
     fun showNative() {
+        activity.terminalInput?.takeIf { it.direct }?.chooseComposer()
         if (enabled) applyViewMode(NativeViewMode.Native, persist = true)
     }
 
@@ -507,7 +522,7 @@ class NativeSessionController @JvmOverloads constructor(
     private fun installSavedBinding(resolved: SavedSessionBinding, selectionAtResolution: Long) {
         savedBinding.value = resolved
         val saved = resolved.state.value
-        if (saved != null && !notificationEntry && viewSelectionSerial == selectionAtResolution) {
+        if (saved != null && !notificationEntry && activity.terminalInput?.direct != true && viewSelectionSerial == selectionAtResolution) {
             applyViewMode(if (saved.selectedView == "terminal") NativeViewMode.ManualTerminal else NativeViewMode.Native)
         }
         updateComposerState()

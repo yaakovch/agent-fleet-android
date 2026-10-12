@@ -2,6 +2,9 @@ package com.termux.app.fleet
 
 import android.content.Context
 import androidx.compose.runtime.RememberObserver
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.mutableStateOf
 
 internal const val MAX_RETAINED_NATIVE_SESSIONS = 4
 
@@ -445,9 +448,10 @@ private class ForwardingNativeSessionHost(
 ) : NativeSessionHost {
     private data class Delegate(val token: Long, val host: NativeSessionHost)
 
-    @Volatile private var delegate: Delegate? = null
+    private var delegate by mutableStateOf<Delegate?>(null)
 
     override val nativeInlineComposer: Boolean get() = delegate?.host?.nativeInlineComposer == true
+    override val terminalInput: TerminalInputController? get() = delegate?.host?.terminalInput
 
     fun update(token: Long, host: NativeSessionHost) {
         delegate = Delegate(token, host)

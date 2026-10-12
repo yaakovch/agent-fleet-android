@@ -2164,3 +2164,12 @@ approved follow-up releases .108/code1122 and private beta.36 through canonical
 processes. Do not claim that this instrumentation repairs the phone connection:
 the exact creation and runtime error is still required. No remote configuration,
 SSH service, host runtime, app restart or physical-phone automation is authorized.
+
+
+## Direct terminal input and question shortcuts — 2026-10-12
+
+SPEC first declined. Owner approved implementation of the agreed plan. Composer/Direct input explicitly controls keyboard focus; direct collapses the composer and preserves draft/attachments. AI input resets to composer on reopening; rotation/backgrounding preserve the active mode. Shells default direct. Direct input requests terminal key events with an optional compatibility input connection. A compact terminal row includes Esc, Tab, Shift+Left, arrows, Enter and More keys; expansion provides Shift/Ctrl/Alt, Shift+Tab, editing/navigation and F1–F12. Touch modifiers are one-shot and clear on disconnect/session/mode changes. Native Shift+Left opens live Terminal, sends exactly once and leaves direct input ready. No automatic answer submission or offline key replay. Fullscreen/workspace Android surfaces use shared state/dispatch; Windows adds the matching shortcut through its existing xterm view. Mobile touch keyboard is intentionally Android-only because Windows supplies hardware keys. No host protocol/runtime changes.
+
+Validation: Windows shortcut lifecycle/encoding and full quality first; Android state/encoding/JVM regressions, focused real-terminal emulator flow, full canonical quality and screenshots. Test drafts, attachments, immediate input, mouse reporting, reconnect, rotation, fonts/orientation, modifier reset and exactly-once question answer. SwiftKey actual layout is not guaranteed by Android flags; device acceptance remains user-operated, no physical-device automation is authorized for this task. No publication is included in this implementation approval.
+
+Implementation detail: Android uses one-shot Ctrl/Alt/Shift and explicit F1–F12 buttons under More keys. Function keys do not require an alphabetic Fn layer. Keyboard profile is in More keys; default portrait rows keep Shift+Left and Enter reachable. Landscape bounds the expanded panel with scrolling. Windows continues to use its existing hardware/xterm input; its new Actions shortcut bypasses read-only Native rendering through a live terminal, preserves drafts, and rechecks connection/focus after the asynchronous view switch.

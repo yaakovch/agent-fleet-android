@@ -52,6 +52,7 @@ public class TermuxActivityTest {
         Assert.assertEquals("\033[Z", TermuxActivity.agentFleetKeySequence("SHIFT_TAB"));
         Assert.assertEquals("\033[A", TermuxActivity.agentFleetKeySequence("UP"));
         Assert.assertEquals("\033[B", TermuxActivity.agentFleetKeySequence("DOWN"));
+        Assert.assertEquals("\033[1;2D", TermuxActivity.agentFleetKeySequence("SHIFT_LEFT"));
         Assert.assertNull(TermuxActivity.agentFleetKeySequence("UNKNOWN"));
     }
 

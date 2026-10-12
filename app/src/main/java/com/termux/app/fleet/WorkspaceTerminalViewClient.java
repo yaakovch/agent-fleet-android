@@ -31,8 +31,7 @@ public final class WorkspaceTerminalViewClient implements TerminalViewClient {
     @Override public boolean readShiftKey() { return false; }
     @Override public boolean readFnKey() { return false; }
     @Override public boolean onCodePoint(int codePoint, boolean ctrlDown, TerminalSession session) {
-        session.writeCodePoint(ctrlDown, codePoint);
-        return true;
+        return false; // TerminalView handles UTF-8, Ctrl and Alt consistently.
     }
     @Override public void onEmulatorSet() {}
     @Override public void logError(String tag, String message) { Logger.logError(tag, message); }

@@ -67,6 +67,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.Density
@@ -272,6 +273,12 @@ fun NativeSessionScreen(
         },
         bottomBar = {
           Column {
+            if (inlineComposer) LocalTerminalInputController.current?.let { input ->
+                Row {
+                    TerminalInputControls(input, composerAvailable = false)
+                }
+                if (aiComposer) TextButton(onClick = { input.answerQuestion() }, enabled = input.canInput(), modifier = Modifier.testTag("terminal-answer-question")) { Text("Shift+Left · Answer question") }
+            }
             if (pendingAction != null && state.mutationsAllowed) {
                 Surface(
                     modifier = Modifier.windowInsetsPadding(WindowInsets.navigationBars),
@@ -473,6 +480,7 @@ private fun CompactSessionHeader(
     onRefreshHistory: () -> Unit = {},
     onLiveTerminal: () -> Unit = {}
 ) {
+    val terminalInput = LocalTerminalInputController.current
     var actionMenu by rememberSaveable(state.hostId, state.internalSession, destinationLabel) { mutableStateOf(false) }
     var confirmKill by rememberSaveable(state.hostId, state.internalSession, destinationLabel) { mutableStateOf(false) }
     Surface(
@@ -532,6 +540,10 @@ private fun CompactSessionHeader(
                             )
                         }
                         if (aiComposer) {
+                            DropdownMenuItem(text = { Text("Shift+Left · Answer question") },
+                                enabled = terminalInput?.canInput() ?: true,
+                                modifier = Modifier.testTag("terminal-answer-question"),
+                                onClick = { actionMenu = false; if (terminalInput != null) terminalInput.answerQuestion() else onShellKey("SHIFT_LEFT") })
                             DropdownMenuItem(
                                 text = { Text("Ctrl+C") },
                                 enabled = state.viewMode != NativeViewMode.Native || state.mutationsAllowed || state.sourceMode == "shell",
@@ -571,6 +583,8 @@ private fun CompactSessionHeader(
                 } else {
                     Spacer(Modifier.weight(1f))
                 }
+                if (terminalInput != null && aiComposer) TextButton(onClick = { terminalInput.chooseDirect() },
+                    enabled = terminalInput.canInput(), modifier = Modifier.testTag("native-direct-input")) { Text("Direct input", fontSize = 11.sp) }
                 OutlinedButton(
                     onClick = onToggleView,
                     modifier = Modifier.height(40.dp).testTag("compact-session-view-switch"),
@@ -828,11 +842,19 @@ private fun NativeAiComposer(
     onAttach: () -> Unit,
     onCamera: () -> Unit
 ) {
-    var value by rememberSaveable { mutableStateOf("") }
+    val input = LocalTerminalInputController.current
+    val composerFocus = remember { androidx.compose.ui.focus.FocusRequester() }
+    var wasDirect by remember { mutableStateOf(input?.direct == true) }
+    LaunchedEffect(input?.direct, active) {
+        if (input?.direct == true) wasDirect = true
+        else if (wasDirect && active) { wasDirect = false; composerFocus.requestFocus() }
+    }
+    var value by rememberSaveable { mutableStateOf(input?.draft.orEmpty()) }
     val savedBinding = LocalSavedSessionBinding.current
     val savedMessage by savedBinding?.message?.collectAsState() ?: remember { mutableStateOf("") }
     LaunchedEffect(savedBinding, savedMessage) { if (savedBinding != null) value = savedMessage }
-    fun changeValue(next: String) { value = next; savedBinding?.updateMessage(next) }
+    androidx.compose.runtime.LaunchedEffect(input?.draft) { if (input != null) value = input.draft }
+    fun changeValue(next: String) { value = next; input?.draft = next; savedBinding?.updateMessage(next) }
     var observedLiveSerial by remember { mutableStateOf(liveEventSerial) }
     var observedSuggestionKey by remember { mutableStateOf("") }
     val automaticTarget = LocalSuggestionTarget("composer")
@@ -878,20 +900,20 @@ private fun NativeAiComposer(
                             if (it.isNotBlank()) localSuggestions.clear()
                         }
                     },
-                    modifier = Modifier.weight(1f).testTag("native-message-input"),
+                    modifier = Modifier.weight(1f).focusRequester(composerFocus).testTag("native-message-input"),
                     placeholder = { Text(if (interactionMode == "plan") "Plan message…" else "Message…") },
                     minLines = 1,
                     maxLines = 3,
                     textStyle = MaterialTheme.typography.bodyMedium.copy(fontSize = 15.sp)
                 )
                 TextButton(enabled = value.isNotEmpty(), contentPadding = PaddingValues(horizontal = 7.dp, vertical = 4.dp), onClick = {
-                    if (onComposerText(value, false)) { value = ""; savedBinding?.clearMessage() }
+                    if (onComposerText(value, false)) { changeValue(""); savedBinding?.clearMessage() }
                 }) { Text("Insert", fontSize = 12.sp) }
                 Button(contentPadding = PaddingValues(horizontal = 10.dp, vertical = 7.dp), onClick = {
-                    if (onComposerText(value, true)) { value = ""; savedBinding?.clearMessage() }
+                    if (onComposerText(value, true)) { changeValue(""); savedBinding?.clearMessage() }
                 }) { Text(if (value.isEmpty()) "Enter" else "Send", fontSize = 12.sp) }
             }
-            if (value.isNotEmpty()) TextButton(onClick = { value = ""; savedBinding?.clearMessage() }) { Text("Clear draft") }
+            if (value.isNotEmpty()) TextButton(onClick = { changeValue(""); savedBinding?.clearMessage() }) { Text("Clear draft") }
             if (localSuggestions.targetKey == "composer") {
                 LocalSuggestionChoices(
                     localSuggestions,

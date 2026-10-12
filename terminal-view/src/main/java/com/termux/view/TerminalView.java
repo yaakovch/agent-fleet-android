@@ -413,14 +413,21 @@ public final class TerminalView extends View {
         return true;
     }
 
+    private TerminalInputBridge mInputBridge;
+
+    public void setInputBridge(TerminalInputBridge bridge) { mInputBridge = bridge; }
+
     @Override
     public InputConnection onCreateInputConnection(EditorInfo outAttrs) {
+        final TerminalSession inputSession = mTermSession;
+        final TerminalInputBridge inputBridge = mInputBridge;
+        final long inputGeneration = inputBridge == null ? 0 : inputBridge.getInputGeneration();
         // Ensure that inputType is only set if TerminalView is selected view with the keyboard and
         // an alternate view is not selected, like an EditText. This is necessary if an activity is
         // initially started with the alternate view or if activity is returned to from another app
         // and the alternate view was the one selected the last time.
-        if (mClient.isTerminalViewSelected()) {
-            if (mClient.shouldEnforceCharBasedInput()) {
+        if (mInputBridge != null || mClient.isTerminalViewSelected()) {
+            if (mInputBridge != null ? mInputBridge.isCharBasedInput() : mClient.shouldEnforceCharBasedInput()) {
                 // Some keyboards seems do not reset the internal state on TYPE_NULL.
                 // Affects mostly Samsung stock keyboards.
                 // https://github.com/termux/termux-app/issues/686
@@ -428,7 +435,7 @@ public final class TerminalView extends View {
                 // not set and it logs a warning:
                 // W/InputAttributes: Unexpected input class: inputType=0x00080090 imeOptions=0x02000000
                 // https://cs.android.com/android/platform/superproject/+/android-11.0.0_r40:packages/inputmethods/LatinIME/java/src/com/android/inputmethod/latin/InputAttributes.java;l=79
-                outAttrs.inputType = InputType.TYPE_TEXT_VARIATION_VISIBLE_PASSWORD | InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS;
+                outAttrs.inputType = (mInputBridge == null ? 0 : InputType.TYPE_CLASS_TEXT) | InputType.TYPE_TEXT_VARIATION_VISIBLE_PASSWORD | InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS;
             } else {
                 // Using InputType.NULL is the most correct input type and avoids issues with other hacks.
                 //
@@ -449,6 +456,13 @@ public final class TerminalView extends View {
         outAttrs.imeOptions = EditorInfo.IME_FLAG_NO_FULLSCREEN;
 
         return new BaseInputConnection(this, true) {
+            @Override
+            public boolean sendKeyEvent(KeyEvent event) {
+                if (mTermSession != inputSession || mInputBridge != inputBridge || (inputBridge != null &&
+                    (inputGeneration != inputBridge.getInputGeneration() || !inputBridge.isInputAllowed()))) return true;
+                return super.sendKeyEvent(event);
+            }
+
 
             @Override
             public boolean finishComposingText() {
@@ -487,6 +501,9 @@ public final class TerminalView extends View {
             }
 
             void sendTextToTerminal(CharSequence text) {
+                // Old editor callbacks must never cross a mode, attachment or session change.
+                if (mTermSession != inputSession || mInputBridge != inputBridge || (inputBridge != null &&
+                    (inputGeneration != inputBridge.getInputGeneration() || !inputBridge.isInputAllowed()))) return;
                 stopTextSelectionMode();
                 final int textLengthInChars = text.length();
                 for (int i = 0; i < textLengthInChars; i++) {
@@ -663,6 +680,7 @@ public final class TerminalView extends View {
 
     /** Send a single mouse event code to the terminal. */
     void sendMouseEventCode(MotionEvent e, int button, boolean pressed) {
+        if (mInputBridge != null && !mInputBridge.isInputAllowed()) return;
         int[] columnAndRow = getColumnAndRow(e, false);
         int x = columnAndRow[0] + 1;
         int y = columnAndRow[1] + 1;
@@ -856,7 +874,7 @@ public final class TerminalView extends View {
                     ClipData.Item clipItem = clipData.getItemAt(0);
                     if (clipItem != null) {
                         CharSequence text = clipItem.coerceToText(getContext());
-                        if (!TextUtils.isEmpty(text)) mEmulator.paste(text.toString());
+                        if (!TextUtils.isEmpty(text) && (mInputBridge == null || mInputBridge.isInputAllowed())) mEmulator.paste(text.toString());
                     }
                 }
             } else if (mEmulator.isMouseTrackingActive()) { // BUTTON_PRIMARY.
@@ -1004,6 +1022,7 @@ public final class TerminalView extends View {
         if (TERMINAL_VIEW_KEY_LOGGING_ENABLED)
             mClient.logInfo(LOG_TAG, "onKeyDown(keyCode=" + keyCode + ", isSystem()=" + event.isSystem() + ", event=" + event + ")");
         if (mEmulator == null) return true;
+        if (mInputBridge != null) { if (!mInputBridge.isInputAllowed()) return event.isSystem() ? super.onKeyDown(keyCode, event) : true; mInputBridge.beforeInput(); }
         if (mLocalScrollbackActive) {
             leaveLocalHistory();
             mTopRow = 0;
@@ -1023,6 +1042,12 @@ public final class TerminalView extends View {
             return true;
         }
 
+        int touchMeta = mInputBridge == null || KeyEvent.isModifierKey(keyCode) ? 0 : mInputBridge.consumeModifiers();
+        int addedMeta = ((touchMeta & KeyHandler.KEYMOD_CTRL) != 0 ? KeyEvent.META_CTRL_ON : 0)
+            | ((touchMeta & KeyHandler.KEYMOD_ALT) != 0 ? KeyEvent.META_ALT_ON | KeyEvent.META_ALT_LEFT_ON : 0)
+            | ((touchMeta & KeyHandler.KEYMOD_SHIFT) != 0 ? KeyEvent.META_SHIFT_ON : 0);
+        if (addedMeta != 0) event = new KeyEvent(event.getDownTime(), event.getEventTime(), event.getAction(),
+            keyCode, event.getRepeatCount(), event.getMetaState() | addedMeta, event.getDeviceId(), event.getScanCode(), event.getFlags(), event.getSource());
         final int metaState = event.getMetaState();
         final boolean controlDown = event.isCtrlPressed() || mClient.readControlKey();
         final boolean leftAltDown = (metaState & KeyEvent.META_ALT_LEFT_ON) != 0 || mClient.readAltKey();
@@ -1087,6 +1112,11 @@ public final class TerminalView extends View {
         }
 
         if (mTermSession == null) return;
+        if (mInputBridge != null) { if (!mInputBridge.isInputAllowed()) return; mInputBridge.beforeInput(); }
+        final int touchMods = mInputBridge == null ? 0 : mInputBridge.consumeModifiers();
+        if ((touchMods & KeyHandler.KEYMOD_SHIFT) != 0) codePoint = Character.toUpperCase(codePoint);
+        controlDownFromEvent |= (touchMods & KeyHandler.KEYMOD_CTRL) != 0;
+        leftAltDownFromEvent |= (touchMods & KeyHandler.KEYMOD_ALT) != 0;
         if (mLocalScrollbackActive) {
             leaveLocalHistory();
             mTopRow = 0;
@@ -1355,7 +1385,7 @@ public final class TerminalView extends View {
     @Override
     public void autofill(AutofillValue value) {
         if (value.isText()) {
-            mTermSession.write(value.getTextValue().toString());
+            if (mInputBridge == null || mInputBridge.isInputAllowed()) mTermSession.write(value.getTextValue().toString());
         }
 
         resetAutoFill();

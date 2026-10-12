@@ -116,6 +116,12 @@ import com.termux.app.fleet.WorkspacePreset
 import com.termux.app.fleet.WorkspaceReducer
 import com.termux.app.fleet.WorkspaceSplit
 import com.termux.app.fleet.WorkspaceTerminalBroker
+import com.termux.app.fleet.TerminalInputController
+import com.termux.app.fleet.TerminalInputControls
+import com.termux.app.fleet.TerminalKeyboard
+import com.termux.app.fleet.LocalTerminalInputController
+import com.termux.app.fleet.rememberTerminalInputController
+import androidx.compose.runtime.SideEffect
 import com.termux.app.fleet.WorkspaceTerminalViewClient
 import com.termux.app.fleet.WorkspaceViewMode
 import com.termux.app.fleet.agentFleetWorkspaceTarget
@@ -594,6 +600,14 @@ private fun WorkspacePaneView(
     val chrome = workspacePaneChrome(
         pane, session, available, binding?.status ?: "connecting", binding?.message ?: "Opening session…"
     )
+    val input = rememberTerminalInputController(pane.id + ":" + session?.id.orEmpty(), session?.tool != "shell")
+    input.available = { focused && available && session != null && broker.state(session.id).value.let { it.status == "live" && it.terminal?.isRunning == true } }
+    input.readingNative = { pane.viewMode == WorkspaceViewMode.Native }
+    input.onDirect = { onView(pane.id, WorkspaceViewMode.Terminal) }
+    input.onComposer = { onView(pane.id, if (input.previousNative) WorkspaceViewMode.Native else WorkspaceViewMode.Terminal) }
+    input.send = { name, modifiers -> session != null && input.canInput() && broker.key(session.id, name, modifiers) }
+    SideEffect { input.focus(focused); input.connection(available && binding?.status == "live"); input.readingViewChanged(pane.viewMode == WorkspaceViewMode.Native) }
+    DisposableEffect(input) { onDispose { input.clearModifiers() } }
     val borderColor = when {
         dragTarget -> MaterialTheme.colorScheme.tertiary
         focused -> MaterialTheme.colorScheme.primary
@@ -660,18 +674,18 @@ private fun WorkspacePaneView(
                         Text("Use Retry in the focused-pane toolbar.", color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                 }
-                pane.viewMode == WorkspaceViewMode.Terminal -> EmbeddedTerminal(
-                    session, broker, Modifier.fillMaxSize().padding(top = 36.dp)
-                )
                 else -> key(agentFleetWorkspaceTarget(session)) {
+                    // Retain the editor, uploads and launchers while Direct input is visible.
                     EmbeddedNative(
-                        pane.id,
-                        session,
-                        broker,
-                        focused,
-                        Modifier.fillMaxSize().padding(top = 36.dp),
+                        pane.id, session, broker, input,
+                        focused && pane.viewMode == WorkspaceViewMode.Native,
+                        pane.viewMode == WorkspaceViewMode.Native,
+                        if (pane.viewMode == WorkspaceViewMode.Native) Modifier.fillMaxSize().padding(top = 36.dp) else Modifier.size(0.dp),
                         onTerminal = { onView(pane.id, WorkspaceViewMode.Terminal) },
                         onClose = { onClose(pane.id) }
+                    )
+                    if (pane.viewMode == WorkspaceViewMode.Terminal) EmbeddedTerminal(
+                        session, broker, input, focused, Modifier.fillMaxSize().padding(top = 36.dp)
                     )
                 }
             }
@@ -781,7 +795,7 @@ private fun WorkspaceStatusDot(status: String) {
 }
 
 @Composable
-private fun EmbeddedTerminal(session: FleetSession, broker: WorkspaceTerminalBroker, modifier: Modifier) {
+private fun EmbeddedTerminal(session: FleetSession, broker: WorkspaceTerminalBroker, input: TerminalInputController, focused: Boolean, modifier: Modifier) {
     val binding by broker.state(session.id)
     LaunchedEffect(session.id) { broker.attach(session) }
     val context = LocalContext.current
@@ -822,18 +836,27 @@ private fun EmbeddedTerminal(session: FleetSession, broker: WorkspaceTerminalBro
         binding.terminal?.addTerminalSessionObserver(observer)
         onDispose { binding.terminal?.removeTerminalSessionObserver(observer) }
     }
+    input.beforeKey = scrollback::returnToLive
+    input.onKeyboard = {
+        val generation = input.getInputGeneration()
+        view?.post { if (input.isInputAllowed() && input.getInputGeneration() == generation) { scrollback.returnToLive(); view?.let(TerminalKeyboard::show) } }
+    }
+    DisposableEffect(input, scrollback) { onDispose { input.onKeyboard = {}; input.beforeKey = {} } }
+    LaunchedEffect(input.direct, binding.terminal, focused) { if (input.direct && focused && input.canInput()) input.onKeyboard() }
     val terminal = binding.terminal
     LaunchedEffect(terminal) {
         if (terminal == null) scrollback.setTerminalView(null)
     }
     if (terminal == null) Box(modifier, contentAlignment = Alignment.Center) {
         Text(binding.message, color = MaterialTheme.colorScheme.onSurfaceVariant)
-    } else Box(modifier.background(Color.Black)) {
+    } else Column(modifier.background(Color.Black)) {
+        Box(Modifier.weight(1f)) {
         AndroidView(
             modifier = Modifier.fillMaxSize(),
             factory = { androidContext ->
                 TerminalView(androidContext, null).apply {
                     setTerminalViewClient(WorkspaceTerminalViewClient { reference -> com.termux.app.fleet.HostFilePreviewActivity.open(androidContext, session, reference) })
+                    setInputBridge(input)
                     setTextSize(26)
                     setBackgroundColor(AndroidColor.BLACK)
                     isFocusableInTouchMode = true
@@ -844,6 +867,7 @@ private fun EmbeddedTerminal(session: FleetSession, broker: WorkspaceTerminalBro
             update = { terminalView ->
                 view = terminalView
                 terminalView.setTerminalViewClient(WorkspaceTerminalViewClient { reference -> com.termux.app.fleet.HostFilePreviewActivity.open(terminalView.context, session, reference) })
+                terminalView.setInputBridge(input)
                 terminalView.attachSession(terminal)
                 terminalView.updateSize()
                 terminalView.onScreenUpdated()
@@ -860,6 +884,22 @@ private fun EmbeddedTerminal(session: FleetSession, broker: WorkspaceTerminalBro
                 TextButton(onClick = scrollback::returnToLive, modifier = Modifier.testTag("terminal-history-live")) { Text("Live") }
             }
         }
+        }
+        Surface {
+            if (session.tool == "shell") TerminalInputControls(input, composerAvailable = false)
+            else androidx.compose.runtime.CompositionLocalProvider(
+                LocalTerminalInputController provides input,
+                com.termux.app.fleet.LocalSavedSessionBinding provides com.termux.app.fleet.SavedSessionStates.find(session.hostId, session.internalName)
+            ) {
+                com.termux.app.fleet.AgentFleetComposerContent(
+                    target = agentFleetWorkspaceTarget(session),
+                    nativeState = com.termux.app.fleet.AgentFleetComposerNativeState(),
+                    attachments = input.attachments(), uploading = input.uploading(), uploadError = null,
+                    onShowPendingQuestion = {}, onAttach = input.onAttach, onCamera = input.onCamera,
+                    onRemoveAttachment = input.removeAttachment, onComposerText = input.composerSend
+                )
+            }
+        }
     }
 }
 
@@ -868,7 +908,9 @@ private fun EmbeddedNative(
     paneSlot: String,
     session: FleetSession,
     broker: WorkspaceTerminalBroker,
+    input: TerminalInputController,
     focused: Boolean,
+    visible: Boolean,
     modifier: Modifier,
     onTerminal: () -> Unit,
     onClose: () -> Unit
@@ -942,8 +984,10 @@ private fun EmbeddedNative(
         object : NativeSessionHost {
             override val nativeContext: Context = context.applicationContext
             override val nativeInlineComposer: Boolean = true
+            override val terminalInput: TerminalInputController = input
 
             override fun sendAgentFleetComposerText(text: String, appendEnter: Boolean): Boolean {
+                if (!input.canInput()) return false;
                 val uploadState = stateHolder.value
                 val activeSession = currentSession
                 val composed = buildAgentFleetComposerText(text, uploadState.attachments)
@@ -1012,7 +1056,7 @@ private fun EmbeddedNative(
             }
         }
     }
-    val retainedLease: ManagedNativeSessionLease<WorkspaceRetainedNativeSession>? = if (retainedRegistry == null) {
+    val retainedLease: ManagedNativeSessionLease<WorkspaceRetainedNativeSession>? = if (retainedRegistry == null || !visible) {
         null
     } else {
         remember(retainedRegistry, paneSlot, workspaceTarget, host) {
@@ -1035,7 +1079,14 @@ private fun EmbeddedNative(
             )
         }
     }
-    stateHolder.value = retainedLease?.session?.state ?: transientState
+    // Keep upload ownership while the Native lease is inactive in Terminal.
+    retainedLease?.session?.state?.let { stateHolder.value = it }
+    input.attachments = { stateHolder.value.attachments }
+    input.uploading = { stateHolder.value.attachmentUploading }
+    input.onAttach = host::pickAgentFleetImages
+    input.onCamera = host::pickAgentFleetCamera
+    input.removeAttachment = { path -> stateHolder.value.attachments = stateHolder.value.attachments - path }
+    input.composerSend = { text, enter -> input.canInput() && host.sendAgentFleetComposerText(text, enter) }
 
     if (retainedLease != null) {
         LaunchedEffect(retainedLease, focused) {
@@ -1049,7 +1100,7 @@ private fun EmbeddedNative(
                 }
             }
         )
-    } else {
+    } else if (visible) {
         val lifecycleBinding = remember(workspaceTarget) { NativeSessionLifecycleBinding() }
         var transientController by remember(workspaceTarget) { mutableStateOf<NativeSessionController?>(null) }
         LaunchedEffect(transientController, focused) {

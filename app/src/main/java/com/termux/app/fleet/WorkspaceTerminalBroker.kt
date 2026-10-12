@@ -74,22 +74,17 @@ class WorkspaceTerminalBroker(context: Context) : ServiceConnection {
 
     fun write(sessionId: String, value: String): Boolean {
         if (value.isEmpty() || value.length > 32_768) return false
-        val terminal = states[sessionId]?.value?.terminal ?: return false
+        val binding = states[sessionId]?.value ?: return false
+        if (binding.status != "live") return false
+        val terminal = binding.terminal?.takeIf { it.isRunning } ?: return false
         val bytes = value.toByteArray(Charsets.UTF_8)
         terminal.write(bytes, 0, bytes.size)
         return true
     }
 
-    fun key(sessionId: String, key: String): Boolean {
-        val value = when (key) {
-            "ENTER" -> "\r"
-            "CTRL_C" -> "\u0003"
-            "TAB" -> "\t"
-            "SHIFT_TAB" -> "\u001b[Z"
-            "UP" -> "\u001b[A"
-            "DOWN" -> "\u001b[B"
-            else -> return false
-        }
+    @JvmOverloads
+    fun key(sessionId: String, key: String, modifiers: Int = 0): Boolean {
+        val value = TerminalKeys.encode(key, modifiers, states[sessionId]?.value?.terminal?.emulator) ?: return false
         return write(sessionId, value)
     }
 

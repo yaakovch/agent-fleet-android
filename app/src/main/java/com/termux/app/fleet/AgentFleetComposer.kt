@@ -34,6 +34,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.ComposeView
@@ -93,7 +94,16 @@ object AgentFleetComposer {
 
     @JvmStatic
     fun bind(activity: TermuxActivity, view: ComposeView, enabled: Boolean) {
-        if (!enabled) {
+        val managed = activity.intent.getStringExtra(AgentFleetContract.EXTRA_WORKSPACE_SESSION_ID)?.isNotBlank() == true
+        val input = requireNotNull(activity.terminalInput)
+        input.available = activity::isAgentFleetTerminalInputLive
+        input.readingNative = activity::isAgentFleetNativeReadingView
+        input.onDirect = activity::openAgentFleetDirectTerminal
+        input.onComposer = activity::restoreAgentFleetComposerView
+        input.beforeKey = { activity.getAgentFleetTerminalScrollback()?.returnToLive() }
+        input.onKeyboard = { TerminalKeyboard.show(activity.terminalView) }
+        input.send = activity::sendAgentFleetTerminalKey
+        if (!enabled && !managed) {
             clearCurrentTarget()
             view.visibility = View.GONE
             activity.terminalToolbarViewPager.visibility = if (activity.preferences.shouldShowTerminalToolbar()) View.VISIBLE else View.GONE
@@ -115,7 +125,8 @@ object AgentFleetComposer {
         view.setViewCompositionStrategy(ViewCompositionStrategy.DisposeOnDetachedFromWindow)
         view.setContent {
             MaterialTheme(colorScheme = ComposerColors) {
-                AgentFleetComposerContent(
+                androidx.compose.runtime.CompositionLocalProvider(LocalTerminalInputController provides input) {
+                if (!enabled) TerminalInputControls(input, composerAvailable = false) else AgentFleetComposerContent(
                     target = target,
                     nativeState = nativeState,
                     attachments = targetState.attachments,
@@ -131,6 +142,7 @@ object AgentFleetComposer {
                         }
                     }
                 )
+                }
             }
         }
     }
@@ -594,11 +606,13 @@ internal fun AgentFleetComposerContent(
     val context = LocalContext.current
     val compactComposer = LocalConfiguration.current.orientation == android.content.res.Configuration.ORIENTATION_LANDSCAPE
     val density by AgentFleetDisplayDensityStore.observe(context).collectAsState()
-    var text by rememberSaveable(target) { mutableStateOf("") }
+    val input = LocalTerminalInputController.current
+    var text by rememberSaveable(target) { mutableStateOf(input?.draft.orEmpty()) }
     val savedBinding = LocalSavedSessionBinding.current ?: AgentFleetComposer.savedBindingForTarget(target)
     val savedMessage by savedBinding?.message?.collectAsState() ?: remember { mutableStateOf("") }
     LaunchedEffect(savedBinding, savedMessage) { if (savedBinding != null) text = savedMessage }
-    fun changeText(value: String) { text = value; savedBinding?.updateMessage(value) }
+    LaunchedEffect(input?.draft) { if (input != null && savedBinding == null) text = input.draft }
+    fun changeText(value: String) { text = value; input?.draft = value; savedBinding?.updateMessage(value) }
     val localSuggestions = remember(target, localSuggestionsAvailableOverride, localSuggestionModeOverride, localSuggestionDebugFakeOutput) {
         NativeLocalSuggestionState(context, localSuggestionsAvailableOverride, localSuggestionDebugFakeOutput, localSuggestionModeOverride)
     }
@@ -636,11 +650,22 @@ internal fun AgentFleetComposerContent(
         if (start) localSuggestions.request(nativeState.items, automaticTarget, automatic = true)
     }
     LaunchedEffect(attachments.toList()) { if (attachments.isNotEmpty()) localSuggestions.clear() }
+    val inputFocus = remember(target) { androidx.compose.ui.focus.FocusRequester() }
+    var wasDirect by remember(target) { mutableStateOf(input?.direct == true) }
+    LaunchedEffect(input?.direct) {
+        if (input?.direct == true) { wasDirect = true; localSuggestions.clear() }
+        else if (wasDirect) { wasDirect = false; inputFocus.requestFocus() }
+    }
+    if (input?.direct == true) {
+        Surface(color = MaterialTheme.colorScheme.surface) { TerminalInputControls(input) }
+        return
+    }
     Surface(color = MaterialTheme.colorScheme.surface) {
         Column(
             modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 5.dp),
             verticalArrangement = Arrangement.spacedBy(4.dp)
         ) {
+            if (input != null) TerminalInputControls(input)
             if (nativeState.target == target && nativeState.pendingQuestionId.isNotBlank()) {
                 Button(
                     onClick = onShowPendingQuestion,
@@ -649,7 +674,7 @@ internal fun AgentFleetComposerContent(
                     shape = RoundedCornerShape(14.dp)
                 ) { Text("Answer needed · Tap to open", fontSize = density.nativeBodySp.sp) }
             }
-            if (text.isNotEmpty()) TextButton(onClick = { text = ""; savedBinding?.clearMessage() }, modifier = Modifier.testTag("agent-fleet-clear-draft")) { Text("Clear draft") }
+            if (text.isNotEmpty()) TextButton(onClick = { text = ""; input?.draft = ""; savedBinding?.clearMessage() }, modifier = Modifier.testTag("agent-fleet-clear-draft")) { Text("Clear draft") }
             val saveError by savedBinding?.saveError?.collectAsState() ?: remember { mutableStateOf("") }
             if (saveError.isNotEmpty()) Text(saveError, color = MaterialTheme.colorScheme.error)
             val savedState by savedBinding?.state?.collectAsState() ?: remember { mutableStateOf(null) }
@@ -678,6 +703,7 @@ internal fun AgentFleetComposerContent(
                     modifier = Modifier
                         .weight(1f)
                         .heightIn(min = if (compactComposer) 56.dp else 148.dp)
+                        .then(Modifier.focusRequester(inputFocus))
                         .testTag("agent-fleet-message-input")
                         .semantics {
                             contentDescription = if (planMode) "Plan mode message input" else "Message input"
@@ -711,7 +737,7 @@ internal fun AgentFleetComposerContent(
                     TextButton(
                         onClick = {
                             if (onComposerText(composed, false)) {
-                                text = ""; savedBinding?.clearMessage()
+                                text = ""; input?.draft = ""; savedBinding?.clearMessage()
                                 localSuggestions.clear()
                             }
                         },
@@ -722,7 +748,7 @@ internal fun AgentFleetComposerContent(
                     Button(
                         onClick = {
                             if (onComposerText(composed, true)) {
-                                text = ""; savedBinding?.clearMessage()
+                                text = ""; input?.draft = ""; savedBinding?.clearMessage()
                                 localSuggestions.clear()
                             }
                         },
