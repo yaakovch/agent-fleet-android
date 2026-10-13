@@ -103,6 +103,10 @@ object AgentFleetComposer {
         input.beforeKey = { activity.getAgentFleetTerminalScrollback()?.returnToLive() }
         input.onKeyboard = { TerminalKeyboard.show(activity.terminalView) }
         input.send = activity::sendAgentFleetTerminalKey
+        input.literal = { cp, bits, generation -> activity.terminalView.inputAppCodePoint(cp, bits, generation) }
+        input.freezeComposition = { activity.terminalView.freezeImeComposition() }
+        input.pendingComposition = { activity.terminalView.hasPendingImeComposition() }
+        input.discardComposition = { activity.terminalView.discardImeComposition() }
         if (!enabled && !managed) {
             clearCurrentTarget()
             view.visibility = View.GONE

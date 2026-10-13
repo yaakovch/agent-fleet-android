@@ -118,6 +118,8 @@ import com.termux.app.fleet.WorkspaceSplit
 import com.termux.app.fleet.WorkspaceTerminalBroker
 import com.termux.app.fleet.TerminalInputController
 import com.termux.app.fleet.TerminalInputControls
+import com.termux.app.fleet.TerminalKeyboardPanel
+import com.termux.app.fleet.LocalWindowTerminalDock
 import com.termux.app.fleet.TerminalKeyboard
 import com.termux.app.fleet.LocalTerminalInputController
 import com.termux.app.fleet.rememberTerminalInputController
@@ -137,6 +139,8 @@ import com.termux.view.TerminalView
 import java.io.File
 import java.util.Locale
 import java.util.UUID
+
+private val LocalWorkspaceInputs = staticCompositionLocalOf<MutableMap<String, TerminalInputController>?> { null }
 
 internal val LocalWorkspaceNativeSessionRegistry =
     staticCompositionLocalOf<NativeSessionRegistry<WorkspaceRetainedNativeSession>?> { null }
@@ -231,6 +235,7 @@ fun DesktopWorkspaceScreen(
     onMoreSession: (FleetSession, String?) -> Unit,
     onRefresh: () -> Unit
 ) {
+    val inputs = remember { mutableStateMapOf<String, TerminalInputController>() }
     var query by remember { mutableStateOf("") }
     val hosts = snapshot?.physicalHosts?.associateBy { it.id }.orEmpty()
     val filtered = sessions.filter { session ->
@@ -281,6 +286,14 @@ fun DesktopWorkspaceScreen(
                 ?.takeIf { isFleetSessionAvailable(snapshot, it) }
         }
         broker.setActiveSessions(activeSessions)
+        // Initialize shell modes in one reducer transaction. Independent pane effects
+        // can publish stale copies and undo each other's initial Terminal selection.
+        workspacePanes(layout.root).forEach { pane ->
+            if (pane.viewMode == WorkspaceViewMode.Native && activeSessions.any { it.id == pane.sessionId && it.tool == "shell" }) {
+                layout = WorkspaceReducer.setView(layout, pane.id, WorkspaceViewMode.Terminal)
+                changed = true
+            }
+        }
         workspacePanes(layout.root).forEach { pane ->
             val id = pane.sessionId ?: return@forEach
             val session = snapshot.sessions.firstOrNull { it.id == id }
@@ -301,7 +314,9 @@ fun DesktopWorkspaceScreen(
         if (changed) onStateChange(state.copy(layout = layout))
     }
 
-    Row(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
+    androidx.compose.runtime.CompositionLocalProvider(LocalWorkspaceInputs provides inputs, LocalWindowTerminalDock provides true) {
+    Column(Modifier.fillMaxSize()) {
+    Row(Modifier.weight(1f).fillMaxWidth().background(MaterialTheme.colorScheme.background)) {
         if (!state.railCollapsed) {
             Surface(Modifier.width(state.railWidthDp.dp).fillMaxHeight(), color = MaterialTheme.colorScheme.surface) {
                 Column(Modifier.fillMaxSize().padding(12.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -490,6 +505,9 @@ fun DesktopWorkspaceScreen(
             )
         }
     }
+    inputs[focusedPane.id]?.let { TerminalKeyboardPanel(it) }
+    }
+    }
 }
 
 @Composable
@@ -601,21 +619,34 @@ private fun WorkspacePaneView(
         pane, session, available, binding?.status ?: "connecting", binding?.message ?: "Opening session…"
     )
     val input = rememberTerminalInputController(pane.id + ":" + session?.id.orEmpty(), session?.tool != "shell")
-    input.available = { focused && available && session != null && broker.state(session.id).value.let { it.status == "live" && it.terminal?.isRunning == true } }
+    val inputs = LocalWorkspaceInputs.current
+    val inputLifecycle = LocalLifecycleOwner.current.lifecycle
+    val latestFocused by rememberUpdatedState(focused)
+    DisposableEffect(input, inputLifecycle) {
+        val observer = androidx.lifecycle.LifecycleEventObserver { _, _ ->
+            input.focus(latestFocused && inputLifecycle.currentState.isAtLeast(androidx.lifecycle.Lifecycle.State.STARTED))
+        }
+        inputLifecycle.addObserver(observer)
+        onDispose { inputLifecycle.removeObserver(observer); input.focus(false) }
+    }
+    DisposableEffect(inputs, pane.id, input) {
+        inputs?.set(pane.id, input)
+        onDispose { if (inputs?.get(pane.id) === input) inputs.remove(pane.id); input.focus(false) }
+    }
+    input.available = { focused && available && session != null && broker.state(session.id).value.let { it.status == "live" && it.terminal?.isRunning == true && it.terminal === binding?.terminal } }
     input.readingNative = { pane.viewMode == WorkspaceViewMode.Native }
     input.onDirect = { onView(pane.id, WorkspaceViewMode.Terminal) }
     input.onComposer = { onView(pane.id, if (input.previousNative) WorkspaceViewMode.Native else WorkspaceViewMode.Terminal) }
     input.send = { name, modifiers -> session != null && input.canInput() && broker.key(session.id, name, modifiers) }
     var shellEntryPending by remember(input) { mutableStateOf(session?.tool == "shell" && input.direct) }
     SideEffect {
-        input.focus(focused)
+        input.focus(focused && inputLifecycle.currentState.isAtLeast(androidx.lifecycle.Lifecycle.State.STARTED))
         input.connection(available && binding?.status == "live")
         if (!shellEntryPending) input.readingViewChanged(pane.viewMode == WorkspaceViewMode.Native)
     }
     LaunchedEffect(input, shellEntryPending, pane.viewMode) {
         if (shellEntryPending) {
-            if (pane.viewMode == WorkspaceViewMode.Native) onView(pane.id, WorkspaceViewMode.Terminal)
-            else shellEntryPending = false
+            if (pane.viewMode == WorkspaceViewMode.Terminal) shellEntryPending = false
         }
     }
     val terminalView = pane.viewMode == WorkspaceViewMode.Terminal || shellEntryPending
@@ -849,11 +880,15 @@ private fun EmbeddedTerminal(session: FleetSession, broker: WorkspaceTerminalBro
         onDispose { binding.terminal?.removeTerminalSessionObserver(observer) }
     }
     input.beforeKey = scrollback::returnToLive
+    input.literal = { cp, bits, generation -> view?.inputAppCodePoint(cp, bits, generation) == true }
+    input.freezeComposition = { view?.freezeImeComposition() }
+    input.pendingComposition = { view?.hasPendingImeComposition() == true }
+    input.discardComposition = { view?.discardImeComposition() }
     input.onKeyboard = {
         val generation = input.getInputGeneration()
         view?.post { if (input.isInputAllowed() && input.getInputGeneration() == generation) { scrollback.returnToLive(); view?.let(TerminalKeyboard::show) } }
     }
-    DisposableEffect(input, scrollback) { onDispose { input.onKeyboard = {}; input.beforeKey = {} } }
+    DisposableEffect(input, scrollback) { onDispose { input.onKeyboard = {}; input.beforeKey = {}; input.literal = { _, _, _ -> false }; input.freezeComposition = {}; input.pendingComposition = { false }; input.discardComposition = {} } }
     LaunchedEffect(input.direct, binding.terminal, focused) { if (input.direct && focused && input.canInput()) input.onKeyboard() }
     val terminal = binding.terminal
     LaunchedEffect(terminal) {

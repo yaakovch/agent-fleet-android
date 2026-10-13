@@ -191,7 +191,7 @@ public class TermuxTerminalViewClient extends TermuxTerminalViewClientBase {
 
         if (!term.isMouseTrackingActive() && !e.isFromSource(InputDevice.SOURCE_MOUSE)) {
             if (!KeyboardUtils.areDisableSoftKeyboardFlagsSet(mActivity))
-                KeyboardUtils.showSoftKeyboard(mActivity, mActivity.getTerminalView());
+                showSelectedKeyboard();
             else
                 Logger.logVerbose(LOG_TAG, "Not showing soft keyboard onSingleTapUp since its disabled");
         }
@@ -504,6 +504,10 @@ public class TermuxTerminalViewClient extends TermuxTerminalViewClientBase {
      * drawer or extra keys, or with ctrl+alt+k hardware keyboard shortcut.
      */
     public void onToggleSoftKeyboardRequest() {
+        if (mActivity.getTerminalView().getInputBridge() != null && mActivity.getTerminalInput().getTerminalSurface()) {
+            if (!mActivity.getTerminalInput().dismissKeyboard()) mActivity.getTerminalInput().chooseDirect();
+            return;
+        }
         // If soft keyboard toggle behaviour is enable/disabled
         if (mActivity.getProperties().shouldEnableDisableSoftKeyboardOnToggle()) {
             // If soft keyboard is visible
@@ -524,7 +528,7 @@ public class TermuxTerminalViewClient extends TermuxTerminalViewClientBase {
                     mActivity.getTerminalView().postDelayed(getShowSoftKeyboardRunnable(), 500);
                     mActivity.getTerminalView().requestFocus();
                 } else
-                    KeyboardUtils.showSoftKeyboard(mActivity, mActivity.getTerminalView());
+                    showSelectedKeyboard();
             }
         }
         // If soft keyboard toggle behaviour is show/hide
@@ -621,10 +625,16 @@ public class TermuxTerminalViewClient extends TermuxTerminalViewClientBase {
         }
     }
 
+    private void showSelectedKeyboard() {
+        if (mActivity.getTerminalView().getInputBridge() != null)
+            com.termux.app.fleet.TerminalKeyboard.show(mActivity.getTerminalView());
+        else KeyboardUtils.showSoftKeyboard(mActivity, mActivity.getTerminalView());
+    }
+
     private Runnable getShowSoftKeyboardRunnable() {
         if (mShowSoftKeyboardRunnable == null) {
             mShowSoftKeyboardRunnable = () -> {
-                KeyboardUtils.showSoftKeyboard(mActivity, mActivity.getTerminalView());
+                showSelectedKeyboard();
             };
         }
         return mShowSoftKeyboardRunnable;

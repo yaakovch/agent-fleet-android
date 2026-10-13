@@ -400,7 +400,9 @@ public final class TerminalView extends View {
 
         mPresentationHandler.removeCallbacks(mApplySize);
         mSizePending = false;
+        if (mInputBridge != null) discardImeComposition();
         mTermSession = session;
+        if (mInputBridge != null) mInputBridge.onTerminalTargetChanged(this, session);
         mEmulator = null;
         beginPresentation();
         mCombiningAccent = 0;
@@ -414,11 +416,35 @@ public final class TerminalView extends View {
     }
 
     private TerminalInputBridge mInputBridge;
+    private BaseInputConnection mLastInputConnection;
+    private CharSequence mSuspendedImeComposition;
+    private long mEditorEpoch;
+    private boolean mAppKeyboardBackConsumed;
+    public TerminalInputBridge getInputBridge() { return mInputBridge; }
+    public void freezeImeComposition() {
+        if (mLastInputConnection != null && mLastInputConnection.getEditable().length() > 0)
+            mSuspendedImeComposition = mLastInputConnection.getEditable().toString();
+    }
+    public boolean hasPendingImeComposition() {
+        return (mSuspendedImeComposition != null && mSuspendedImeComposition.length() > 0) ||
+            (mLastInputConnection != null && mLastInputConnection.getEditable().length() > 0);
+    }
+    public void discardImeComposition() {
+        mSuspendedImeComposition = null;
+        if (mLastInputConnection != null) mLastInputConnection.getEditable().clear();
+    }
 
-    public void setInputBridge(TerminalInputBridge bridge) { mInputBridge = bridge; }
+    public void setInputBridge(TerminalInputBridge bridge) {
+        if (bridge != mInputBridge) discardImeComposition();
+        mInputBridge = bridge;
+        if (bridge != null) bridge.onTerminalTargetChanged(this, mTermSession);
+    }
 
     @Override
     public InputConnection onCreateInputConnection(EditorInfo outAttrs) {
+        if (mInputBridge != null && !mInputBridge.isSystemImeAllowed()) return null;
+        final long editorEpoch = ++mEditorEpoch;
+        if (mInputBridge != null) freezeImeComposition();
         final TerminalSession inputSession = mTermSession;
         final TerminalInputBridge inputBridge = mInputBridge;
         final long inputGeneration = inputBridge == null ? 0 : inputBridge.getInputGeneration();
@@ -455,12 +481,14 @@ public final class TerminalView extends View {
         // keyboard on Android TV (see https://github.com/termux/termux-app/issues/221).
         outAttrs.imeOptions = EditorInfo.IME_FLAG_NO_FULLSCREEN;
 
-        return new BaseInputConnection(this, true) {
+        mLastInputConnection = new BaseInputConnection(this, true) {
             @Override
             public boolean sendKeyEvent(KeyEvent event) {
                 if (mTermSession != inputSession || mInputBridge != inputBridge || (inputBridge != null &&
-                    (inputGeneration != inputBridge.getInputGeneration() || !inputBridge.isInputAllowed()))) return true;
-                return super.sendKeyEvent(event);
+                    (editorEpoch != mEditorEpoch || inputGeneration != inputBridge.getInputGeneration() || !inputBridge.isSystemImeAllowed()))) return true;
+                if (inputBridge == null) return super.sendKeyEvent(event);
+                return event.getAction() == KeyEvent.ACTION_UP ? onKeyUp(event.getKeyCode(), event) :
+                    onKeyDown(event.getKeyCode(), event);
             }
 
 
@@ -503,7 +531,7 @@ public final class TerminalView extends View {
             void sendTextToTerminal(CharSequence text) {
                 // Old editor callbacks must never cross a mode, attachment or session change.
                 if (mTermSession != inputSession || mInputBridge != inputBridge || (inputBridge != null &&
-                    (inputGeneration != inputBridge.getInputGeneration() || !inputBridge.isInputAllowed()))) return;
+                    (editorEpoch != mEditorEpoch || inputGeneration != inputBridge.getInputGeneration() || !inputBridge.isSystemImeAllowed()))) return;
                 stopTextSelectionMode();
                 final int textLengthInChars = text.length();
                 for (int i = 0; i < textLengthInChars; i++) {
@@ -555,11 +583,18 @@ public final class TerminalView extends View {
                         }
                     }
 
+                    if (mTermSession != inputSession || mInputBridge != inputBridge || (inputBridge != null &&
+                        (editorEpoch != mEditorEpoch || inputGeneration != inputBridge.getInputGeneration() || !inputBridge.isSystemImeAllowed()))) return;
                     inputCodePoint(codePoint, ctrlHeld, false);
                 }
             }
 
         };
+        if (mSuspendedImeComposition != null && mInputBridge != null) {
+            mLastInputConnection.setComposingText(mSuspendedImeComposition, 1);
+            mSuspendedImeComposition = null;
+        }
+        return mLastInputConnection;
     }
 
     @Override
@@ -650,7 +685,7 @@ public final class TerminalView extends View {
 
     @Override
     public boolean onCheckIsTextEditor() {
-        return true;
+        return mInputBridge == null || mInputBridge.isSystemImeAllowed();
     }
 
     @Override
@@ -1021,6 +1056,7 @@ public final class TerminalView extends View {
     public boolean onKeyDown(int keyCode, KeyEvent event) {
         if (TERMINAL_VIEW_KEY_LOGGING_ENABLED)
             mClient.logInfo(LOG_TAG, "onKeyDown(keyCode=" + keyCode + ", isSystem()=" + event.isSystem() + ", event=" + event + ")");
+        if (keyCode == KeyEvent.KEYCODE_BACK && mInputBridge != null && mInputBridge.dismissAppKeyboard()) { mAppKeyboardBackConsumed = true; return true; }
         if (mEmulator == null) return true;
         if (mInputBridge != null) { if (!mInputBridge.isInputAllowed()) return event.isSystem() ? super.onKeyDown(keyCode, event) : true; mInputBridge.beforeInput(); }
         if (mLocalScrollbackActive) {
@@ -1105,15 +1141,31 @@ public final class TerminalView extends View {
         return true;
     }
 
+    public boolean inputAppCodePoint(int codePoint, int modifiers, long generation) {
+        final TerminalInputBridge bridge = mInputBridge;
+        if (bridge == null || bridge.getInputGeneration() != generation || !bridge.isAppKeyboardAllowed()) return false;
+        return inputCodePointGuarded(codePoint, (modifiers & KeyHandler.KEYMOD_CTRL) != 0,
+            (modifiers & KeyHandler.KEYMOD_ALT) != 0, true, generation);
+    }
+
     public void inputCodePoint(int codePoint, boolean controlDownFromEvent, boolean leftAltDownFromEvent) {
+        inputCodePointGuarded(codePoint, controlDownFromEvent, leftAltDownFromEvent, false,
+            mInputBridge == null ? 0 : mInputBridge.getInputGeneration());
+    }
+
+    private boolean inputCodePointGuarded(int codePoint, boolean controlDownFromEvent, boolean leftAltDownFromEvent,
+                                         boolean appKeyboard, long generation) {
+        final TerminalSession inputSession = mTermSession;
+        final TerminalInputBridge inputBridge = mInputBridge;
         if (TERMINAL_VIEW_KEY_LOGGING_ENABLED) {
             mClient.logInfo(LOG_TAG, "inputCodePoint(codePoint=" + codePoint + ", controlDownFromEvent=" + controlDownFromEvent + ", leftAltDownFromEvent="
                 + leftAltDownFromEvent + ")");
         }
 
-        if (mTermSession == null) return;
-        if (mInputBridge != null) { if (!mInputBridge.isInputAllowed()) return; mInputBridge.beforeInput(); }
-        final int touchMods = mInputBridge == null ? 0 : mInputBridge.consumeModifiers();
+        if (inputSession == null || !validCodePointTarget(inputSession, inputBridge, generation, appKeyboard)) return false;
+        if (inputBridge != null) inputBridge.beforeInput();
+        if (!validCodePointTarget(inputSession, inputBridge, generation, appKeyboard)) return false;
+        final int touchMods = inputBridge == null || appKeyboard ? 0 : inputBridge.consumeModifiers();
         if ((touchMods & KeyHandler.KEYMOD_SHIFT) != 0) codePoint = Character.toUpperCase(codePoint);
         controlDownFromEvent |= (touchMods & KeyHandler.KEYMOD_CTRL) != 0;
         leftAltDownFromEvent |= (touchMods & KeyHandler.KEYMOD_ALT) != 0;
@@ -1130,7 +1182,9 @@ public final class TerminalView extends View {
         final boolean controlDown = controlDownFromEvent || mClient.readControlKey();
         final boolean altDown = leftAltDownFromEvent || mClient.readAltKey();
 
-        if (mClient.onCodePoint(codePoint, controlDown, mTermSession)) return;
+        if (!validCodePointTarget(inputSession, inputBridge, generation, appKeyboard)) return false;
+        if (mClient.onCodePoint(codePoint, controlDown, inputSession)) return true;
+        if (!validCodePointTarget(inputSession, inputBridge, generation, appKeyboard)) return false;
 
         if (controlDown) {
             if (codePoint >= 'a' && codePoint <= 'z') {
@@ -1173,8 +1227,14 @@ public final class TerminalView extends View {
             }
 
             // If left alt, send escape before the code point to make e.g. Alt+B and Alt+F work in readline:
-            mTermSession.writeCodePoint(altDown, codePoint);
+            inputSession.writeCodePoint(altDown, codePoint);
         }
+        return true;
+    }
+
+    private boolean validCodePointTarget(TerminalSession session, TerminalInputBridge bridge, long generation, boolean appKeyboard) {
+        return (!appKeyboard || isAttachedToWindow()) && session == mTermSession && bridge == mInputBridge && (bridge == null ||
+            (generation == bridge.getInputGeneration() && (appKeyboard ? bridge.isAppKeyboardAllowed() : bridge.isInputAllowed())));
     }
 
     /** Input the specified keyCode if applicable and return if the input was consumed. */
@@ -1222,6 +1282,7 @@ public final class TerminalView extends View {
      */
     @Override
     public boolean onKeyUp(int keyCode, KeyEvent event) {
+        if (keyCode == KeyEvent.KEYCODE_BACK && mAppKeyboardBackConsumed) { mAppKeyboardBackConsumed = false; return true; }
         if (TERMINAL_VIEW_KEY_LOGGING_ENABLED)
             mClient.logInfo(LOG_TAG, "onKeyUp(keyCode=" + keyCode + ", event=" + event + ")");
 

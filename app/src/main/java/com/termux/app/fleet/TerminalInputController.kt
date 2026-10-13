@@ -17,8 +17,23 @@ class TerminalInputController : TerminalInputBridge {
         private set
     var modifiers by mutableStateOf(0)
         private set
-    private var generation = 0L
+    var terminalSurface by mutableStateOf(false)
+        private set
+    var keyboardDismissed by mutableStateOf(false)
+        private set
+    var keyboardReady by mutableStateOf(false)
+        private set
+    private var selectingSurface by mutableStateOf(false)
+    var freezeComposition: () -> Unit = {}
+    var surfaceBlocked by mutableStateOf(false)
+    var literal: (Int, Int, Long) -> Boolean = { _, _, _ -> false }
+    var pendingComposition: () -> Boolean = { false }
+    var discardComposition: () -> Unit = {}
+    val gestures = TerminalKeyboardGestures()
+    private var generation by mutableStateOf(0L)
     private var target = ""
+    private var terminalOwner: Any? = null
+    private var terminalAttachment: Any? = null
     private var connected by mutableStateOf(false)
     private var focused by mutableStateOf(true)
     var available: () -> Boolean = { false }
@@ -39,31 +54,43 @@ class TerminalInputController : TerminalInputBridge {
 
     fun bind(id: String, ai: Boolean) {
         if (id == target) return
+        discardComposition()
+        surfaceBlocked = false
+        selectingSurface = false
         target = id
         draft = ""
         previousNative = true
         connected = false
         direct = !ai
         compatibility = false
+        terminalSurface = false
+        keyboardDismissed = false
         expanded = false
         modifiers = 0
-        generation++
+        invalidateInput()
     }
 
     fun resetEntry(id: String, ai: Boolean) { target = ""; bind(id, ai) }
+
+    override fun onTerminalTargetChanged(view: Any?, session: Any?) {
+        if (view === terminalOwner && session === terminalAttachment) return
+        terminalOwner = view
+        terminalAttachment = session
+        invalidateInput()
+    }
 
     fun focus(value: Boolean) {
         if (value == focused) return
         focused = value
         modifiers = 0
-        generation++
+        invalidateInput()
     }
 
     fun connection(live: Boolean) {
         if (live == connected) return
         connected = live
         modifiers = 0
-        generation++
+        invalidateInput()
     }
 
     fun restore(mode: Boolean, profile: Boolean, keysExpanded: Boolean, previous: Boolean = true) {
@@ -72,7 +99,7 @@ class TerminalInputController : TerminalInputBridge {
         compatibility = profile
         expanded = keysExpanded
         modifiers = 0
-        generation++
+        invalidateInput()
     }
 
     fun chooseDirect(): Boolean {
@@ -81,7 +108,8 @@ class TerminalInputController : TerminalInputBridge {
         val entering = !direct
         if (entering) previousNative = readingNative()
         direct = true
-        generation++
+        keyboardDismissed = false
+        invalidateInput()
         if (entering) onDirect()
         onKeyboard()
         return true
@@ -92,21 +120,101 @@ class TerminalInputController : TerminalInputBridge {
         previousNative = true
         modifiers = 0
         direct = false
-        generation++
+        invalidateInput()
     }
 
     fun chooseComposer() {
         modifiers = 0
         direct = false
-        generation++
+        surfaceBlocked = false
+        selectingSurface = false
+        invalidateInput()
         onComposer()
     }
 
     fun toggleProfile() {
         compatibility = !compatibility
         modifiers = 0
-        generation++
+        invalidateInput()
         if (canInput()) onKeyboard()
+    }
+
+    private fun invalidateInput() {
+        generation++
+        modifiers = 0
+        keyboardReady = false
+        gestures.cancel()
+    }
+
+    fun restoreSurface(terminal: Boolean, dismissed: Boolean = false) {
+        terminalSurface = terminal
+        keyboardDismissed = dismissed
+        invalidateInput()
+    }
+
+    fun keyboardGeometryChanged() { invalidateInput() }
+    fun changeKeyboardPage(page: String) {
+        invalidateInput()
+        gestures.changePage(page)
+    }
+
+    fun beginSurfaceSelection() {
+        if (!canInput()) return
+        freezeComposition()
+        selectingSurface = true
+        invalidateInput()
+    }
+
+    fun cancelSurfaceSelection() {
+        surfaceBlocked = false
+        selectingSurface = false
+        invalidateInput()
+        if (direct && canInput()) onKeyboard()
+    }
+
+    fun chooseSurface(terminal: Boolean, discard: Boolean = false): Boolean {
+        if (!canInput()) return false
+        if (terminal && pendingComposition()) {
+            if (!selectingSurface) { freezeComposition(); selectingSurface = true; invalidateInput() }
+            if (!discard) { surfaceBlocked = true; return false }
+            discardComposition()
+        }
+        surfaceBlocked = false
+        selectingSurface = false
+        terminalSurface = terminal
+        keyboardDismissed = false
+        invalidateInput()
+        if (!direct) return chooseDirect()
+        onKeyboard()
+        return true
+    }
+
+    override fun dismissAppKeyboard(): Boolean = dismissKeyboard()
+
+    fun dismissKeyboard(): Boolean {
+        if (!direct || !terminalSurface || keyboardDismissed) return false
+        keyboardDismissed = true
+        invalidateInput()
+        return true
+    }
+
+    fun updateKeyboardReady(value: Boolean) { keyboardReady = value && wantsTerminalKeyboard() && canInput() }
+    fun wantsTerminalKeyboard(): Boolean = direct && terminalSurface && !keyboardDismissed
+    override fun isSystemImeAllowed(): Boolean = isInputAllowed() && !terminalSurface && !selectingSurface
+    override fun isAppKeyboardAllowed(): Boolean = keyboardReady && !selectingSurface && wantsTerminalKeyboard() && isInputAllowed()
+
+    /** Captured generation and modifiers belong to this gesture, never a later target. */
+    fun appKey(key: TerminalKeyboardKey, bits: Int, captured: Long): Boolean {
+        if (captured != generation || !isAppKeyboardAllowed()) return false
+        if (key.name == "SHIFT_LEFT") {
+            clearModifiers()
+            beforeInput()
+            return captured == generation && isAppKeyboardAllowed() && send("SHIFT_LEFT", 0)
+        }
+        val cp = key.character(bits)
+        if (cp != null) return literal(cp.code, bits and KeyHandler.KEYMOD_SHIFT.inv(), captured)
+        beforeInput()
+        return captured == generation && isAppKeyboardAllowed() && send(key.name, bits)
     }
 
     fun toggleExpanded() { expanded = !expanded }
@@ -114,15 +222,17 @@ class TerminalInputController : TerminalInputBridge {
     fun clearModifiers() { modifiers = 0 }
     fun key(name: String): Boolean {
         if (!isInputAllowed()) { clearModifiers(); return false }
-        beforeInput()
+        val captured = generation
         val bits = consumeModifiers()
-        return send(name, bits)
+        beforeInput()
+        return isInputAllowed() && captured == generation && send(name, bits)
     }
     fun answerQuestion(): Boolean {
         if (!chooseDirect() || !isInputAllowed()) return false
         clearModifiers()
+        val captured = generation
         beforeInput()
-        return send("SHIFT_LEFT", 0)
+        return captured == generation && isInputAllowed() && send("SHIFT_LEFT", 0)
     }
 
     fun canInput(): Boolean = focused && connected && available()
@@ -165,10 +275,11 @@ val LocalTerminalInputController = androidx.compose.runtime.staticCompositionLoc
 @androidx.compose.runtime.Composable
 fun rememberTerminalInputController(id: String, ai: Boolean): TerminalInputController =
     androidx.compose.runtime.saveable.rememberSaveable(id, ai, saver = androidx.compose.runtime.saveable.listSaver(
-        save = { input: TerminalInputController -> listOf(input.direct, input.compatibility, input.expanded, input.previousNative, input.draft) },
+        save = { input: TerminalInputController -> listOf(input.direct, input.compatibility, input.expanded, input.previousNative, input.draft, input.terminalSurface, input.keyboardDismissed) },
         restore = { values -> TerminalInputController().apply {
             bind(id, ai)
             restore(values[0] as Boolean, values[1] as Boolean, values[2] as Boolean, values[3] as Boolean)
             draft = values[4] as String
+            restoreSurface(values.getOrNull(5) as? Boolean ?: false, values.getOrNull(6) as? Boolean ?: false)
         } }
     )) { TerminalInputController().apply { bind(id, ai) } }

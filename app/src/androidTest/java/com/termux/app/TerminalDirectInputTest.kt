@@ -207,7 +207,7 @@ class TerminalDirectInputTest {
             compose.waitForIdle()
             assertEquals("Actual shell layout; transitions=$transitions", WorkspaceViewMode.Terminal, workspacePanes(state.value.layout.root).single().viewMode)
             compose.onNodeWithTag("workspace-mode-terminal").assertIsSelected()
-            compose.onNodeWithTag("terminal-input-direct").assertTextContains("✓ Direct input")
+            compose.onNodeWithTag("terminal-input-direct").assertTextContains("✓ Direct")
             compose.onNodeWithTag("terminal-input-composer").assertDoesNotExist()
             await(terminal, "READY")
             compose.onNodeWithTag("terminal-key-ENTER").performScrollTo().assertIsEnabled().performClick()
