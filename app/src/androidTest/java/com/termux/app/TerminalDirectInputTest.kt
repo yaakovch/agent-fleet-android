@@ -21,6 +21,7 @@ import com.termux.terminal.TerminalSession
 import com.termux.view.TerminalView
 import org.junit.Assert.*
 import org.junit.Rule
+import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
 
@@ -28,6 +29,39 @@ import org.junit.runner.RunWith
 @RunWith(AndroidJUnit4::class)
 class TerminalDirectInputTest {
     @get:Rule val compose = createAndroidComposeRule<ComponentActivity>()
+
+    @Before fun useProductionKeyboardResize() {
+        compose.runOnUiThread {
+            com.termux.shared.view.KeyboardUtils.setSoftInputModeAdjustResize(compose.activity)
+        }
+    }
+
+    private fun assertAboveKeyboardAndTap(tag: String) {
+        val decor = compose.activity.window.decorView
+        compose.waitUntil(5_000) {
+            androidx.core.view.ViewCompat.getRootWindowInsets(decor)
+                ?.isVisible(androidx.core.view.WindowInsetsCompat.Type.ime()) == true
+        }
+        compose.waitForIdle()
+        val bounds = compose.onNodeWithTag(tag).fetchSemanticsNode().boundsInWindow
+        val visible = android.graphics.Rect()
+        val origin = IntArray(2)
+        compose.runOnUiThread {
+            decor.getWindowVisibleDisplayFrame(visible)
+            decor.getLocationOnScreen(origin)
+        }
+        assertTrue("Control must remain above the visible keyboard: bounds=$bounds frame=$visible",
+            bounds.bottom + origin[1] <= visible.bottom)
+        val automation = androidx.test.platform.app.InstrumentationRegistry.getInstrumentation().uiAutomation
+        val downTime = android.os.SystemClock.uptimeMillis()
+        for (action in listOf(android.view.MotionEvent.ACTION_DOWN, android.view.MotionEvent.ACTION_UP)) {
+            val event = android.view.MotionEvent.obtain(downTime, android.os.SystemClock.uptimeMillis(), action,
+                bounds.center.x + origin[0], bounds.center.y + origin[1], 0)
+            event.source = android.view.InputDevice.SOURCE_TOUCHSCREEN
+            try { assertTrue(automation.injectInputEvent(event, true)) } finally { event.recycle() }
+        }
+        compose.waitForIdle()
+    }
 
     private fun capture(view: TerminalView, name: String) {
         compose.waitForIdle()
@@ -79,7 +113,8 @@ class TerminalDirectInputTest {
         val tolerance = compose.activity.resources.displayMetrics.density * 8
         assertTrue("Input modes must sit below the writing field, not above it: field=$field direct=$direct", direct.top >= field.bottom)
         assertTrue("Input modes must reuse the space beside the action stack: actions=$actions direct=$direct", direct.bottom <= actions.bottom + tolerance)
-        compose.onNodeWithTag("terminal-input-direct").performClick()
+        assertAboveKeyboardAndTap("terminal-input-direct")
+        assertTrue("A real screen tap must activate Direct with the keyboard open", input.direct)
         compose.onNodeWithTag("terminal-input-composer").performClick()
         compose.onNodeWithTag("agent-fleet-message-input").assertTextContains("Unsent message")
     }
@@ -189,14 +224,18 @@ class TerminalDirectInputTest {
         try {
             compose.setContent { AgentFleetTheme(darkTheme = true) {
                 CompositionLocalProvider(LocalTerminalInputController provides input, LocalSavedSessionBinding provides binding) {
+                    // Production embeds this screen below TermuxActivity's fitsSystemWindows
+                    // root, which owns status-bar and keyboard sizing. Mirror that host here.
+                    Box(Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing)) {
                     NativeSessionScreen(
                         state = NativeSessionUiState("Draft", "fixture", "draft", adapter = "codex", connection = "Live",
                             providerStateKnown = true, providerState = ProviderState("verified", "PROVIDER_STATE_VERIFIED", "fixture", 1,
                                 ProviderComponent("codex-parser", "3.0.0"), ProviderComponent("codex-actions", "2.0.0"), true, "none")),
-                        aiComposer = true, inlineComposer = true, localSuggestionsAvailableOverride = false,
+                        aiComposer = true, inlineComposer = true, applyStatusBarInset = false, localSuggestionsAvailableOverride = false,
                         onToggleTerminal = {}, onRetry = {}, onLoadOlder = {}, onApproval = { _, _ -> }, onQuestion = { _, _ -> },
                         onShellCommand = {}, onShellKey = {}, onDirectory = {}, onRefreshDirectory = {}, onControlC = {},
                         onCloseSession = {}, onKillSession = {}, onScheduleContinue = {}, onDismissAttention = {})
+                    }
                 }
             } }
             compose.onNodeWithTag("native-message-input").assertTextContains("Saved native draft")
@@ -208,6 +247,10 @@ class TerminalDirectInputTest {
             val answer = compose.onNodeWithTag("terminal-answer-question").fetchSemanticsNode().boundsInRoot
             assertTrue("Native mode controls must sit below the writing field", direct.top >= field.bottom)
             assertEquals("The question shortcut must share the footer row", direct.center.y, answer.center.y, 1f)
+            assertAboveKeyboardAndTap("terminal-input-direct")
+            assertTrue("Native Direct must accept a real tap above the keyboard", input.direct)
+            compose.onNodeWithTag("terminal-input-composer").performClick()
+            compose.onNodeWithTag("native-message-input").assertTextContains("Saved native draft")
         } finally { SavedSessionStates.writer.submit {}.get(); directory.deleteRecursively() }
     }
 
