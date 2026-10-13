@@ -667,7 +667,6 @@ internal fun AgentFleetComposerContent(
             modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 5.dp),
             verticalArrangement = Arrangement.spacedBy(4.dp)
         ) {
-            if (input != null) TerminalInputControls(input)
             if (nativeState.target == target && nativeState.pendingQuestionId.isNotBlank()) {
                 Button(
                     onClick = onShowPendingQuestion,
@@ -676,7 +675,6 @@ internal fun AgentFleetComposerContent(
                     shape = RoundedCornerShape(14.dp)
                 ) { Text("Answer needed · Tap to open", fontSize = density.nativeBodySp.sp) }
             }
-            if (text.isNotEmpty()) TextButton(onClick = { text = ""; input?.draft = ""; savedBinding?.clearMessage() }, modifier = Modifier.testTag("agent-fleet-clear-draft")) { Text("Clear draft") }
             val saveError by savedBinding?.saveError?.collectAsState() ?: remember { mutableStateOf("") }
             if (saveError.isNotEmpty()) Text(saveError, color = MaterialTheme.colorScheme.error)
             val savedState by savedBinding?.state?.collectAsState() ?: remember { mutableStateOf(null) }
@@ -694,34 +692,44 @@ internal fun AgentFleetComposerContent(
                 horizontalArrangement = Arrangement.spacedBy(6.dp),
                 verticalAlignment = androidx.compose.ui.Alignment.Top
             ) {
-                OutlinedTextField(
-                    value = text,
-                    onValueChange = {
-                        if (it.length <= MAX_MESSAGE_CHARS && '\u0000' !in it) {
-                            changeText(it)
-                            if (it.isNotBlank()) localSuggestions.clear()
-                        }
-                    },
-                    modifier = Modifier
-                        .weight(1f)
-                        .heightIn(min = if (compactComposer) 56.dp else 148.dp)
-                        .then(Modifier.focusRequester(inputFocus))
-                        .testTag("agent-fleet-message-input")
-                        .semantics {
-                            contentDescription = if (planMode) "Plan mode message input" else "Message input"
+                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    OutlinedTextField(
+                        value = text,
+                        onValueChange = {
+                            if (it.length <= MAX_MESSAGE_CHARS && '\u0000' !in it) {
+                                changeText(it)
+                                if (it.isNotBlank()) localSuggestions.clear()
+                            }
                         },
-                    placeholder = { Text(if (planMode) "Plan message…" else "Message…", fontSize = density.nativeBodySp.sp) },
-                    minLines = 1,
-                    maxLines = if (compactComposer) 1 else 7,
-                    textStyle = MaterialTheme.typography.bodyMedium.copy(fontSize = density.nativeBodySp.sp),
-                    shape = RoundedCornerShape(14.dp),
-                    colors = if (planMode) OutlinedTextFieldDefaults.colors(
-                        focusedBorderColor = PlanAmber,
-                        unfocusedBorderColor = PlanAmber,
-                        focusedPlaceholderColor = PlanAmber,
-                        unfocusedPlaceholderColor = PlanAmber
-                    ) else OutlinedTextFieldDefaults.colors()
-                )
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .heightIn(min = if (compactComposer) 56.dp else 148.dp)
+                            .then(Modifier.focusRequester(inputFocus))
+                            .testTag("agent-fleet-message-input")
+                            .semantics {
+                                contentDescription = if (planMode) "Plan mode message input" else "Message input"
+                            },
+                        placeholder = { Text(if (planMode) "Plan message…" else "Message…", fontSize = density.nativeBodySp.sp) },
+                        minLines = 1,
+                        maxLines = if (compactComposer) 1 else 7,
+                        textStyle = MaterialTheme.typography.bodyMedium.copy(fontSize = density.nativeBodySp.sp),
+                        shape = RoundedCornerShape(14.dp),
+                        colors = if (planMode) OutlinedTextFieldDefaults.colors(
+                            focusedBorderColor = PlanAmber,
+                            unfocusedBorderColor = PlanAmber,
+                            focusedPlaceholderColor = PlanAmber,
+                            unfocusedPlaceholderColor = PlanAmber
+                        ) else OutlinedTextFieldDefaults.colors()
+                    )
+                    val clearDraft: @Composable () -> Unit = {
+                        if (text.isNotEmpty()) TextButton(
+                            onClick = { changeText(""); savedBinding?.clearMessage() },
+                            modifier = Modifier.testTag("agent-fleet-clear-draft")
+                        ) { Text("Clear draft") }
+                    }
+                    if (input != null) TerminalInputModeControls(input, trailingActions = { clearDraft() })
+                    else clearDraft()
+                }
                 val actionModifier = if (compactComposer) Modifier.widthIn(min = 70.dp, max = 82.dp) else Modifier.fillMaxWidth()
                 val actions: @Composable () -> Unit = {
                     TextButton(

@@ -69,6 +69,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.Density
 import androidx.compose.ui.platform.LocalDensity
@@ -273,12 +275,9 @@ fun NativeSessionScreen(
         },
         bottomBar = {
           Column {
-            if (inlineComposer) LocalTerminalInputController.current?.let { input ->
-                Row {
-                    TerminalInputControls(input, composerAvailable = false)
-                }
-                if (aiComposer) TextButton(onClick = { input.answerQuestion() }, enabled = input.canInput(), modifier = Modifier.testTag("terminal-answer-question")) { Text("Shift+Left · Answer question") }
-            }
+            val sharedInput = LocalTerminalInputController.current
+            val composerVisible = aiComposer && inlineComposer && state.mutationsAllowed &&
+                (pendingAction == null || pendingAction.source == "codex_async_question")
             if (pendingAction != null && state.mutationsAllowed) {
                 Surface(
                     modifier = Modifier.windowInsetsPadding(WindowInsets.navigationBars),
@@ -316,6 +315,10 @@ fun NativeSessionScreen(
                     onOpenTerminal = onToggleTerminal
                 )
             }
+            }
+            if (inlineComposer && sharedInput != null && !composerVisible) {
+                if (aiComposer) NativeInputFooter(sharedInput)
+                else TerminalInputControls(sharedInput, composerAvailable = false)
             }
           }
         }
@@ -831,6 +834,17 @@ private fun ModelControlDialog(
 }
 
 @Composable
+private fun NativeInputFooter(input: TerminalInputController, onClearDraft: (() -> Unit)? = null) {
+    TerminalInputModeControls(input, trailingActions = {
+        TextButton(onClick = { input.answerQuestion() }, enabled = input.canInput(),
+            modifier = Modifier.testTag("terminal-answer-question").semantics { contentDescription = "Shift+Left · Answer question" }) {
+            Text("Shift+←")
+        }
+        if (onClearDraft != null) TextButton(onClick = onClearDraft) { Text("Clear draft") }
+    })
+}
+
+@Composable
 private fun NativeAiComposer(
     interactionMode: String,
     conversationItems: List<ConversationItem>,
@@ -915,7 +929,9 @@ private fun NativeAiComposer(
                     if (onComposerText(value, true)) { changeValue(""); savedBinding?.clearMessage() }
                 }) { Text(if (value.isEmpty()) "Enter" else "Send", fontSize = 12.sp) }
             }
-            if (value.isNotEmpty()) TextButton(onClick = { changeValue(""); savedBinding?.clearMessage() }) { Text("Clear draft") }
+            if (input != null) NativeInputFooter(input,
+                onClearDraft = if (value.isNotEmpty()) ({ changeValue(""); savedBinding?.clearMessage() }) else null)
+            else if (value.isNotEmpty()) TextButton(onClick = { changeValue(""); savedBinding?.clearMessage() }) { Text("Clear draft") }
             if (localSuggestions.targetKey == "composer") {
                 LocalSuggestionChoices(
                     localSuggestions,

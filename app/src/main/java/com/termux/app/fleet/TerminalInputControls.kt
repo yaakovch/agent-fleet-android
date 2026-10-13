@@ -23,13 +23,7 @@ import com.termux.view.TerminalView
 fun TerminalInputControls(state: TerminalInputController, composerAvailable: Boolean = true) {
     val landscape = LocalConfiguration.current.orientation == android.content.res.Configuration.ORIENTATION_LANDSCAPE
     Column(Modifier.fillMaxWidth().testTag("terminal-input-controls")) {
-        Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState())) {
-            if (composerAvailable) TextButton(onClick = state::chooseComposer,
-                modifier = Modifier.testTag("terminal-input-composer")) { Text(if (state.direct) "Composer" else "✓ Composer") }
-            TextButton(onClick = { state.chooseDirect() }, enabled = state.canInput(),
-                modifier = Modifier.testTag("terminal-input-direct")) { Text(if (state.direct) "✓ Direct input" else "Direct input") }
-            if (state.direct) TextButton(onClick = state::toggleExpanded, modifier = Modifier.testTag("terminal-input-expand")) { Text(if (state.expanded) "Fewer keys" else "More keys") }
-        }
+        TerminalInputModeControls(state, composerAvailable)
         if (state.direct) Column(Modifier.testTag("terminal-key-panel").heightIn(max = if (landscape) 96.dp else 240.dp).verticalScroll(rememberScrollState())) {
             val modifiers: @Composable () -> Unit = {
                 listOf("Ctrl" to KeyHandler.KEYMOD_CTRL, "Alt" to KeyHandler.KEYMOD_ALT, "Shift" to KeyHandler.KEYMOD_SHIFT).forEach { (label, bit) ->
@@ -51,6 +45,23 @@ fun TerminalInputControls(state: TerminalInputController, composerAvailable: Boo
                 TextButton(onClick = state::toggleProfile, modifier = Modifier.testTag("terminal-input-profile")) { Text(if (state.compatibility) "Compatibility" else "Terminal keys") }
             }
         }
+    }
+}
+
+/** Mode selection can share the composer's existing footer instead of adding a row above it. */
+@Composable
+fun TerminalInputModeControls(
+    state: TerminalInputController,
+    composerAvailable: Boolean = true,
+    trailingActions: @Composable RowScope.() -> Unit = {}
+) {
+    Row(Modifier.fillMaxWidth().testTag("terminal-input-mode-row").horizontalScroll(rememberScrollState())) {
+        if (composerAvailable) TextButton(onClick = state::chooseComposer,
+            modifier = Modifier.testTag("terminal-input-composer")) { Text(if (state.direct) "Composer" else "✓ Composer") }
+        TextButton(onClick = { state.chooseDirect() }, enabled = state.canInput(),
+            modifier = Modifier.testTag("terminal-input-direct")) { Text(if (state.direct) "✓ Direct input" else "Direct input") }
+        if (state.direct) TextButton(onClick = state::toggleExpanded, modifier = Modifier.testTag("terminal-input-expand")) { Text(if (state.expanded) "Fewer keys" else "More keys") }
+        trailingActions()
     }
 }
 

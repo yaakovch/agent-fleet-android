@@ -47,6 +47,43 @@ class TerminalDirectInputTest {
         file.outputStream().use { bitmap.compress(Bitmap.CompressFormat.PNG, 100, it) }
         bitmap.recycle()
     }
+    private fun captureUi(name: String) {
+        compose.waitForIdle()
+        val automation = androidx.test.platform.app.InstrumentationRegistry.getInstrumentation().uiAutomation
+        automation.waitForIdle(300, 5_000)
+        val bitmap = requireNotNull(automation.takeScreenshot())
+        PlatformTestStorageRegistry.getInstance().openOutputFile(name).use { bitmap.compress(Bitmap.CompressFormat.PNG, 100, it) }
+        val file = java.io.File(compose.activity.externalMediaDirs.first(), "terminal-direct-input/$name")
+        file.parentFile?.mkdirs()
+        file.outputStream().use { bitmap.compress(Bitmap.CompressFormat.PNG, 100, it) }
+        bitmap.recycle()
+    }
+
+    @Test fun composerControlsFitBelowWritingField() {
+        val input = TerminalInputController().apply { bind("compact-composer", true); connection(true); available = { true }; draft = "Unsent message" }
+        compose.setContent { AgentFleetTheme(darkTheme = true) {
+            CompositionLocalProvider(LocalTerminalInputController provides input) {
+                Column(Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing)) {
+                    Spacer(Modifier.weight(1f))
+                    AgentFleetComposerContent("compact-composer", AgentFleetComposerNativeState(), emptyList(), false, null,
+                        onShowPendingQuestion = {}, onAttach = {}, onRemoveAttachment = {}, onComposerText = { _, _ -> false })
+                }
+            }
+        } }
+        compose.onNodeWithTag("agent-fleet-message-input").assertTextContains("Unsent message")
+        compose.onNodeWithTag("agent-fleet-message-input").performClick()
+        captureUi("compact-composer-controls.png")
+        val field = compose.onNodeWithTag("agent-fleet-message-input").fetchSemanticsNode().boundsInRoot
+        val direct = compose.onNodeWithTag("terminal-input-direct").fetchSemanticsNode().boundsInRoot
+        val actions = compose.onNodeWithTag("agent-fleet-composer-action-stack").fetchSemanticsNode().boundsInRoot
+        val tolerance = compose.activity.resources.displayMetrics.density * 8
+        assertTrue("Input modes must sit below the writing field, not above it: field=$field direct=$direct", direct.top >= field.bottom)
+        assertTrue("Input modes must reuse the space beside the action stack: actions=$actions direct=$direct", direct.bottom <= actions.bottom + tolerance)
+        compose.onNodeWithTag("terminal-input-direct").performClick()
+        compose.onNodeWithTag("terminal-input-composer").performClick()
+        compose.onNodeWithTag("agent-fleet-message-input").assertTextContains("Unsent message")
+    }
+
     private fun await(session: TerminalSession, text: String) {
         compose.waitUntil(15_000) { var found = false; compose.runOnUiThread { found = session.emulator?.screen?.transcriptText?.contains(text) == true }; found }
     }
@@ -164,6 +201,13 @@ class TerminalDirectInputTest {
             } }
             compose.onNodeWithTag("native-message-input").assertTextContains("Saved native draft")
             assertEquals("Saved native draft", input.draft)
+            compose.onNodeWithTag("native-message-input").performClick()
+            captureUi("compact-native-composer-controls.png")
+            val field = compose.onNodeWithTag("native-message-input").fetchSemanticsNode().boundsInRoot
+            val direct = compose.onNodeWithTag("terminal-input-direct").fetchSemanticsNode().boundsInRoot
+            val answer = compose.onNodeWithTag("terminal-answer-question").fetchSemanticsNode().boundsInRoot
+            assertTrue("Native mode controls must sit below the writing field", direct.top >= field.bottom)
+            assertEquals("The question shortcut must share the footer row", direct.center.y, answer.center.y, 1f)
         } finally { SavedSessionStates.writer.submit {}.get(); directory.deleteRecursively() }
     }
 
