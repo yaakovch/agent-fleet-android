@@ -160,6 +160,7 @@ class TerminalDirectInputTest {
             capture(view, "direct-input-question-before.png")
             compose.onNodeWithTag("compact-session-actions").performClick()
             compose.onNodeWithTag("terminal-answer-question").performClick()
+            compose.onNodeWithTag("terminal-input-keyboard").performClick()
             compose.onNodeWithTag("terminal-key-ENTER").assertIsDisplayed()
             await(terminal, "Question: Choose a direction")
             await(terminal, "1b 5b 31 3b 32 44")
@@ -180,7 +181,11 @@ class TerminalDirectInputTest {
         } finally { compose.runOnUiThread { terminal.finishIfRunning() } }
     }
 
-    @Test fun workspaceShellOpensDirectAndWritesToItsRealTerminal() {
+    @Test fun workspaceShellOpensDirectAndWritesToItsRealTerminal() = workspaceShellEntry(TerminalKeyboardSettings.Entry.Hidden)
+
+    @Test fun workspaceShellHonorsTerminalVisibleSettingAndWritesToItsRealTerminal() = workspaceShellEntry(TerminalKeyboardSettings.Entry.Terminal)
+
+    private fun workspaceShellEntry(entry: TerminalKeyboardSettings.Entry) {
         val session = FleetSession("fixture:shell", "fixture", "shell", "Shell", "Shell", "fixture", "shell", "linux", "active", false, null, 0)
         val snapshot = FleetSnapshot("shell-default", "2026-10-12T17:00:00Z",
             listOf(FleetHost("fixture", "Fixture", "healthy", "wsl", null, emptySet())), listOf(session), emptyList(), emptyList())
@@ -197,11 +202,15 @@ class TerminalDirectInputTest {
             val binding = broker.state(session.id) as androidx.compose.runtime.MutableState<WorkspaceTerminalBinding>
             binding.value = WorkspaceTerminalBinding(session.id, terminal = terminal, status = "live", message = "Live")
         }
+        val previousEntry = TerminalKeyboardSettings.load(compose.activity)
         try {
+            TerminalKeyboardSettings.save(compose.activity, entry)
             compose.setContent { AgentFleetTheme(darkTheme = true) {
                 CompositionLocalProvider(LocalWorkspaceNativeSessionRegistry provides registry) {
+                    Box(Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing)) {
                     DesktopWorkspaceScreen(snapshot, snapshot.sessions, state = state.value, broker = broker,
                         onStateChange = { transitions.add(workspacePanes(it.layout.root).single().viewMode.toString()); state.value = it }, onMoreSession = { _, _ -> }, onRefresh = {})
+                    }
                 }
             } }
             compose.waitForIdle()
@@ -210,9 +219,35 @@ class TerminalDirectInputTest {
             compose.onNodeWithTag("terminal-input-direct").assertTextContains("✓ Direct")
             compose.onNodeWithTag("terminal-input-composer").assertDoesNotExist()
             await(terminal, "READY")
-            compose.onNodeWithTag("terminal-key-ENTER").performScrollTo().assertIsEnabled().performClick()
+            compose.onNodeWithTag("terminal-key-panel").assertDoesNotExist()
+            compose.onNodeWithTag("terminal-input-keyboard").assertIsDisplayed()
+            if (entry == TerminalKeyboardSettings.Entry.Terminal) {
+                compose.waitUntil(5_000) { compose.onAllNodesWithTag("terminal-app-key-ENTER").fetchSemanticsNodes().any {
+                    androidx.compose.ui.semantics.SemanticsProperties.Disabled !in it.config
+                } }
+                val root = compose.activity.window.decorView
+                assertFalse(androidx.core.view.ViewCompat.getRootWindowInsets(root)!!.isVisible(androidx.core.view.WindowInsetsCompat.Type.ime()))
+                fun findTerminal(v: android.view.View): TerminalView? {
+                    if (v is TerminalView) return v
+                    if (v is android.view.ViewGroup) for (i in 0 until v.childCount) findTerminal(v.getChildAt(i))?.let { return it }
+                    return null
+                }
+                compose.waitUntil(5_000) {
+                    var focused = false
+                    compose.runOnUiThread { focused = requireNotNull(findTerminal(root)).hasFocus() }
+                    focused
+                }
+                capture(requireNotNull(findTerminal(root)), "workspace-terminal-entry.png")
+                compose.onNodeWithTag("terminal-app-key-ENTER").assertIsEnabled().performClick()
+            } else {
+                compose.onNodeWithTag("terminal-input-keyboard").performClick()
+                compose.onNodeWithTag("terminal-key-ENTER").performScrollTo().assertIsEnabled().performClick()
+            }
             await(terminal, "0d")
-        } finally { compose.runOnUiThread { registry.destroy(); broker.close(); terminal.finishIfRunning() } }
+        } finally { compose.runOnUiThread {
+            TerminalKeyboardSettings.save(compose.activity, previousEntry)
+            registry.destroy(); broker.close(); terminal.finishIfRunning()
+        } }
     }
 
     @Test fun nativeSavedDraftRemainsAuthoritativeForTheSharedInput() {
@@ -269,6 +304,7 @@ class TerminalDirectInputTest {
         compose.onNodeWithTag("agent-fleet-message-input").performTextInput("Unsent draft שלום 🙂")
         compose.onNodeWithTag("terminal-input-direct").performClick()
         compose.onNodeWithTag("agent-fleet-message-input").assertDoesNotExist()
+        compose.onNodeWithTag("terminal-input-keyboard").performClick()
         compose.onNodeWithTag("terminal-input-expand").performClick()
         compose.onNodeWithTag("terminal-input-profile").performScrollTo().performClick()
         compose.onNodeWithText("Compatibility").assertIsDisplayed()
@@ -295,11 +331,15 @@ class TerminalDirectInputTest {
         }
         compose.onNodeWithTag("agent-fleet-message-input").performTextInput("Saved unsent draft")
         compose.onNodeWithTag("terminal-input-direct").performClick()
+        compose.onNodeWithTag("terminal-input-keyboard").performClick()
         compose.onNodeWithTag("terminal-input-expand").performClick()
         compose.onNodeWithTag("terminal-input-profile").performScrollTo().performClick()
         compose.onNodeWithTag("terminal-modifier-Shift").performScrollTo().performClick()
+        compose.onNodeWithTag("terminal-input-keyboard").performClick()
         restoration.emulateSavedInstanceStateRestore()
         assertTrue(current.direct); assertTrue(current.compatibility); assertEquals(0, current.modifiers)
+        assertTrue(current.keyboardDismissed); assertFalse(current.isSystemImeAllowed())
+        compose.onNodeWithTag("terminal-key-panel").assertDoesNotExist()
         compose.onNodeWithTag("terminal-input-composer").performClick()
         compose.onNodeWithTag("agent-fleet-message-input").assertTextContains("Saved unsent draft")
     }
@@ -314,6 +354,7 @@ class TerminalDirectInputTest {
                 AgentFleetTheme(darkTheme = true) { Box(Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing)) { TerminalInputControls(input) } }
             }
         }
+        compose.onNodeWithTag("terminal-input-keyboard").performClick()
         compose.onNodeWithTag("terminal-key-SHIFT_LEFT").performScrollTo().assertIsDisplayed()
         compose.onNodeWithTag("terminal-input-expand").performClick()
         assertTrue(input.expanded)
@@ -333,7 +374,7 @@ class TerminalDirectInputTest {
     }
 
     @Test fun staleEditorAndOfflineKeysAreDiscardedAndAltControlUseCanonicalEncoder() {
-        val input = TerminalInputController().apply { bind("keys", true); connection(true); available = { true }; chooseDirect() }
+        val input = TerminalInputController().apply { bind("keys", true); connection(true); available = { true }; chooseDirect(); chooseSurface(false) }
         lateinit var terminal: TerminalSession
         lateinit var view: TerminalView
         compose.runOnUiThread {
@@ -348,7 +389,7 @@ class TerminalDirectInputTest {
             compose.runOnUiThread {
                 val old = view.onCreateInputConnection(EditorInfo())
                 input.chooseComposer(); old.commitText("BAD", 1)
-                input.chooseDirect(); input.toggleProfile()
+                input.chooseDirect(); input.chooseSurface(false); input.toggleProfile()
                 old.deleteSurroundingText(1, 0)
                 old.sendKeyEvent(KeyEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_ENTER))
                 val info = EditorInfo(); val active = view.onCreateInputConnection(info)

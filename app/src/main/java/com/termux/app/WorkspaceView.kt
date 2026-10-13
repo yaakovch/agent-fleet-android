@@ -900,7 +900,7 @@ private fun EmbeddedTerminal(session: FleetSession, broker: WorkspaceTerminalBro
         view?.post { if (input.isInputAllowed() && input.getInputGeneration() == generation) { scrollback.returnToLive(); view?.let(TerminalKeyboard::show) } }
     }
     DisposableEffect(input, scrollback) { onDispose { input.onKeyboard = {}; input.beforeKey = {}; input.literal = { _, _, _ -> false }; input.freezeComposition = {}; input.pendingComposition = { false }; input.discardComposition = {} } }
-    LaunchedEffect(input.direct, binding.terminal, focused, input.canInput(), view) { if (input.direct && focused && input.canInput()) input.onKeyboard() }
+    LaunchedEffect(input.direct, binding.terminal, focused, input.canInput(), view, input.getInputGeneration()) { if (input.direct && focused && input.canInput()) input.onKeyboard() }
     val terminal = binding.terminal
     LaunchedEffect(terminal) {
         if (terminal == null) scrollback.setTerminalView(null)

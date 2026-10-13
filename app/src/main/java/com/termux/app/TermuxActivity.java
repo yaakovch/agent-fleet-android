@@ -289,7 +289,7 @@ public final class TermuxActivity extends ComponentActivity implements ServiceCo
         if (savedInstanceState != null && managedSessionId(getIntent()) != null) {
             mDirectInput.restore(savedInstanceState.getBoolean("fleet.direct", mDirectInput.getDirect()), savedInstanceState.getBoolean("fleet.compatibility"), savedInstanceState.getBoolean("fleet.keysExpanded"), savedInstanceState.getBoolean("fleet.previousNative", true));
             mDirectInput.setDraft(savedInstanceState.getString("fleet.draft", ""));
-            mDirectInput.restoreSurface(savedInstanceState.getBoolean("fleet.terminalSurface"), savedInstanceState.getBoolean("fleet.keyboardDismissed"));
+            mDirectInput.restoreSurface(savedInstanceState.getBoolean("fleet.terminalSurface"), savedInstanceState.getBoolean("fleet.keyboardDismissed", true));
             if (mDirectInput.getDirect()) mAgentFleetNativeSession.enterDirectInput();
         }
 
@@ -376,7 +376,7 @@ public final class TermuxActivity extends ComponentActivity implements ServiceCo
         observeManagedAvailability();
     }
 
-    private final com.termux.app.fleet.TerminalInputController mDirectInput = new com.termux.app.fleet.TerminalInputController();
+    private final com.termux.app.fleet.TerminalInputController mDirectInput = com.termux.app.fleet.TerminalKeyboardSettings.controller(this);
 
     @Override public com.termux.app.fleet.TerminalInputController getTerminalInput() { return mDirectInput; }
 

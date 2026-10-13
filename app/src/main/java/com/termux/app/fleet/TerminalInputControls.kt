@@ -14,6 +14,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.platform.testTag
@@ -27,7 +28,7 @@ fun TerminalInputControls(state: TerminalInputController, composerAvailable: Boo
     Column(Modifier.fillMaxWidth().testTag("terminal-input-controls")) {
         TerminalInputModeControls(state, composerAvailable)
         if (state.direct && state.terminalSurface && !LocalWindowTerminalDock.current) TerminalKeyboardPanel(state)
-        if (state.direct && !state.terminalSurface) Column(Modifier.testTag("terminal-key-panel").heightIn(max = if (landscape) 96.dp else 240.dp).verticalScroll(rememberScrollState())) {
+        if (state.direct && !state.terminalSurface && !state.keyboardDismissed) Column(Modifier.testTag("terminal-key-panel").heightIn(max = if (landscape) 96.dp else 240.dp).verticalScroll(rememberScrollState())) {
             val modifiers: @Composable () -> Unit = {
                 listOf("Ctrl" to KeyHandler.KEYMOD_CTRL, "Alt" to KeyHandler.KEYMOD_ALT, "Shift" to KeyHandler.KEYMOD_SHIFT).forEach { (label, bit) ->
                     TextButton(onClick = { state.modifier(bit) }, enabled = state.isInputAllowed(),
@@ -59,7 +60,8 @@ fun TerminalInputModeControls(
     trailingActions: @Composable RowScope.() -> Unit = {}
 ) {
     var surfaceMenu by remember { mutableStateOf(false) }
-    Row(Modifier.fillMaxWidth().testTag("terminal-input-mode-row").horizontalScroll(rememberScrollState())) {
+    Row(Modifier.fillMaxWidth().testTag("terminal-input-mode-row")) {
+        Row(Modifier.weight(1f).horizontalScroll(rememberScrollState())) {
         if (composerAvailable) TextButton(onClick = state::chooseComposer,
             modifier = Modifier.testTag("terminal-input-composer")) { Text(if (state.direct) "Composer" else "✓ Composer") }
         TextButton(onClick = { state.chooseDirect() }, enabled = state.canInput(),
@@ -73,8 +75,15 @@ fun TerminalInputModeControls(
                 if (!state.terminalSurface) DropdownMenuItem(text = { Text(if (state.expanded) "Fewer terminal keys" else "More terminal keys") }, onClick = { surfaceMenu = false; state.cancelSurfaceSelection(); state.toggleExpanded() }, modifier = Modifier.testTag("terminal-input-expand-menu"))
             }
         }
-        if (state.direct && !state.terminalSurface) TextButton(onClick = state::toggleExpanded, modifier = Modifier.testTag("terminal-input-expand").semantics { contentDescription = if (state.expanded) "Fewer terminal keys" else "More terminal keys" }) { Text(if (state.expanded) "−" else "+") }
+        if (state.direct && !state.terminalSurface && !state.keyboardDismissed) TextButton(onClick = state::toggleExpanded, modifier = Modifier.testTag("terminal-input-expand").semantics { contentDescription = if (state.expanded) "Fewer terminal keys" else "More terminal keys" }) { Text(if (state.expanded) "−" else "+") }
         trailingActions()
+        }
+        if (state.direct) TextButton(onClick = { state.toggleKeyboard() }, enabled = state.canInput(),
+            contentPadding = PaddingValues(horizontal = 6.dp),
+            modifier = Modifier.width(48.dp).testTag("terminal-input-keyboard").semantics {
+                contentDescription = if (state.keyboardDismissed) "Show ${if (state.terminalSurface) "Terminal" else "System"} keyboard" else "Hide keyboard"
+                stateDescription = if (state.keyboardDismissed) "Hidden" else "Open"
+            }) { Text(if (state.keyboardDismissed) "⌨" else "⌨⌄") }
     }
     // Inline confirmation keeps the terminal editor focused; a dialog can make an IME
     // finish and flush its preedit before the owner chooses to discard it.
@@ -100,14 +109,13 @@ object TerminalKeyboard {
         if (!view.isAttachedToWindow || !view.isEnabled) return
         val input = view.inputBridge as? TerminalInputController
         if (input != null && !input.isInputAllowed()) return
-        if (input?.direct == true && input.terminalSurface && input.keyboardDismissed) return
         view.requestFocus()
         var context: Context? = view.context
         while (context is ContextWrapper && context !is Activity) context = context.baseContext
         val activity = context as? Activity ?: return
         (view.context.getSystemService(Context.INPUT_METHOD_SERVICE) as InputMethodManager).restartInput(view)
         val controller = WindowCompat.getInsetsController(activity.window, view)
-        if (input?.terminalSurface == true || input != null && !input.direct) controller.hide(WindowInsetsCompat.Type.ime())
+        if (input != null && !input.isSystemImeAllowed()) controller.hide(WindowInsetsCompat.Type.ime())
         else controller.show(WindowInsetsCompat.Type.ime())
     }
 }

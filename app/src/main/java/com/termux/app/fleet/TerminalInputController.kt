@@ -19,7 +19,7 @@ class TerminalInputController : TerminalInputBridge {
         private set
     var terminalSurface by mutableStateOf(false)
         private set
-    var keyboardDismissed by mutableStateOf(false)
+    var keyboardDismissed by mutableStateOf(true)
         private set
     var keyboardReady by mutableStateOf(false)
         private set
@@ -49,6 +49,7 @@ class TerminalInputController : TerminalInputBridge {
     var onDirect: () -> Unit = {}
     var onComposer: () -> Unit = {}
     var onKeyboard: () -> Unit = {}
+    var terminalOnEntry: () -> Boolean = { false }
     var beforeKey: () -> Unit = {}
     var send: (String, Int) -> Boolean = { _, _ -> false }
 
@@ -63,8 +64,8 @@ class TerminalInputController : TerminalInputBridge {
         connected = false
         direct = !ai
         compatibility = false
-        terminalSurface = false
-        keyboardDismissed = false
+        terminalSurface = direct && terminalOnEntry()
+        keyboardDismissed = !terminalSurface
         expanded = false
         modifiers = 0
         invalidateInput()
@@ -102,16 +103,19 @@ class TerminalInputController : TerminalInputBridge {
         invalidateInput()
     }
 
-    fun chooseDirect(): Boolean {
+    fun chooseDirect(): Boolean = enterDirect(useEntryPreference = true)
+
+    private fun enterDirect(useEntryPreference: Boolean): Boolean {
         if (!canInput()) return false
+        if (direct) return true
         modifiers = 0
-        val entering = !direct
-        if (entering) previousNative = readingNative()
+        previousNative = readingNative()
+        freezeComposition()
         direct = true
-        keyboardDismissed = false
+        keyboardDismissed = true
         invalidateInput()
-        if (entering) onDirect()
-        onKeyboard()
+        onDirect()
+        if (useEntryPreference && terminalOnEntry()) chooseSurface(true) else onKeyboard()
         return true
     }
 
@@ -166,6 +170,7 @@ class TerminalInputController : TerminalInputBridge {
     }
 
     fun cancelSurfaceSelection() {
+        if (surfaceBlocked) { terminalSurface = false; keyboardDismissed = false }
         surfaceBlocked = false
         selectingSurface = false
         invalidateInput()
@@ -181,26 +186,39 @@ class TerminalInputController : TerminalInputBridge {
         }
         surfaceBlocked = false
         selectingSurface = false
+        if (!direct && !enterDirect(useEntryPreference = false)) return false
         terminalSurface = terminal
         keyboardDismissed = false
         invalidateInput()
-        if (!direct) return chooseDirect()
         onKeyboard()
         return true
     }
 
     override fun dismissAppKeyboard(): Boolean = dismissKeyboard()
 
+    fun showKeyboard(): Boolean {
+        if (!canInput() || !chooseDirect() || !canInput() || surfaceBlocked) return false
+        keyboardDismissed = false
+        invalidateInput()
+        onKeyboard()
+        return true
+    }
+
+    fun toggleKeyboard(): Boolean = if (!direct || keyboardDismissed) showKeyboard() else dismissKeyboard()
+
     fun dismissKeyboard(): Boolean {
-        if (!direct || !terminalSurface || keyboardDismissed) return false
+        if (!direct || keyboardDismissed) return false
+        // Preserve the editor's preedit before revoking its callbacks and restarting input.
+        freezeComposition()
         keyboardDismissed = true
         invalidateInput()
+        onKeyboard()
         return true
     }
 
     fun updateKeyboardReady(value: Boolean) { keyboardReady = value && wantsTerminalKeyboard() && canInput() }
     fun wantsTerminalKeyboard(): Boolean = direct && terminalSurface && !keyboardDismissed
-    override fun isSystemImeAllowed(): Boolean = isInputAllowed() && !terminalSurface && !selectingSurface
+    override fun isSystemImeAllowed(): Boolean = isInputAllowed() && !terminalSurface && !keyboardDismissed && !selectingSurface
     override fun isAppKeyboardAllowed(): Boolean = keyboardReady && !selectingSurface && wantsTerminalKeyboard() && isInputAllowed()
 
     /** Captured generation and modifiers belong to this gesture, never a later target. */
@@ -273,13 +291,15 @@ val LocalTerminalInputController = androidx.compose.runtime.staticCompositionLoc
 
 /** Shared saved-state owner for a workspace pane; a fresh entry uses a fresh key. */
 @androidx.compose.runtime.Composable
-fun rememberTerminalInputController(id: String, ai: Boolean): TerminalInputController =
-    androidx.compose.runtime.saveable.rememberSaveable(id, ai, saver = androidx.compose.runtime.saveable.listSaver(
+fun rememberTerminalInputController(id: String, ai: Boolean): TerminalInputController {
+    val context = androidx.compose.ui.platform.LocalContext.current.applicationContext
+    return androidx.compose.runtime.saveable.rememberSaveable(id, ai, saver = androidx.compose.runtime.saveable.listSaver(
         save = { input: TerminalInputController -> listOf(input.direct, input.compatibility, input.expanded, input.previousNative, input.draft, input.terminalSurface, input.keyboardDismissed) },
-        restore = { values -> TerminalInputController().apply {
+        restore = { values -> TerminalKeyboardSettings.controller(context).apply {
             bind(id, ai)
             restore(values[0] as Boolean, values[1] as Boolean, values[2] as Boolean, values[3] as Boolean)
             draft = values[4] as String
-            restoreSurface(values.getOrNull(5) as? Boolean ?: false, values.getOrNull(6) as? Boolean ?: false)
+            restoreSurface(values.getOrNull(5) as? Boolean ?: false, values.getOrNull(6) as? Boolean ?: true)
         } }
-    )) { TerminalInputController().apply { bind(id, ai) } }
+    )) { TerminalKeyboardSettings.controller(context).apply { bind(id, ai) } }
+}

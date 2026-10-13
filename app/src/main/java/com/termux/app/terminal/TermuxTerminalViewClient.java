@@ -504,8 +504,8 @@ public class TermuxTerminalViewClient extends TermuxTerminalViewClientBase {
      * drawer or extra keys, or with ctrl+alt+k hardware keyboard shortcut.
      */
     public void onToggleSoftKeyboardRequest() {
-        if (mActivity.getTerminalView().getInputBridge() != null && mActivity.getTerminalInput().getTerminalSurface()) {
-            if (!mActivity.getTerminalInput().dismissKeyboard()) mActivity.getTerminalInput().chooseDirect();
+        if (mActivity.getTerminalView().getInputBridge() != null) {
+            mActivity.getTerminalInput().toggleKeyboard();
             return;
         }
         // If soft keyboard toggle behaviour is enable/disabled

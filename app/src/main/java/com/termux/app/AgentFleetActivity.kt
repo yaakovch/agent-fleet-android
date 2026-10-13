@@ -3004,6 +3004,7 @@ private fun MoreScreen(
                 }
             }
         }
+        item { com.termux.app.fleet.TerminalKeyboardSettingsCard() }
         item {
             Card(
                 modifier = Modifier.testTag("local-suggestions-settings"),

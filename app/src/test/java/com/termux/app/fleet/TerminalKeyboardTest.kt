@@ -6,6 +6,61 @@ import org.junit.Test
 
 class TerminalKeyboardTest {
     private fun live() = TerminalInputController().apply { bind("one", true); connection(true); available = { true }; chooseDirect(); chooseSurface(true); updateKeyboardReady(true) }
+    @Test fun directEntryKeepsBothKeyboardsHiddenWithoutBlockingHardwareOrNamedKeys() {
+        val input = TerminalInputController().apply { bind("hidden", true); connection(true); available = { true }; draft = "Keep me" }
+        input.chooseDirect()
+        assertTrue(input.keyboardDismissed)
+        assertFalse(input.isSystemImeAllowed())
+        assertFalse(input.wantsTerminalKeyboard())
+        assertTrue(input.isInputAllowed())
+        var writes = 0; input.send = { _, _ -> writes++; true }
+        assertTrue(input.key("SHIFT_LEFT")); assertEquals(1, writes)
+        input.connection(false); input.connection(true); input.chooseDirect()
+        assertTrue(input.keyboardDismissed)
+        assertEquals("Keep me", input.draft)
+        input.bind("shell", false)
+        assertTrue(input.direct); assertTrue(input.keyboardDismissed)
+    }
+    @Test fun hideRevokesBothSourcesAndFreezesPreeditUntilExplicitReveal() {
+        val input = live(); input.chooseSurface(false)
+        var freezes = 0; input.freezeComposition = { freezes++ }
+        val systemGeneration = input.getInputGeneration()
+        assertTrue(input.dismissKeyboard()); assertEquals(1, freezes)
+        assertNotEquals(systemGeneration, input.getInputGeneration())
+        assertFalse(input.isSystemImeAllowed()); assertFalse(input.isAppKeyboardAllowed())
+        assertTrue(input.showKeyboard()); assertTrue(input.isSystemImeAllowed())
+        input.chooseSurface(true); input.updateKeyboardReady(true)
+        val appGeneration = input.getInputGeneration()
+        input.gestures.downModifier(1, KeyHandler.KEYMOD_CTRL)
+        assertTrue(input.toggleKeyboard()); assertEquals(0, input.gestures.bits)
+        assertFalse(input.appKey(TerminalKeyboardLayout.rows("ABC")[1][0], 0, appGeneration))
+        assertTrue(input.toggleKeyboard()); assertTrue(input.wantsTerminalKeyboard()); assertFalse(input.keyboardReady)
+    }
+    @Test fun terminalEntryPreferenceAppliesOnEntryButNeverReopensDismissedKeyboard() {
+        var automaticTerminal = true
+        val input = TerminalInputController().apply { terminalOnEntry = { automaticTerminal }; bind("ai", true); connection(true); available = { true } }
+        assertFalse(input.direct)
+        input.chooseDirect(); assertTrue(input.wantsTerminalKeyboard()); assertFalse(input.isSystemImeAllowed())
+        input.chooseSurface(false); assertTrue(input.isSystemImeAllowed()) // Explicit System overrides the entry default.
+        input.dismissKeyboard(); input.connection(false); input.connection(true); input.chooseDirect()
+        assertTrue(input.keyboardDismissed); assertFalse(input.terminalSurface)
+        input.chooseComposer(); input.chooseDirect(); assertTrue(input.wantsTerminalKeyboard())
+        automaticTerminal = false
+        input.chooseComposer(); input.chooseDirect(); assertTrue(input.keyboardDismissed); assertTrue(input.terminalSurface)
+        input.bind("shell", false); assertTrue(input.direct); assertTrue(input.keyboardDismissed)
+        automaticTerminal = true
+        input.bind("new-shell", false); assertTrue(input.wantsTerminalKeyboard()); assertFalse(input.isSystemImeAllowed())
+    }
+    @Test fun automaticTerminalPreferenceStillRequiresExplicitPreeditChoice() {
+        val input = TerminalInputController().apply { terminalOnEntry = { true }; bind("ai", true); connection(true); available = { true } }
+        var writes = 0; input.send = { _, _ -> writes++; true }
+        input.pendingComposition = { true }
+        assertTrue(input.chooseDirect()); assertTrue(input.surfaceBlocked)
+        assertFalse(input.isSystemImeAllowed()); assertFalse(input.wantsTerminalKeyboard()); assertEquals(0, writes)
+        assertFalse(input.showKeyboard()); assertTrue(input.keyboardDismissed)
+        input.cancelSurfaceSelection(); assertFalse(input.surfaceBlocked); assertTrue(input.isSystemImeAllowed())
+        assertEquals(0, writes)
+    }
     @Test fun allPrintableAsciiAndBalancedLayouts() {
         val chars = listOf("ABC", "Symbols").flatMap { page -> TerminalKeyboardLayout.rows(page).flatten().flatMap { key -> listOfNotNull(key.character(0), key.character(KeyHandler.KEYMOD_SHIFT)) } }.toSet()
         assertEquals((32..126).map(Int::toChar).toSet(), chars)
@@ -32,9 +87,10 @@ class TerminalKeyboardTest {
         input.chooseComposer()
         assertFalse(input.appKey(TerminalKeyboardLayout.rows("ABC")[1][0], 0, old)); assertEquals(0, input.gestures.bits)
         input.chooseDirect(); assertFalse(input.keyboardReady); assertFalse(input.isSystemImeAllowed())
-        input.updateKeyboardReady(true); assertTrue(input.dismissKeyboard()); assertFalse(input.wantsTerminalKeyboard())
+        input.showKeyboard(); input.updateKeyboardReady(true); assertTrue(input.dismissKeyboard()); assertFalse(input.wantsTerminalKeyboard())
         input.connection(false); input.connection(true); assertFalse(input.wantsTerminalKeyboard())
-        input.chooseDirect(); assertTrue(input.wantsTerminalKeyboard())
+        input.chooseDirect(); assertFalse(input.wantsTerminalKeyboard())
+        input.showKeyboard(); assertTrue(input.wantsTerminalKeyboard())
         input.chooseSurface(false); assertTrue(input.isSystemImeAllowed())
         input.pendingComposition = { true }; var discarded = false; input.discardComposition = { discarded = true }
         assertFalse(input.chooseSurface(true)); assertFalse(discarded); assertFalse(input.terminalSurface)

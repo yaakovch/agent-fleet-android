@@ -22,6 +22,7 @@ import com.termux.shared.terminal.TermuxTerminalSessionClientBase
 import com.termux.terminal.TerminalSession
 import com.termux.view.TerminalView
 import org.junit.Assert.*
+import org.junit.After
 import org.junit.Before
 import org.junit.Rule
 import org.junit.Test
@@ -30,15 +31,23 @@ import org.junit.runner.RunWith
 @RunWith(AndroidJUnit4::class)
 class TerminalKeyboardPanelTest {
     @get:Rule val compose = createAndroidComposeRule<TerminalKeyboardTestHostActivity>()
-    @Before fun resize() { compose.runOnUiThread { com.termux.shared.view.KeyboardUtils.setSoftInputModeAdjustResize(compose.activity) } }
+    private lateinit var previousEntry: TerminalKeyboardSettings.Entry
+    private lateinit var settingsVisible: MutableState<Boolean>
+    @Before fun resize() { compose.runOnUiThread {
+        com.termux.shared.view.KeyboardUtils.setSoftInputModeAdjustResize(compose.activity)
+        previousEntry = TerminalKeyboardSettings.load(compose.activity)
+        TerminalKeyboardSettings.save(compose.activity, TerminalKeyboardSettings.Entry.Hidden)
+    } }
+    @After fun restoreEntryPreference() { compose.runOnUiThread { TerminalKeyboardSettings.save(compose.activity, previousEntry) } }
     private lateinit var view: TerminalView
     private lateinit var terminal: TerminalSession
     private lateinit var input: TerminalInputController
     private val keys = mutableListOf<String>()
-    private fun setup(bytes: Int = 16) {
+    private fun setup(bytes: Int = 16, showSystem: Boolean = true, chooseSettings: Boolean = false) {
         check(android.os.Build.VERSION.SDK_INT == 36 && "x86_64" in android.os.Build.SUPPORTED_ABIS)
         compose.runOnUiThread {
-            input = TerminalInputController().apply { bind("keyboard-fixture", true); connection(true); available = { true }; draft = "Keep this draft" }
+            settingsVisible = mutableStateOf(chooseSettings)
+            input = TerminalKeyboardSettings.controller(compose.activity).apply { bind("keyboard-fixture", true); connection(true); available = { true }; draft = "Keep this draft" }
             terminal = TerminalSession("/system/bin/sh", "/", arrayOf("sh", "-c",
                 "stty -echo -icanon -icrnl -isig min 1 time 0; printf 'READY\\r\\n'; dd bs=1 count=$bytes 2>/dev/null | od -An -tx1; printf 'CAPTURED\\r\\n'; sleep 120"),
                 arrayOf("PATH=/system/bin", "TERM=xterm-256color"), 2000,
@@ -57,12 +66,29 @@ class TerminalKeyboardPanelTest {
         compose.setContent { AgentFleetTheme(darkTheme = true) {
             Column(Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing)) {
                 AndroidView(factory = { view }, modifier = Modifier.weight(1f))
-                TerminalInputControls(input)
+                if (settingsVisible.value) TerminalKeyboardSettingsCard()
+                else if (showSystem) TerminalInputControls(input)
+                else CompositionLocalProvider(LocalTerminalInputController provides input) {
+                    AgentFleetComposerContent("keyboard-fixture", AgentFleetComposerNativeState(), emptyList(), false, null,
+                        onShowPendingQuestion = {}, onAttach = {}, onRemoveAttachment = {}, onComposerText = { _, _ -> false })
+                }
             }
         } }
         await("READY")
-        compose.onNodeWithTag("terminal-input-direct").performClick()
-        compose.waitUntil(5_000) { ViewCompat.getRootWindowInsets(view)?.isVisible(WindowInsetsCompat.Type.ime()) == true }
+        if (chooseSettings) {
+            tap("terminal-keyboard-entry-terminal")
+            assertEquals(TerminalKeyboardSettings.Entry.Terminal, TerminalKeyboardSettings.load(compose.activity))
+            compose.runOnUiThread { settingsVisible.value = false }
+        }
+        if (!showSystem) {
+            compose.onNodeWithTag("agent-fleet-message-input").performClick()
+            compose.waitUntil(5_000) { ViewCompat.getRootWindowInsets(view)?.isVisible(WindowInsetsCompat.Type.ime()) == true }
+            tap("terminal-input-direct")
+        } else compose.onNodeWithTag("terminal-input-direct").performClick()
+        if (showSystem) {
+            compose.runOnUiThread { input.chooseSurface(false) }
+            compose.waitUntil(5_000) { ViewCompat.getRootWindowInsets(view)?.isVisible(WindowInsetsCompat.Type.ime()) == true }
+        }
     }
     private fun await(text: String) { compose.waitUntil(10_000) { var found = false; compose.runOnUiThread { found = terminal.emulator?.screen?.transcriptText?.contains(text) == true }; found } }
     private fun tap(tag: String) {
@@ -70,7 +96,9 @@ class TerminalKeyboardPanelTest {
             compose.onAllNodesWithTag(tag).fetchSemanticsNodes().any { androidx.compose.ui.semantics.SemanticsProperties.Disabled !in it.config }
         }
         compose.waitForIdle()
-        tapNode(compose.onNodeWithTag(tag))
+        val node = compose.onNodeWithTag(tag)
+        if (tag == "terminal-input-surface") node.performScrollTo()
+        tapNode(node)
     }
     private fun tapNode(node: SemanticsNodeInteraction) {
         val automation = InstrumentationRegistry.getInstrumentation().uiAutomation
@@ -87,7 +115,8 @@ class TerminalKeyboardPanelTest {
         val bounds = node.fetchSemanticsNode().boundsInWindow
         val origin = IntArray(2); val frame = android.graphics.Rect()
         compose.runOnUiThread { compose.activity.window.decorView.getLocationOnScreen(origin); compose.activity.window.decorView.getWindowVisibleDisplayFrame(frame) }
-        assertTrue("Tap must be inside visible window: $bounds frame=$frame", bounds.bottom + origin[1] <= frame.bottom)
+        assertTrue("Tap must be inside visible window: $bounds frame=$frame", bounds.bottom + origin[1] <= frame.bottom &&
+            bounds.left + origin[0] >= frame.left && bounds.right + origin[0] <= frame.right)
         val start = android.os.SystemClock.uptimeMillis()
         for (action in listOf(android.view.MotionEvent.ACTION_DOWN, android.view.MotionEvent.ACTION_UP)) {
             val event = android.view.MotionEvent.obtain(start, android.os.SystemClock.uptimeMillis(), action, bounds.center.x + origin[0], bounds.center.y + origin[1], 0)
@@ -115,6 +144,75 @@ class TerminalKeyboardPanelTest {
         val bitmap = requireNotNull(automation.takeScreenshot())
         val file = java.io.File(compose.activity.externalMediaDirs.first(), "terminal-keyboard/$name.png")
         file.parentFile?.mkdirs(); file.outputStream().use { bitmap.compress(Bitmap.CompressFormat.PNG, 100, it) }; bitmap.recycle()
+    }
+    @Test fun settingsOfferBothPersistentEntryModesAndAlwaysHideTheSystemImeInDirect() {
+        setup(1, showSystem = false, chooseSettings = true)
+        try {
+            compose.waitUntil(5_000) { input.keyboardReady }
+            assertTrue(input.wantsTerminalKeyboard()); assertFalse(ViewCompat.getRootWindowInsets(view)!!.isVisible(WindowInsetsCompat.Type.ime()))
+            capture("settings-terminal-entry")
+            tap("terminal-input-keyboard"); assertTrue(input.keyboardDismissed)
+            compose.runOnUiThread { input.connection(false); input.connection(true); input.onKeyboard(); settingsVisible.value = true }
+            compose.onNodeWithTag("terminal-keyboard-entry-terminal").assertIsSelected()
+            capture("direct-keyboard-settings")
+            tap("terminal-keyboard-entry-hidden")
+            assertEquals(TerminalKeyboardSettings.Entry.Hidden, TerminalKeyboardSettings.load(compose.activity))
+            compose.runOnUiThread { settingsVisible.value = false; input.chooseComposer() }
+            compose.onNodeWithTag("agent-fleet-message-input").performClick()
+            compose.waitUntil(5_000) { ViewCompat.getRootWindowInsets(view)?.isVisible(WindowInsetsCompat.Type.ime()) == true }
+            tap("terminal-input-direct")
+            compose.waitUntil(5_000) { ViewCompat.getRootWindowInsets(view)?.isVisible(WindowInsetsCompat.Type.ime()) == false }
+            assertTrue(input.keyboardDismissed); compose.onNodeWithTag("terminal-keyboard-dock").assertDoesNotExist()
+            assertEquals("Keep this draft", input.draft); assertTrue(keys.isEmpty())
+            tap("terminal-input-keyboard"); compose.waitUntil(5_000) { input.keyboardReady }
+            tap("terminal-app-key-CHAR_97"); await("61"); await("CAPTURED")
+        } finally { compose.runOnUiThread { terminal.finishIfRunning() } }
+    }
+    @Test fun directStartsCollapsedAndRealButtonRestoresEitherKeyboardWithoutFlushingText() {
+        setup(1, showSystem = false)
+        try {
+            compose.waitUntil(5_000) { ViewCompat.getRootWindowInsets(view)?.isVisible(WindowInsetsCompat.Type.ime()) == false }
+            assertTrue(input.keyboardDismissed)
+            compose.onNodeWithTag("terminal-key-panel").assertDoesNotExist()
+            compose.onNodeWithTag("terminal-keyboard-dock").assertDoesNotExist()
+            capture("direct-collapsed")
+            tap("terminal-input-keyboard")
+            compose.waitUntil(5_000) { ViewCompat.getRootWindowInsets(view)?.isVisible(WindowInsetsCompat.Type.ime()) == true }
+            val visibleHeight = view.height
+            val old = arrayOfNulls<InputConnection>(1)
+            compose.runOnUiThread {
+                old[0] = view.onCreateInputConnection(EditorInfo())
+                assertNotNull(old[0]); old[0]!!.setComposingText("unfinished", 1)
+            }
+            capture("direct-system-visible")
+            tap("terminal-input-keyboard")
+            compose.waitUntil(5_000) { ViewCompat.getRootWindowInsets(view)?.isVisible(WindowInsetsCompat.Type.ime()) == false && view.height > visibleHeight + 100 }
+            compose.onNodeWithTag("terminal-key-panel").assertDoesNotExist()
+            compose.runOnUiThread {
+                assertTrue(view.hasPendingImeComposition())
+                assertNull(view.onCreateInputConnection(EditorInfo()))
+                old[0]!!.commitText("BAD", 1); old[0]!!.finishComposingText()
+                assertTrue(view.hasPendingImeComposition())
+            }
+            capture("direct-system-hidden")
+            tap("terminal-input-keyboard")
+            compose.waitUntil(5_000) { ViewCompat.getRootWindowInsets(view)?.isVisible(WindowInsetsCompat.Type.ime()) == true }
+            compose.runOnUiThread { assertTrue(view.hasPendingImeComposition()) }
+            tap("terminal-input-surface"); compose.onNodeWithTag("terminal-surface-terminal").performClick()
+            tapNode(compose.onNodeWithText("Discard and switch"))
+            compose.waitUntil(5_000) { input.keyboardReady }
+            tap("terminal-input-keyboard")
+            compose.onNodeWithTag("terminal-keyboard-dock").assertDoesNotExist()
+            tap("terminal-input-keyboard")
+            compose.waitUntil(5_000) { input.keyboardReady }
+            compose.runOnUiThread { input.dismissKeyboard(); input.connection(false); input.connection(true); input.onKeyboard() }
+            tap("terminal-input-direct")
+            assertTrue(input.keyboardDismissed)
+            compose.onNodeWithTag("terminal-keyboard-dock").assertDoesNotExist()
+            assertEquals("Keep this draft", input.draft); assertTrue(keys.isEmpty())
+            compose.runOnUiThread { view.onKeyDown(KeyEvent.KEYCODE_X, KeyEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_X)) }
+            await("78"); await("CAPTURED")
+        } finally { compose.runOnUiThread { terminal.finishIfRunning() } }
     }
     @Test fun realTouchesSendAsciiChordsAndSystemUnicodeExactlyOnce() {
         setup()
@@ -181,7 +279,7 @@ class TerminalKeyboardPanelTest {
             assertTrue(keys.isEmpty()); assertTrue(input.keyboardDismissed)
             compose.runOnUiThread { input.connection(false); input.connection(true); input.onKeyboard() }
             compose.onNodeWithTag("terminal-keyboard-dock").assertDoesNotExist()
-            compose.onNodeWithTag("terminal-input-direct").performClick()
+            compose.onNodeWithTag("terminal-input-keyboard").performClick()
             compose.waitUntil(5_000) { input.keyboardReady }
             tap("terminal-app-key-CHAR_97"); await("61"); await("CAPTURED")
         } finally { compose.runOnUiThread { terminal.finishIfRunning() } }
@@ -264,9 +362,13 @@ class TerminalKeyboardPanelTest {
             compose.waitUntil(10_000) { terminals.all { it.emulator?.screen?.transcriptText?.contains("READY") == true } }
             compose.waitUntil(5_000) { workspacePanes(state.value.layout.root).all { it.viewMode == WorkspaceViewMode.Terminal } }
             assertEquals("Shell initialization must retain the selected pane", panes[0].id, state.value.layout.focusedPaneId)
+            compose.waitUntil(5_000) { ViewCompat.getRootWindowInsets(compose.activity.window.decorView)?.isVisible(WindowInsetsCompat.Type.ime()) == false }
+            paneControl(0, "terminal-input-keyboard").assertIsDisplayed()
+            captureWorkspace("workspace-collapsed")
+            tapNode(paneControl(0, "terminal-input-keyboard"))
             compose.waitUntil(5_000) { ViewCompat.getRootWindowInsets(compose.activity.window.decorView)?.isVisible(WindowInsetsCompat.Type.ime()) == true }
             captureWorkspace("workspace-before-selector")
-            tapNode(paneControl(0, "terminal-input-surface"))
+            tapNode(paneControl(0, "terminal-input-surface").performScrollTo())
             captureWorkspace("workspace-selector")
             compose.onNodeWithTag("terminal-surface-terminal").performClick()
             compose.waitUntil(5_000) { compose.onAllNodesWithTag("terminal-app-key-CHAR_97").fetchSemanticsNodes().any { androidx.compose.ui.semantics.SemanticsProperties.Disabled !in it.config } }
@@ -277,8 +379,11 @@ class TerminalKeyboardPanelTest {
             tapNode(compose.onNodeWithTag("workspace-pane-${panes[1].id}"))
             assertTrue("Old pane input must be revoked before the state callback", focusRevokedBeforePublication)
             compose.onNodeWithTag("terminal-keyboard-dock").assertDoesNotExist()
+            compose.waitUntil(5_000) { ViewCompat.getRootWindowInsets(compose.activity.window.decorView)?.isVisible(WindowInsetsCompat.Type.ime()) == false }
+            paneControl(1, "terminal-input-keyboard").assertIsDisplayed()
+            tapNode(paneControl(1, "terminal-input-keyboard"))
             compose.waitUntil(5_000) { ViewCompat.getRootWindowInsets(compose.activity.window.decorView)?.isVisible(WindowInsetsCompat.Type.ime()) == true }
-            tapNode(paneControl(1, "terminal-input-surface"))
+            tapNode(paneControl(1, "terminal-input-surface").performScrollTo())
             compose.onNodeWithTag("terminal-surface-terminal").performClick()
             compose.waitUntil(5_000) { compose.onAllNodesWithTag("terminal-app-key-CHAR_98").fetchSemanticsNodes().any { androidx.compose.ui.semantics.SemanticsProperties.Disabled !in it.config } }
             compose.onAllNodesWithTag("terminal-keyboard-dock").assertCountEquals(1)
