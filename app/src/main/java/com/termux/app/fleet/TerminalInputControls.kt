@@ -65,7 +65,7 @@ fun TerminalInputModeControls(
         TextButton(onClick = { state.chooseDirect() }, enabled = state.canInput(),
             modifier = Modifier.testTag("terminal-input-direct")) { Text(if (state.direct) "✓ Direct" else "Direct input") }
         if (state.direct) Box {
-            TextButton(onClick = { state.beginSurfaceSelection(); surfaceMenu = true }, contentPadding = PaddingValues(horizontal = 6.dp),
+            TextButton(onClick = { state.beginSurfaceSelection(); surfaceMenu = true }, enabled = state.canInput(), contentPadding = PaddingValues(horizontal = 6.dp),
                 modifier = Modifier.testTag("terminal-input-surface")) { Text(if (state.terminalSurface) "Terminal ▾" else "System ▾") }
             DropdownMenu(expanded = surfaceMenu, onDismissRequest = { surfaceMenu = false; state.cancelSurfaceSelection() }) {
                 DropdownMenuItem(text = { Text("System keyboard") }, onClick = { surfaceMenu = false; state.chooseSurface(false) }, modifier = Modifier.testTag("terminal-surface-system"))

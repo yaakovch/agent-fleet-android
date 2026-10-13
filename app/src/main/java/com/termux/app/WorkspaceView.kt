@@ -261,9 +261,18 @@ fun DesktopWorkspaceScreen(
     val dragTargetPaneId = dragPointer?.let { pointer ->
         paneBounds.entries.firstOrNull { it.value.contains(pointer) }?.key
     }
+    val publishState: (AndroidWorkspaceState) -> Unit = { next ->
+        val nextPane = workspacePanes(next.layout.root).firstOrNull { it.id == next.layout.focusedPaneId }
+        val oldInput = inputs[focusedPane.id]
+        // Revoke old input before publishing focus/view changes, rather than waiting
+        // for the next Compose frame while a held pointer can still repeat.
+        if (nextPane == null || nextPane.id != focusedPane.id || nextPane.sessionId != focusedPane.sessionId) oldInput?.focus(false)
+        else if (nextPane.viewMode == WorkspaceViewMode.Native && focusedSession?.tool != "shell") oldInput?.readingViewChanged(true)
+        onStateChange(next)
+    }
     val closePane: (String) -> Unit = { paneId ->
         workspacePanes(state.layout.root).firstOrNull { it.id == paneId }?.sessionId?.let(broker::detach)
-        onStateChange(state.copy(layout = WorkspaceReducer.close(state.layout, paneId)))
+        publishState(state.copy(layout = WorkspaceReducer.close(state.layout, paneId)))
     }
 
     LaunchedEffect(snapshot?.revision, state.layout) {
@@ -286,6 +295,7 @@ fun DesktopWorkspaceScreen(
                 ?.takeIf { isFleetSessionAvailable(snapshot, it) }
         }
         broker.setActiveSessions(activeSessions)
+        val retainedFocus = layout.focusedPaneId
         // Initialize shell modes in one reducer transaction. Independent pane effects
         // can publish stale copies and undo each other's initial Terminal selection.
         workspacePanes(layout.root).forEach { pane ->
@@ -294,6 +304,7 @@ fun DesktopWorkspaceScreen(
                 changed = true
             }
         }
+        layout = WorkspaceReducer.focus(layout, retainedFocus)
         workspacePanes(layout.root).forEach { pane ->
             val id = pane.sessionId ?: return@forEach
             val session = snapshot.sessions.firstOrNull { it.id == id }
@@ -311,7 +322,7 @@ fun DesktopWorkspaceScreen(
                 }
             }
         }
-        if (changed) onStateChange(state.copy(layout = layout))
+        if (changed) publishState(state.copy(layout = layout))
     }
 
     androidx.compose.runtime.CompositionLocalProvider(LocalWorkspaceInputs provides inputs, LocalWindowTerminalDock provides true) {
@@ -325,7 +336,7 @@ fun DesktopWorkspaceScreen(
                             Text("Sessions", fontSize = 22.sp, fontWeight = FontWeight.Bold)
                             Text("${sessions.size} available", fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
-                        TextButton(onClick = { onStateChange(state.copy(railCollapsed = true)) }) { Text("Hide") }
+                        TextButton(onClick = { publishState(state.copy(railCollapsed = true)) }) { Text("Hide") }
                     }
                     OutlinedTextField(
                         value = query,
@@ -367,17 +378,17 @@ fun DesktopWorkspaceScreen(
                                         TextButton(enabled = available, onClick = {
                                             val current = workspacePanes(state.layout.root).firstOrNull { it.id == state.layout.focusedPaneId }?.sessionId
                                             if (current != null && current != session.id) broker.detach(current)
-                                            onStateChange(state.copy(layout = WorkspaceReducer.assign(state.layout, state.layout.focusedPaneId, session.id)))
+                                            publishState(state.copy(layout = WorkspaceReducer.assign(state.layout, state.layout.focusedPaneId, session.id)))
                                         }) { Text(if (assigned) "Focus" else "Open") }
                                         TextButton(enabled = available && workspacePanes(state.layout.root).size < 4, onClick = {
                                             var next = WorkspaceReducer.split(state.layout, state.layout.focusedPaneId, WorkspaceDirection.Row)
                                             next = WorkspaceReducer.assign(next, next.focusedPaneId, session.id)
-                                            onStateChange(state.copy(layout = next))
+                                            publishState(state.copy(layout = next))
                                         }, modifier = Modifier.semantics { contentDescription = "Open ${session.name} in a new pane to the right" }) { Text("Split →") }
                                         TextButton(enabled = available && workspacePanes(state.layout.root).size < 4, onClick = {
                                             var next = WorkspaceReducer.split(state.layout, state.layout.focusedPaneId, WorkspaceDirection.Column)
                                             next = WorkspaceReducer.assign(next, next.focusedPaneId, session.id)
-                                            onStateChange(state.copy(layout = next))
+                                            publishState(state.copy(layout = next))
                                         }, modifier = Modifier.semantics { contentDescription = "Open ${session.name} in a new pane below" }) { Text("Split ↓") }
                                     }
                                 }
@@ -389,7 +400,7 @@ fun DesktopWorkspaceScreen(
         } else {
             Surface(Modifier.width(48.dp).fillMaxHeight(), color = MaterialTheme.colorScheme.surface) {
                 TextButton(
-                    onClick = { onStateChange(state.copy(railCollapsed = false)) },
+                    onClick = { publishState(state.copy(railCollapsed = false)) },
                     modifier = Modifier.semantics { contentDescription = "Expand session rail" }
                 ) { Text("›", fontSize = 24.sp) }
             }
@@ -408,7 +419,7 @@ fun DesktopWorkspaceScreen(
                 )
                 OutlinedButton(
                     enabled = focusedChrome.nativeEnabled,
-                    onClick = { onStateChange(state.copy(layout = WorkspaceReducer.setView(state.layout, focusedPane.id, WorkspaceViewMode.Native))) },
+                    onClick = { publishState(state.copy(layout = WorkspaceReducer.setView(state.layout, focusedPane.id, WorkspaceViewMode.Native))) },
                     modifier = Modifier.semantics {
                         role = Role.Tab
                         selected = focusedPane.viewMode == WorkspaceViewMode.Native
@@ -417,7 +428,7 @@ fun DesktopWorkspaceScreen(
                 ) { Text("Native") }
                 OutlinedButton(
                     enabled = focusedChrome.terminalEnabled,
-                    onClick = { onStateChange(state.copy(layout = WorkspaceReducer.setView(state.layout, focusedPane.id, WorkspaceViewMode.Terminal))) },
+                    onClick = { publishState(state.copy(layout = WorkspaceReducer.setView(state.layout, focusedPane.id, WorkspaceViewMode.Terminal))) },
                     modifier = Modifier.semantics {
                         role = Role.Tab
                         selected = focusedPane.viewMode == WorkspaceViewMode.Terminal
@@ -443,13 +454,13 @@ fun DesktopWorkspaceScreen(
                 }
                 OutlinedButton(
                     enabled = panes.size < 4,
-                    onClick = { onStateChange(state.copy(layout = WorkspaceReducer.split(state.layout, focusedPane.id, WorkspaceDirection.Row))) },
+                    onClick = { publishState(state.copy(layout = WorkspaceReducer.split(state.layout, focusedPane.id, WorkspaceDirection.Row))) },
                     modifier = Modifier.semantics { contentDescription = "Split focused pane to the right" }
                         .testTag("workspace-split-right")
                 ) { Text("Split →") }
                 OutlinedButton(
                     enabled = panes.size < 4,
-                    onClick = { onStateChange(state.copy(layout = WorkspaceReducer.split(state.layout, focusedPane.id, WorkspaceDirection.Column))) },
+                    onClick = { publishState(state.copy(layout = WorkspaceReducer.split(state.layout, focusedPane.id, WorkspaceDirection.Column))) },
                     modifier = Modifier.semantics { contentDescription = "Split focused pane below" }
                         .testTag("workspace-split-down")
                 ) { Text("Split ↓") }
@@ -459,7 +470,7 @@ fun DesktopWorkspaceScreen(
                         val layout = WorkspaceReducer.preset(state.layout, preset)
                         val retained = workspacePanes(layout.root).mapNotNull { it.sessionId }.toSet()
                         (old - retained).forEach(broker::detach)
-                        onStateChange(state.copy(layout = layout))
+                        publishState(state.copy(layout = layout))
                     }, modifier = Modifier
                         .semantics { contentDescription = "Use ${presetDescription(preset)} layout" }
                         .testTag("workspace-preset-${preset.name.lowercase(Locale.US)}")) { Text(presetLabel(preset)) }
@@ -490,18 +501,18 @@ fun DesktopWorkspaceScreen(
                     val source = draggedPaneId
                     val target = dragPointer?.let { pointer -> paneBounds.entries.firstOrNull { it.value.contains(pointer) }?.key }
                     if (source != null && target != null && source != target) {
-                        onStateChange(state.copy(layout = WorkspaceReducer.swap(state.layout, source, target)))
+                        publishState(state.copy(layout = WorkspaceReducer.swap(state.layout, source, target)))
                     }
                     draggedPaneId = null
                     dragPointer = null
                 },
-                onFocus = { onStateChange(state.copy(layout = WorkspaceReducer.focus(state.layout, it))) },
-                onView = { pane, mode -> onStateChange(state.copy(layout = WorkspaceReducer.setView(state.layout, pane, mode))) },
+                onFocus = { publishState(state.copy(layout = WorkspaceReducer.focus(state.layout, it))) },
+                onView = { pane, mode -> publishState(state.copy(layout = WorkspaceReducer.setView(state.layout, pane, mode))) },
                 onClose = closePane,
                 onSwap = { source, target ->
-                    onStateChange(state.copy(layout = WorkspaceReducer.swap(state.layout, source, target)))
+                    publishState(state.copy(layout = WorkspaceReducer.swap(state.layout, source, target)))
                 },
-                onResize = { split, ratio -> onStateChange(state.copy(layout = WorkspaceReducer.resize(state.layout, split, ratio))) }
+                onResize = { split, ratio -> publishState(state.copy(layout = WorkspaceReducer.resize(state.layout, split, ratio))) }
             )
         }
     }
@@ -642,7 +653,7 @@ private fun WorkspacePaneView(
     SideEffect {
         input.focus(focused && inputLifecycle.currentState.isAtLeast(androidx.lifecycle.Lifecycle.State.STARTED))
         input.connection(available && binding?.status == "live")
-        if (!shellEntryPending) input.readingViewChanged(pane.viewMode == WorkspaceViewMode.Native)
+        if (!shellEntryPending && session?.tool != "shell") input.readingViewChanged(pane.viewMode == WorkspaceViewMode.Native)
     }
     LaunchedEffect(input, shellEntryPending, pane.viewMode) {
         if (shellEntryPending) {
@@ -889,7 +900,7 @@ private fun EmbeddedTerminal(session: FleetSession, broker: WorkspaceTerminalBro
         view?.post { if (input.isInputAllowed() && input.getInputGeneration() == generation) { scrollback.returnToLive(); view?.let(TerminalKeyboard::show) } }
     }
     DisposableEffect(input, scrollback) { onDispose { input.onKeyboard = {}; input.beforeKey = {}; input.literal = { _, _, _ -> false }; input.freezeComposition = {}; input.pendingComposition = { false }; input.discardComposition = {} } }
-    LaunchedEffect(input.direct, binding.terminal, focused) { if (input.direct && focused && input.canInput()) input.onKeyboard() }
+    LaunchedEffect(input.direct, binding.terminal, focused, input.canInput(), view) { if (input.direct && focused && input.canInput()) input.onKeyboard() }
     val terminal = binding.terminal
     LaunchedEffect(terminal) {
         if (terminal == null) scrollback.setTerminalView(null)
