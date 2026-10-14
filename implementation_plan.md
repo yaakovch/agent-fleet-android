@@ -2210,3 +2210,8 @@ Automatic Terminal-entry regression exposed a dropped workspace focus request: d
 Final focused API36 suite passed18/18 on owned emulator-5554, including settings taps/persistence, both entry defaults, automatic workspace focus and real PTY bytes. Focused JVM policy/layout suite passed18/18. Candidate remains .112/code1126; final local and canonical release gates are required before publication.
 
 Final local quality gate passed406 JVM cases per each of debug/benchmark/measure/measureWithoutFleetProfiles/release, zero failures, plus static/audit/lint/package checks. The final workspace screenshot fixture mirrors safe window insets and waits for a READY painted terminal; its focused regression passed1/1 after the complete18/18 keyboard suite. Signed .112 publication remains gated by the canonical clean pushed full-suite pipeline.
+
+
+## Folder-first session lists (2026-10-14)
+
+SPEC interview declined; owner requested direct implementation. Session menu/list, recent Terminal list and fleet drawer show the stable folder/session label first in bold and the descriptive title second in regular text. Keep :1/:2 suffixes, manual names as secondary titles, host/status context, session identity/search/actions and title-first conversation headers. Windows dashboard/rail use the same list-only mapping; no protocol or shared fixture change. Reproduce actual row ordering in protected API36, inspect captures and validate the canonical local/release gates; publish the signed Android update through the existing updater lane. Windows private-lane publication does not change its installed public signing trust.

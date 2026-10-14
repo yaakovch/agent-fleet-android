@@ -3,6 +3,7 @@ package com.termux.app
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.test.*
 import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
@@ -30,6 +31,30 @@ import org.junit.runner.RunWith
 @RunWith(AndroidJUnit4::class)
 class AgentFleetDrawerComposeTest {
     @get:Rule val compose = createAndroidComposeRule<DrawerComposeTestHostActivity>()
+
+    @Test
+    fun folderPrecedesTitleAndStillOpensTheSameSession() {
+        val base = remote("folder-first")
+        val row = base.copy(session = base.session.copy(name = "demo:1", title = "Fix Android titles", project = "demo", nameMode = "automatic"))
+        var opened = ""
+        setDrawer(UnifiedDrawerState(remoteSessions = listOf(row), hostNames = mapOf("gaming" to "Gaming"), drawerOpen = true),
+            onOpenRemote = { selected, _ -> opened = selected.session.id })
+        val parent = hasAnyAncestor(hasTestTag("drawer-session-${row.session.id}"))
+        val folder = compose.onNode(hasText("demo:1", substring = true) and parent, useUnmergedTree = true)
+        val title = compose.onNode(hasText("Fix Android titles", substring = true) and parent, useUnmergedTree = true)
+        captureFolderLabels("drawer.png")
+        assertTrue("Folder must be above the title", folder.fetchSemanticsNode().boundsInRoot.top < title.fetchSemanticsNode().boundsInRoot.top)
+        compose.onNodeWithTag("drawer-session-${row.session.id}").performClick()
+        assertEquals(row.session.id, opened)
+    }
+
+    private fun captureFolderLabels(name: String) {
+        val instrumentation = androidx.test.platform.app.InstrumentationRegistry.getInstrumentation()
+        instrumentation.uiAutomation.waitForIdle(300, 5000)
+        val bitmap = requireNotNull(instrumentation.uiAutomation.takeScreenshot())
+        val file = java.io.File(instrumentation.targetContext.externalMediaDirs.first(), "folder-first-session-labels/$name")
+        file.parentFile?.mkdirs(); file.outputStream().use { bitmap.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, it) }; bitmap.recycle()
+    }
 
     @Test
     fun tapUsesRememberedSurfaceAndSearchAppearsOnlyForLongLists() {

@@ -606,7 +606,7 @@ private fun RemoteDrawerRow(
         onRight = onPin,
         onLeftAction = onRevealKill
     ) {
-        val identity = sessionIdentityPresentation(row.session)
+        val identity = sessionListPresentation(row.session)
         val borderColor = if (active) MaterialTheme.colorScheme.primary else Color.Transparent
         Row(
             Modifier.fillMaxWidth().padding(horizontal = 6.dp, vertical = 1.dp)
@@ -630,11 +630,10 @@ private fun RemoteDrawerRow(
                     if (row.pinned) Text("★ ", color = MaterialTheme.colorScheme.primary, fontSize = density.drawerMetadataSp.sp)
                     Text(identity.primary, Modifier.weight(1f), fontSize = density.drawerTitleSp.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 }
-                val location = if (row.session.nameMode != "manual" && row.session.title.isNotBlank()) {
-                    listOf(row.session.name, hostName, row.session.project).filter(String::isNotBlank).joinToString(" · ")
-                } else listOf(hostName, row.session.project).filter(String::isNotBlank).joinToString(" · ")
+                val location = listOf(identity.secondary, hostName).filter(String::isNotBlank).joinToString(" · ")
                 Text(
                     if (row.available) location else "Offline · ${location.ifBlank { "last known" }}",
+                    fontWeight = FontWeight.Normal,
                     fontSize = density.drawerMetadataSp.sp,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     maxLines = 1,

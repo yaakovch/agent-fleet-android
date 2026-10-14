@@ -323,6 +323,14 @@ fun sessionIdentityPresentation(session: FleetSession): FleetSessionIdentity {
     return FleetSessionIdentity(primary, secondary, session.name)
 }
 
+/** List labels put the stable folder/session label before the descriptive title. */
+fun sessionListPresentation(session: FleetSession): FleetSessionIdentity {
+    val primary = (if (session.nameMode == "manual") session.project else session.name)
+        .ifBlank { session.project }.ifBlank { session.name }.ifBlank { session.internalName }.ifBlank { session.id }
+    val title = if (session.nameMode == "manual") session.name else inheritedSessionTitle(session.title)
+    return FleetSessionIdentity(primary, title.takeUnless { it == primary }.orEmpty(), session.name)
+}
+
 data class FleetDoctorCheck(
     val id: String,
     val status: String,

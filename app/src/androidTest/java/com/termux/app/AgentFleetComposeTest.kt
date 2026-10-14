@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.test.*
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.assertIsEnabled
@@ -1865,6 +1866,22 @@ class AgentFleetComposeTest {
         mutationsAllowed = true,
         fallback = "none"
     )
+
+    @Test
+    fun sessionMenuPutsFolderAboveRegularTitle() {
+        val session = snapshot.sessions.first().copy(name = "demo:1", title = "Fix Android titles", project = "demo", nameMode = "automatic")
+        compose.setContent { FixtureApp(fleetSnapshot = snapshot.copy(sessions = listOf(session))) }
+        val parent = hasAnyAncestor(hasTestTag("session-${session.id}"))
+        val folder = compose.onNode(hasText("demo:1", substring = true) and parent, useUnmergedTree = true)
+        val title = compose.onNode(hasText("Fix Android titles", substring = true) and parent, useUnmergedTree = true)
+        compose.waitForIdle()
+        val instrumentation = androidx.test.platform.app.InstrumentationRegistry.getInstrumentation()
+        instrumentation.uiAutomation.waitForIdle(300, 5000)
+        val bitmap = requireNotNull(instrumentation.uiAutomation.takeScreenshot())
+        val file = java.io.File(instrumentation.targetContext.externalMediaDirs.first(), "folder-first-session-labels/menu.png")
+        file.parentFile?.mkdirs(); file.outputStream().use { bitmap.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, it) }; bitmap.recycle()
+        assertTrue("Folder must be above the title", folder.fetchSemanticsNode().boundsInRoot.top < title.fetchSemanticsNode().boundsInRoot.top)
+    }
 
     @androidx.compose.runtime.Composable
     private fun FixtureApp(

@@ -122,6 +122,7 @@ import com.termux.app.fleet.NativeSessionSettings
 import com.termux.app.fleet.NativeSessionRegistry
 import com.termux.app.fleet.AutomaticSessionTitleSettings
 import com.termux.app.fleet.sessionIdentityPresentation
+import com.termux.app.fleet.sessionListPresentation
 import com.termux.app.fleet.transportHostId
 import com.termux.app.fleet.physicalHostRecoveryDetail
 import com.termux.app.fleet.selectedTransportEndpoint
@@ -1760,7 +1761,7 @@ private fun SessionCard(
     onOpen: () -> Unit,
     onMore: () -> Unit
 ) {
-    val identity = sessionIdentityPresentation(session)
+    val identity = sessionListPresentation(session)
     Card(
         modifier = Modifier.fillMaxWidth().testTag("session-${session.id}"),
         shape = RoundedCornerShape(14.dp),
@@ -1772,7 +1773,7 @@ private fun SessionCard(
                 Spacer(Modifier.size(6.dp))
                 Column(Modifier.weight(1f)) {
                     Text(identity.primary, fontSize = 13.sp, fontWeight = FontWeight.Bold)
-                    if (identity.secondary.isNotBlank()) Text(identity.secondary, fontSize = 11.sp, maxLines = 1, overflow = TextOverflow.Ellipsis, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    if (identity.secondary.isNotBlank()) Text(identity.secondary, fontWeight = FontWeight.Normal, fontSize = 11.sp, maxLines = 1, overflow = TextOverflow.Ellipsis, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
                 Text(
                     if (!available) "Unavailable" else if (session.activity == "active") "Active" else "Idle",
@@ -2516,10 +2517,11 @@ private fun TerminalScreen(
                 Card(shape = RoundedCornerShape(18.dp), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)) {
                     Row(Modifier.fillMaxWidth().padding(18.dp), verticalAlignment = Alignment.CenterVertically) {
                         Column(Modifier.weight(1f)) {
-                            val identity = sessionIdentityPresentation(session)
+                            val identity = sessionListPresentation(session)
                             Text(identity.primary, fontSize = 19.sp, fontWeight = FontWeight.Bold)
                             Text(
-                                identity.secondary,
+                                listOf(identity.secondary, session.hostId).filter(String::isNotBlank).joinToString(" · "),
+                                fontWeight = FontWeight.Normal,
                                 fontSize = 15.sp,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 maxLines = 1,
