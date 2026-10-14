@@ -783,8 +783,9 @@ public final class TerminalView extends View {
     }
 
     private boolean validScrollTarget(TerminalSession session, TerminalInputBridge bridge, long generation) {
-        return session != null && session == mTermSession && session.isRunning() && bridge == mInputBridge &&
-            (bridge == null || (generation == bridge.getInputGeneration() && bridge.isScrollNavigationAllowed()));
+        return session == mTermSession && bridge == mInputBridge &&
+            (bridge == null || (session != null && session.isRunning() &&
+                generation == bridge.getInputGeneration() && bridge.isScrollNavigationAllowed()));
     }
 
     /** Install a bounded pane capture without changing the currently visible live terminal. */
