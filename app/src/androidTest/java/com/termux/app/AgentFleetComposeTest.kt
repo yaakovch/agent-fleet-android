@@ -780,10 +780,11 @@ class AgentFleetComposeTest {
     }
 
     @Test
-    fun sessionListUsesAutomaticTitleWithStableIdentityUnderIt() {
+    fun sessionListKeepsAutomaticTitleUnderStableFolderIdentity() {
         compose.setContent { FixtureApp() }
-        compose.onNodeWithText("Diagnostics").assertIsDisplayed()
-        compose.onNodeWithText("wtmux:1 · gaming · wtmux").assertIsDisplayed()
+        val parent = hasAnyAncestor(hasTestTag("session-${session.id}"))
+        compose.onNode(hasText("wtmux:1") and parent, useUnmergedTree = true).assertIsDisplayed()
+        compose.onNode(hasText("Diagnostics") and parent, useUnmergedTree = true).assertIsDisplayed()
     }
 
     @Test
