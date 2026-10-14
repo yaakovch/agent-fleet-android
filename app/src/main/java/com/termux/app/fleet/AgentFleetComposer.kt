@@ -732,7 +732,6 @@ internal fun AgentFleetComposerContent(
                         ) { Text("Clear draft") }
                     }
                     if (input != null) {
-                        ComposerTerminalShortcuts(input)
                         TerminalInputModeControls(input, trailingActions = { clearDraft() })
                     }
                     else clearDraft()
@@ -778,6 +777,7 @@ internal fun AgentFleetComposerContent(
                 if (compactComposer) Row(Modifier.testTag("agent-fleet-composer-action-stack"), horizontalArrangement = Arrangement.spacedBy(2.dp)) { actions() }
                 else Column(Modifier.widthIn(min = 70.dp, max = 82.dp).testTag("agent-fleet-composer-action-stack"), verticalArrangement = Arrangement.spacedBy(2.dp)) { actions() }
             }
+            if (input != null) ComposerTerminalShortcuts(input)
             if (nativeForTarget && localSuggestions.targetKey == "composer") {
                 LocalSuggestionChoices(
                     localSuggestions,

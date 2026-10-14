@@ -123,11 +123,22 @@ class ComposerTerminalNavigationTest {
         compose.setContent {
             val density = androidx.compose.ui.platform.LocalDensity.current
             CompositionLocalProvider(androidx.compose.ui.platform.LocalDensity provides androidx.compose.ui.unit.Density(density.density, 1.6f)) {
-                AgentFleetTheme(darkTheme = true) { Column(Modifier.width(200.dp)) { ComposerTerminalShortcuts(input) } }
+                AgentFleetTheme(darkTheme = true) {
+                    Box(Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing)) {
+                        Column(Modifier.width(200.dp).align(androidx.compose.ui.Alignment.BottomStart)) { ComposerTerminalShortcuts(input) }
+                    }
+                }
             }
         }
         val keys = listOf("UP", "DOWN", "ENTER", "SHIFT_TAB", "SHIFT_LEFT")
-        for (key in keys) compose.onNodeWithTag("composer-terminal-key-$key").performScrollTo().assertIsDisplayed().performTouchInput { click() }
+        for (key in keys) {
+            val button = compose.onNodeWithTag("composer-terminal-key-$key").performScrollTo().assertIsDisplayed()
+            val row = compose.onNodeWithTag("composer-terminal-shortcuts").fetchSemanticsNode().boundsInRoot
+            assertEquals(200f, row.width / compose.activity.resources.displayMetrics.density, 1f)
+            val bounds = button.fetchSemanticsNode().boundsInRoot
+            assertTrue("Complete shortcut label must fit its narrow row: $bounds / $row", bounds.left >= row.left - 1 && bounds.right <= row.right + 1)
+            button.performTouchInput { click() }
+        }
         assertEquals(keys, sent); assertEquals("Keep", input.draft); assertFalse(input.direct)
         capture("composer-narrow-large-font")
     }
@@ -205,7 +216,13 @@ class ComposerTerminalNavigationTest {
             compose.waitUntil(10_000) { terminals.all { it.emulator?.screen?.transcriptText?.contains("READY") == true } }
             control(0, "agent-fleet-message-input").performTextInput("Keep workspace draft")
             val keys = listOf("UP", "DOWN", "ENTER", "SHIFT_TAB", "SHIFT_LEFT")
-            for (key in keys) control(0, "composer-terminal-key-$key").performScrollTo().assertIsEnabled().performTouchInput { click() }
+            for (key in keys) {
+                val button = control(0, "composer-terminal-key-$key").performScrollTo().assertIsEnabled()
+                val row = control(0, "composer-terminal-shortcuts").fetchSemanticsNode().boundsInRoot
+                val bounds = button.fetchSemanticsNode().boundsInRoot
+                assertTrue("Complete shortcut must fit the pane footer: $bounds / $row", bounds.left >= row.left - 1 && bounds.right <= row.right + 1)
+                button.performTouchInput { click() }
+            }
             val expected = "\u001b[A\u001b[B\r\u001b[Z\u001b[1;2D"
             compose.waitUntil(5_000) { files[0].length() == expected.toByteArray().size.toLong() }
             assertEquals(expected, files[0].readText()); assertEquals(0L, files[1].length())
