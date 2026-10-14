@@ -75,9 +75,15 @@ class ComposerTerminalNavigationTest {
     private fun swipe() {
         compose.waitForIdle()
         val automation = InstrumentationRegistry.getInstrumentation().uiAutomation
+        compose.waitUntil(10_000) { view.isShown && view.hasWindowFocus() && view.presentationState == TerminalView.PresentationState.READY }
+        val paint = view.terminalPaintCount
+        compose.runOnUiThread { view.onScreenUpdated(); view.invalidate() }
+        compose.waitUntil(5_000) { view.terminalPaintCount > paint && view.presentationState == TerminalView.PresentationState.READY }
         automation.waitForIdle(300, 5_000)
         val origin = IntArray(2)
-        compose.runOnUiThread { view.getLocationOnScreen(origin) }
+        val visible = android.graphics.Rect()
+        compose.runOnUiThread { view.getLocationOnScreen(origin); assertTrue(view.getLocalVisibleRect(visible)) }
+        assertTrue("Gesture must be inside the visible terminal", visible.top <= view.height * 0.2f && visible.bottom >= view.height * 0.8f)
         val down = android.os.SystemClock.uptimeMillis()
         for (step in 0..20) {
             val action = when (step) { 0 -> android.view.MotionEvent.ACTION_DOWN; 20 -> android.view.MotionEvent.ACTION_UP; else -> android.view.MotionEvent.ACTION_MOVE }
@@ -99,6 +105,7 @@ class ComposerTerminalNavigationTest {
     }
     @Test fun composerMouseReportingSwipeSendsWheelEvents() {
         setup(); mode("\u001b[?1000h\u001b[?1006h")
+        compose.runOnUiThread { assertTrue(input.isScrollNavigationAllowed()); assertTrue(terminal.emulator.isMouseTrackingActive) }
         swipe()
         compose.waitUntil(3_000) { bytes.length() > 0 }
         assertTrue(bytes.readText().startsWith("\u001b[<64;"))
