@@ -516,7 +516,6 @@ fun DesktopWorkspaceScreen(
             )
         }
     }
-    inputs[focusedPane.id]?.let { TerminalKeyboardPanel(it) }
     }
     }
 }

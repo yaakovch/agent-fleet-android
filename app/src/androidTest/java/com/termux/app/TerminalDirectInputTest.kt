@@ -112,7 +112,8 @@ class TerminalDirectInputTest {
         val actions = compose.onNodeWithTag("agent-fleet-composer-action-stack").fetchSemanticsNode().boundsInRoot
         val tolerance = compose.activity.resources.displayMetrics.density * 8
         assertTrue("Input modes must sit below the writing field, not above it: field=$field direct=$direct", direct.top >= field.bottom)
-        assertTrue("Input modes must reuse the space beside the action stack: actions=$actions direct=$direct", direct.bottom <= actions.bottom + tolerance)
+        val shortcuts = compose.onNodeWithTag("composer-terminal-shortcuts").fetchSemanticsNode().boundsInRoot
+        assertTrue("Only the requested shortcut row may extend the footer: actions=$actions shortcuts=$shortcuts direct=$direct", direct.bottom <= actions.bottom + shortcuts.height + tolerance)
         assertAboveKeyboardAndTap("terminal-input-direct")
         assertTrue("A real screen tap must activate Direct with the keyboard open", input.direct)
         compose.onNodeWithTag("terminal-input-composer").performClick()
@@ -183,7 +184,7 @@ class TerminalDirectInputTest {
 
     @Test fun workspaceShellOpensDirectAndWritesToItsRealTerminal() = workspaceShellEntry(TerminalKeyboardSettings.Entry.Hidden)
 
-    @Test fun workspaceShellHonorsTerminalVisibleSettingAndWritesToItsRealTerminal() = workspaceShellEntry(TerminalKeyboardSettings.Entry.Terminal)
+    @Test fun workspaceShellHonorsAndroidVisibleSettingAndWritesToItsRealTerminal() = workspaceShellEntry(TerminalKeyboardSettings.Entry.Android)
 
     private fun workspaceShellEntry(entry: TerminalKeyboardSettings.Entry) {
         val session = FleetSession("fixture:shell", "fixture", "shell", "Shell", "Shell", "fixture", "shell", "linux", "active", false, null, 0)
@@ -219,30 +220,18 @@ class TerminalDirectInputTest {
             compose.onNodeWithTag("terminal-input-direct").assertTextContains("✓ Direct")
             compose.onNodeWithTag("terminal-input-composer").assertDoesNotExist()
             await(terminal, "READY")
-            compose.onNodeWithTag("terminal-key-panel").assertDoesNotExist()
+            compose.onNodeWithTag("terminal-key-panel").assertExists()
             compose.onNodeWithTag("terminal-input-keyboard").assertIsDisplayed()
-            if (entry == TerminalKeyboardSettings.Entry.Terminal) {
-                compose.waitUntil(5_000) { compose.onAllNodesWithTag("terminal-app-key-ENTER").fetchSemanticsNodes().any {
-                    androidx.compose.ui.semantics.SemanticsProperties.Disabled !in it.config
-                } }
-                val root = compose.activity.window.decorView
-                assertFalse(androidx.core.view.ViewCompat.getRootWindowInsets(root)!!.isVisible(androidx.core.view.WindowInsetsCompat.Type.ime()))
-                fun findTerminal(v: android.view.View): TerminalView? {
-                    if (v is TerminalView) return v
-                    if (v is android.view.ViewGroup) for (i in 0 until v.childCount) findTerminal(v.getChildAt(i))?.let { return it }
-                    return null
-                }
-                compose.waitUntil(5_000) {
-                    var focused = false
-                    compose.runOnUiThread { focused = requireNotNull(findTerminal(root)).hasFocus() }
-                    focused
-                }
-                capture(requireNotNull(findTerminal(root)), "workspace-terminal-entry.png")
-                compose.onNodeWithTag("terminal-app-key-ENTER").assertIsEnabled().performClick()
-            } else {
-                compose.onNodeWithTag("terminal-input-keyboard").performClick()
-                compose.onNodeWithTag("terminal-key-ENTER").performScrollTo().assertIsEnabled().performClick()
+            val root = compose.activity.window.decorView
+            if (entry == TerminalKeyboardSettings.Entry.Hidden) compose.onNodeWithTag("terminal-input-keyboard").performClick()
+            try {
+                compose.waitUntil(5_000) { androidx.core.view.ViewCompat.getRootWindowInsets(root)?.isVisible(androidx.core.view.WindowInsetsCompat.Type.ime()) == true }
+            } catch (error: Throwable) {
+                captureUi("workspace-android-entry-failure.png")
+                java.io.File(compose.activity.externalMediaDirs.first(), "terminal-direct-input/workspace-android-entry-semantics.txt").writeText(compose.onRoot().printToString())
+                throw error
             }
+            compose.onNodeWithTag("terminal-key-ENTER").performScrollTo().assertIsEnabled().performClick()
             await(terminal, "0d")
         } finally { compose.runOnUiThread {
             TerminalKeyboardSettings.save(compose.activity, previousEntry)
@@ -279,9 +268,9 @@ class TerminalDirectInputTest {
             captureUi("compact-native-composer-controls.png")
             val field = compose.onNodeWithTag("native-message-input").fetchSemanticsNode().boundsInRoot
             val direct = compose.onNodeWithTag("terminal-input-direct").fetchSemanticsNode().boundsInRoot
-            val answer = compose.onNodeWithTag("terminal-answer-question").fetchSemanticsNode().boundsInRoot
+            val answer = compose.onNodeWithTag("composer-terminal-key-SHIFT_LEFT").fetchSemanticsNode().boundsInRoot
             assertTrue("Native mode controls must sit below the writing field", direct.top >= field.bottom)
-            assertEquals("The question shortcut must share the footer row", direct.center.y, answer.center.y, 1f)
+            assertTrue("Composer shortcuts must sit beneath the field and before mode controls", answer.top >= field.bottom && answer.bottom <= direct.top)
             assertAboveKeyboardAndTap("terminal-input-direct")
             assertTrue("Native Direct must accept a real tap above the keyboard", input.direct)
             compose.onNodeWithTag("terminal-input-composer").performClick()
@@ -305,7 +294,7 @@ class TerminalDirectInputTest {
         compose.onNodeWithTag("terminal-input-direct").performClick()
         compose.onNodeWithTag("agent-fleet-message-input").assertDoesNotExist()
         compose.onNodeWithTag("terminal-input-keyboard").performClick()
-        compose.onNodeWithTag("terminal-input-expand").performClick()
+        compose.onNodeWithTag("terminal-input-expand").assertDoesNotExist()
         compose.onNodeWithTag("terminal-input-profile").performScrollTo().performClick()
         compose.onNodeWithText("Compatibility").assertIsDisplayed()
         compose.onNodeWithTag("terminal-key-F12").assertExists()
@@ -332,14 +321,14 @@ class TerminalDirectInputTest {
         compose.onNodeWithTag("agent-fleet-message-input").performTextInput("Saved unsent draft")
         compose.onNodeWithTag("terminal-input-direct").performClick()
         compose.onNodeWithTag("terminal-input-keyboard").performClick()
-        compose.onNodeWithTag("terminal-input-expand").performClick()
+        compose.onNodeWithTag("terminal-input-expand").assertDoesNotExist()
         compose.onNodeWithTag("terminal-input-profile").performScrollTo().performClick()
         compose.onNodeWithTag("terminal-modifier-Shift").performScrollTo().performClick()
         compose.onNodeWithTag("terminal-input-keyboard").performClick()
         restoration.emulateSavedInstanceStateRestore()
         assertTrue(current.direct); assertTrue(current.compatibility); assertEquals(0, current.modifiers)
         assertTrue(current.keyboardDismissed); assertFalse(current.isSystemImeAllowed())
-        compose.onNodeWithTag("terminal-key-panel").assertDoesNotExist()
+        compose.onNodeWithTag("terminal-key-panel").assertExists()
         compose.onNodeWithTag("terminal-input-composer").performClick()
         compose.onNodeWithTag("agent-fleet-message-input").assertTextContains("Saved unsent draft")
     }
@@ -356,7 +345,7 @@ class TerminalDirectInputTest {
         }
         compose.onNodeWithTag("terminal-input-keyboard").performClick()
         compose.onNodeWithTag("terminal-key-SHIFT_LEFT").performScrollTo().assertIsDisplayed()
-        compose.onNodeWithTag("terminal-input-expand").performClick()
+        compose.onNodeWithTag("terminal-input-expand").assertDoesNotExist()
         assertTrue(input.expanded)
         compose.onNodeWithTag("terminal-function-row-7").performScrollTo()
         compose.onNodeWithTag("terminal-key-F12").performScrollTo()

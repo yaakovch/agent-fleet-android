@@ -835,13 +835,12 @@ private fun ModelControlDialog(
 
 @Composable
 private fun NativeInputFooter(input: TerminalInputController, onClearDraft: (() -> Unit)? = null) {
-    TerminalInputModeControls(input, trailingActions = {
-        TextButton(onClick = { input.answerQuestion() }, enabled = input.canInput(),
-            modifier = Modifier.testTag("terminal-answer-question").semantics { contentDescription = "Shift+Left · Answer question" }) {
-            Text("Shift+←")
-        }
-        if (onClearDraft != null) TextButton(onClick = onClearDraft) { Text("Clear draft") }
-    })
+    Column {
+        ComposerTerminalShortcuts(input)
+        TerminalInputModeControls(input, trailingActions = {
+            if (onClearDraft != null) TextButton(onClick = onClearDraft) { Text("Clear draft") }
+        })
+    }
 }
 
 @Composable

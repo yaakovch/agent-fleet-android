@@ -36,30 +36,25 @@ class TerminalKeyboardTest {
         assertFalse(input.appKey(TerminalKeyboardLayout.rows("ABC")[1][0], 0, appGeneration))
         assertTrue(input.toggleKeyboard()); assertTrue(input.wantsTerminalKeyboard()); assertFalse(input.keyboardReady)
     }
-    @Test fun terminalEntryPreferenceAppliesOnEntryButNeverReopensDismissedKeyboard() {
-        var automaticTerminal = true
-        val input = TerminalInputController().apply { terminalOnEntry = { automaticTerminal }; bind("ai", true); connection(true); available = { true } }
-        assertFalse(input.direct)
-        input.chooseDirect(); assertTrue(input.wantsTerminalKeyboard()); assertFalse(input.isSystemImeAllowed())
-        input.chooseSurface(false); assertTrue(input.isSystemImeAllowed()) // Explicit System overrides the entry default.
+    @Test fun androidEntryPreferenceAppliesOnlyOnEntryAndDoesNotReopenDismissedIme() {
+        var show = true
+        val input = TerminalInputController().apply { systemImeOnEntry = { show }; bind("ai", true); connection(true); available = { true } }
+        input.chooseDirect(); assertTrue(input.isSystemImeAllowed()); assertFalse(input.terminalSurface)
         input.dismissKeyboard(); input.connection(false); input.connection(true); input.chooseDirect()
-        assertTrue(input.keyboardDismissed); assertFalse(input.terminalSurface)
-        input.chooseComposer(); input.chooseDirect(); assertTrue(input.wantsTerminalKeyboard())
-        automaticTerminal = false
-        input.chooseComposer(); input.chooseDirect(); assertTrue(input.keyboardDismissed); assertTrue(input.terminalSurface)
+        assertTrue(input.keyboardDismissed)
+        input.chooseComposer(); input.chooseDirect(); assertTrue(input.isSystemImeAllowed())
+        show = false
+        input.chooseComposer(); input.chooseDirect(); assertTrue(input.keyboardDismissed)
         input.bind("shell", false); assertTrue(input.direct); assertTrue(input.keyboardDismissed)
-        automaticTerminal = true
-        input.bind("new-shell", false); assertTrue(input.wantsTerminalKeyboard()); assertFalse(input.isSystemImeAllowed())
+        show = true; input.bind("new-shell", false); input.connection(true); assertTrue(input.isInputAllowed()); assertTrue(input.isSystemImeAllowed())
     }
-    @Test fun automaticTerminalPreferenceStillRequiresExplicitPreeditChoice() {
-        val input = TerminalInputController().apply { terminalOnEntry = { true }; bind("ai", true); connection(true); available = { true } }
-        var writes = 0; input.send = { _, _ -> writes++; true }
-        input.pendingComposition = { true }
-        assertTrue(input.chooseDirect()); assertTrue(input.surfaceBlocked)
-        assertFalse(input.isSystemImeAllowed()); assertFalse(input.wantsTerminalKeyboard()); assertEquals(0, writes)
-        assertFalse(input.showKeyboard()); assertTrue(input.keyboardDismissed)
-        input.cancelSurfaceSelection(); assertFalse(input.surfaceBlocked); assertTrue(input.isSystemImeAllowed())
-        assertEquals(0, writes)
+    @Test fun entryNeverDiscardsOrSendsPendingComposition() {
+        val input = TerminalInputController().apply { systemImeOnEntry = { false }; bind("ai", true); connection(true); available = { true } }
+        var writes = 0; var discarded = 0; var freezes = 0
+        input.send = { _, _ -> writes++; true }; input.discardComposition = { discarded++ }
+        input.pendingComposition = { true }; input.freezeComposition = { freezes++ }
+        input.chooseDirect(); assertFalse(input.isSystemImeAllowed())
+        assertEquals(1, freezes); assertEquals(0, writes); assertEquals(0, discarded)
     }
     @Test fun allPrintableAsciiAndBalancedLayouts() {
         val chars = listOf("ABC", "Symbols").flatMap { page -> TerminalKeyboardLayout.rows(page).flatten().flatMap { key -> listOfNotNull(key.character(0), key.character(KeyHandler.KEYMOD_SHIFT)) } }.toSet()
@@ -90,7 +85,7 @@ class TerminalKeyboardTest {
         input.showKeyboard(); input.updateKeyboardReady(true); assertTrue(input.dismissKeyboard()); assertFalse(input.wantsTerminalKeyboard())
         input.connection(false); input.connection(true); assertFalse(input.wantsTerminalKeyboard())
         input.chooseDirect(); assertFalse(input.wantsTerminalKeyboard())
-        input.showKeyboard(); assertTrue(input.wantsTerminalKeyboard())
+        input.showKeyboard(); assertTrue(input.isSystemImeAllowed())
         input.chooseSurface(false); assertTrue(input.isSystemImeAllowed())
         input.pendingComposition = { true }; var discarded = false; input.discardComposition = { discarded = true }
         assertFalse(input.chooseSurface(true)); assertFalse(discarded); assertFalse(input.terminalSurface)

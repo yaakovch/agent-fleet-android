@@ -231,6 +231,9 @@ public final class TerminalView extends View {
 
             boolean scrolledWithFinger;
             boolean hostFileTapConsumed;
+            TerminalSession scrollSession;
+            TerminalInputBridge scrollBridge;
+            long scrollGeneration;
 
             @Override
             public boolean onUp(MotionEvent event) {
@@ -271,7 +274,7 @@ public final class TerminalView extends View {
 
             @Override
             public boolean onScroll(MotionEvent e, float distanceX, float distanceY) {
-                if (mEmulator == null) return true;
+                if (mEmulator == null || !validScrollTarget(scrollSession, scrollBridge, scrollGeneration)) return true;
                 if (mEmulator.isMouseTrackingActive() && e.isFromSource(InputDevice.SOURCE_MOUSE)) {
                     // If moving with mouse pointer while pressing button, report that instead of scroll.
                     // This means that we never report moving with button press-events for touch input,
@@ -298,11 +301,14 @@ public final class TerminalView extends View {
 
             @Override
             public boolean onFling(final MotionEvent e2, float velocityX, float velocityY) {
-                if (mEmulator == null) return true;
+                if (mEmulator == null || !validScrollTarget(scrollSession, scrollBridge, scrollGeneration)) return true;
                 // Do not start scrolling until last fling has been taken care of:
                 if (!mScroller.isFinished()) return true;
 
                 final boolean localScrollbackAtStartOfFling = mLocalScrollbackActive;
+                final TerminalSession flingSession = scrollSession;
+                final TerminalInputBridge flingBridge = scrollBridge;
+                final long flingGeneration = scrollGeneration;
                 final TerminalEmulator flingEmulator = displayedEmulator();
                 final boolean mouseTrackingAtStartOfFling = !localScrollbackAtStartOfFling && flingEmulator.isMouseTrackingActive();
                 float SCALE = 0.25f;
@@ -317,7 +323,7 @@ public final class TerminalView extends View {
 
                     @Override
                     public void run() {
-                        if (localScrollbackAtStartOfFling != mLocalScrollbackActive ||
+                        if (!validScrollTarget(flingSession, flingBridge, flingGeneration) || localScrollbackAtStartOfFling != mLocalScrollbackActive ||
                             mouseTrackingAtStartOfFling != (!mLocalScrollbackActive && mEmulator.isMouseTrackingActive())) {
                             mScroller.abortAnimation();
                             return;
@@ -337,6 +343,9 @@ public final class TerminalView extends View {
 
             @Override
             public boolean onDown(float x, float y) {
+                scrollSession = mTermSession;
+                scrollBridge = mInputBridge;
+                scrollGeneration = scrollBridge == null ? 0 : scrollBridge.getInputGeneration();
                 // Why is true not returned here?
                 // https://developer.android.com/training/gestures/detector.html#detect-a-subset-of-supported-gestures
                 // Although setting this to true still does not solve the following errors when long pressing in terminal view text area
@@ -715,7 +724,8 @@ public final class TerminalView extends View {
 
     /** Send a single mouse event code to the terminal. */
     void sendMouseEventCode(MotionEvent e, int button, boolean pressed) {
-        if (mInputBridge != null && !mInputBridge.isInputAllowed()) return;
+        boolean wheel = button == TerminalEmulator.MOUSE_WHEELDOWN_BUTTON || button == TerminalEmulator.MOUSE_WHEELUP_BUTTON;
+        if (mInputBridge != null && !(wheel ? mInputBridge.isScrollNavigationAllowed() : mInputBridge.isInputAllowed())) return;
         int[] columnAndRow = getColumnAndRow(e, false);
         int x = columnAndRow[0] + 1;
         int y = columnAndRow[1] + 1;
@@ -734,9 +744,13 @@ public final class TerminalView extends View {
 
     /** Perform a scroll, either from dragging the screen or by scrolling a mouse wheel. */
     void doScroll(MotionEvent event, int rowsDown) {
-        if (rowsDown == 0) return;
+        final TerminalSession session = mTermSession;
+        final TerminalInputBridge bridge = mInputBridge;
+        final long generation = bridge == null ? 0 : bridge.getInputGeneration();
+        if (rowsDown == 0 || mEmulator == null || !validScrollTarget(session, bridge, generation)) return;
         if (rowsDown < 0 && !mLocalScrollbackActive && mEmulator.isAlternateBufferActive() && mLocalHistoryListener != null)
             mLocalHistoryListener.onRequested();
+        if (!validScrollTarget(session, bridge, generation)) return;
         if (mLocalScrollbackActive || (rowsDown < 0 && mEmulator.isAlternateBufferActive() && canEnterLocalScrollback())) {
             if (!mLocalScrollbackActive) {
                 mLocalScrollbackActive = true;
@@ -752,17 +766,25 @@ public final class TerminalView extends View {
         boolean up = rowsDown < 0;
         int amount = Math.abs(rowsDown);
         for (int i = 0; i < amount; i++) {
+            if (!validScrollTarget(session, bridge, generation)) return;
             if (mEmulator.isMouseTrackingActive()) {
                 sendMouseEventCode(event, up ? TerminalEmulator.MOUSE_WHEELUP_BUTTON : TerminalEmulator.MOUSE_WHEELDOWN_BUTTON, true);
             } else if (mEmulator.isAlternateBufferActive()) {
                 // Send up and down key events for scrolling, which is what some terminals do to make scroll work in
                 // e.g. less, which shifts to the alt screen without mouse handling.
-                handleKeyCode(up ? KeyEvent.KEYCODE_DPAD_UP : KeyEvent.KEYCODE_DPAD_DOWN, 0);
+                String code = KeyHandler.getCode(up ? KeyEvent.KEYCODE_DPAD_UP : KeyEvent.KEYCODE_DPAD_DOWN, 0,
+                    mEmulator.isCursorKeysApplicationMode(), mEmulator.isKeypadApplicationMode());
+                if (code != null) session.write(code);
             } else {
                 mTopRow = Math.min(0, Math.max(-(mEmulator.getScreen().getActiveTranscriptRows()), mTopRow + (up ? -1 : 1)));
                 if (!awakenScrollBars()) invalidate();
             }
         }
+    }
+
+    private boolean validScrollTarget(TerminalSession session, TerminalInputBridge bridge, long generation) {
+        return session != null && session == mTermSession && session.isRunning() && bridge == mInputBridge &&
+            (bridge == null || (generation == bridge.getInputGeneration() && bridge.isScrollNavigationAllowed()));
     }
 
     /** Install a bounded pane capture without changing the currently visible live terminal. */

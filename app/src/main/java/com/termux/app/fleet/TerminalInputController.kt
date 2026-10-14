@@ -13,8 +13,7 @@ class TerminalInputController : TerminalInputBridge {
         private set
     var compatibility by mutableStateOf(false)
         private set
-    var expanded by mutableStateOf(false)
-        private set
+    val expanded = true
     var modifiers by mutableStateOf(0)
         private set
     var terminalSurface by mutableStateOf(false)
@@ -49,7 +48,7 @@ class TerminalInputController : TerminalInputBridge {
     var onDirect: () -> Unit = {}
     var onComposer: () -> Unit = {}
     var onKeyboard: () -> Unit = {}
-    var terminalOnEntry: () -> Boolean = { false }
+    var systemImeOnEntry: () -> Boolean = { false }
     var beforeKey: () -> Unit = {}
     var send: (String, Int) -> Boolean = { _, _ -> false }
 
@@ -64,9 +63,8 @@ class TerminalInputController : TerminalInputBridge {
         connected = false
         direct = !ai
         compatibility = false
-        terminalSurface = direct && terminalOnEntry()
-        keyboardDismissed = !terminalSurface
-        expanded = false
+        terminalSurface = false
+        keyboardDismissed = !(direct && systemImeOnEntry())
         modifiers = 0
         invalidateInput()
     }
@@ -98,7 +96,7 @@ class TerminalInputController : TerminalInputBridge {
         previousNative = previous
         direct = mode
         compatibility = profile
-        expanded = keysExpanded
+        // Legacy collapsed-panel choices are intentionally ignored.
         modifiers = 0
         invalidateInput()
     }
@@ -112,10 +110,11 @@ class TerminalInputController : TerminalInputBridge {
         previousNative = readingNative()
         freezeComposition()
         direct = true
-        keyboardDismissed = true
+        terminalSurface = false
+        keyboardDismissed = !(useEntryPreference && systemImeOnEntry())
         invalidateInput()
         onDirect()
-        if (useEntryPreference && terminalOnEntry()) chooseSurface(true) else onKeyboard()
+        onKeyboard()
         return true
     }
 
@@ -151,8 +150,9 @@ class TerminalInputController : TerminalInputBridge {
     }
 
     fun restoreSurface(terminal: Boolean, dismissed: Boolean = false) {
-        terminalSurface = terminal
-        keyboardDismissed = dismissed
+        // Saved app-keyboard surfaces migrate to Android keyboard hidden.
+        terminalSurface = false
+        keyboardDismissed = terminal || dismissed
         invalidateInput()
     }
 
@@ -235,7 +235,7 @@ class TerminalInputController : TerminalInputBridge {
         return captured == generation && isAppKeyboardAllowed() && send(key.name, bits)
     }
 
-    fun toggleExpanded() { expanded = !expanded }
+    fun toggleExpanded() { /* Retained for old saved-state callers; keys stay expanded. */ }
     fun modifier(bit: Int) { if (isInputAllowed()) modifiers = modifiers xor bit }
     fun clearModifiers() { modifiers = 0 }
     fun key(name: String): Boolean {
@@ -245,6 +245,13 @@ class TerminalInputController : TerminalInputBridge {
         beforeInput()
         return isInputAllowed() && captured == generation && send(name, bits)
     }
+    fun composerKey(name: String, captured: Long = generation): Boolean {
+        if (captured != generation || direct || name !in setOf("UP", "DOWN", "ENTER", "SHIFT_TAB", "SHIFT_LEFT") || !canInput()) return false
+        clearModifiers()
+        beforeInput()
+        return !direct && captured == generation && canInput() && send(name, 0)
+    }
+    override fun isScrollNavigationAllowed(): Boolean = canInput()
     fun answerQuestion(): Boolean {
         if (!chooseDirect() || !isInputAllowed()) return false
         clearModifiers()

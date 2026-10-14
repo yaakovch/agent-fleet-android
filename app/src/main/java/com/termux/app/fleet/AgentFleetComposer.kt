@@ -731,7 +731,10 @@ internal fun AgentFleetComposerContent(
                             modifier = Modifier.testTag("agent-fleet-clear-draft")
                         ) { Text("Clear draft") }
                     }
-                    if (input != null) TerminalInputModeControls(input, trailingActions = { clearDraft() })
+                    if (input != null) {
+                        ComposerTerminalShortcuts(input)
+                        TerminalInputModeControls(input, trailingActions = { clearDraft() })
+                    }
                     else clearDraft()
                 }
                 val actionModifier = if (compactComposer) Modifier.widthIn(min = 70.dp, max = 82.dp) else Modifier.fillMaxWidth()

@@ -27,21 +27,20 @@ fun TerminalInputControls(state: TerminalInputController, composerAvailable: Boo
     val landscape = LocalConfiguration.current.orientation == android.content.res.Configuration.ORIENTATION_LANDSCAPE
     Column(Modifier.fillMaxWidth().testTag("terminal-input-controls")) {
         TerminalInputModeControls(state, composerAvailable)
-        if (state.direct && state.terminalSurface && !LocalWindowTerminalDock.current) TerminalKeyboardPanel(state)
-        if (state.direct && !state.terminalSurface && !state.keyboardDismissed) Column(Modifier.testTag("terminal-key-panel").heightIn(max = if (landscape) 96.dp else 240.dp).verticalScroll(rememberScrollState())) {
+        if (state.direct) Column(Modifier.testTag("terminal-key-panel").heightIn(max = if (landscape) 96.dp else 240.dp).verticalScroll(rememberScrollState())) {
             val modifiers: @Composable () -> Unit = {
                 listOf("Ctrl" to KeyHandler.KEYMOD_CTRL, "Alt" to KeyHandler.KEYMOD_ALT, "Shift" to KeyHandler.KEYMOD_SHIFT).forEach { (label, bit) ->
                     TextButton(onClick = { state.modifier(bit) }, enabled = state.isInputAllowed(),
                         modifier = Modifier.testTag("terminal-modifier-$label")) { Text(if (state.modifiers and bit != 0) "✓ $label" else label) }
                 }
             }
-            if (landscape) Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState())) {
+            if (landscape) Row(Modifier.testTag("terminal-navigation-row").fillMaxWidth().horizontalScroll(rememberScrollState())) {
                 modifiers(); keyButtons(state, listOf("ESC", "TAB", "LEFT", "UP", "DOWN", "RIGHT", "SHIFT_LEFT", "ENTER"))
             } else {
                 Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState())) { modifiers(); keyButtons(state, listOf("ESC", "TAB")) }
-                Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState())) { keyButtons(state, listOf("LEFT", "UP", "DOWN", "RIGHT", "SHIFT_LEFT", "ENTER")) }
+                Row(Modifier.testTag("terminal-navigation-row").fillMaxWidth().horizontalScroll(rememberScrollState())) { keyButtons(state, listOf("LEFT", "UP", "DOWN", "RIGHT", "SHIFT_LEFT", "ENTER")) }
             }
-            if (state.expanded) {
+            run {
                 Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState())) {
                     keyButtons(state, listOf("SHIFT_TAB", "HOME", "END", "PAGE_UP", "PAGE_DOWN", "DELETE", "BACKSPACE"))
                 }
@@ -59,41 +58,33 @@ fun TerminalInputModeControls(
     composerAvailable: Boolean = true,
     trailingActions: @Composable RowScope.() -> Unit = {}
 ) {
-    var surfaceMenu by remember { mutableStateOf(false) }
     Row(Modifier.fillMaxWidth().testTag("terminal-input-mode-row")) {
         Row(Modifier.weight(1f).horizontalScroll(rememberScrollState())) {
-        if (composerAvailable) TextButton(onClick = state::chooseComposer,
-            modifier = Modifier.testTag("terminal-input-composer")) { Text(if (state.direct) "Composer" else "✓ Composer") }
-        TextButton(onClick = { state.chooseDirect() }, enabled = state.canInput(),
-            modifier = Modifier.testTag("terminal-input-direct")) { Text(if (state.direct) "✓ Direct" else "Direct input") }
-        if (state.direct) Box {
-            TextButton(onClick = { state.beginSurfaceSelection(); surfaceMenu = true }, enabled = state.canInput(), contentPadding = PaddingValues(horizontal = 6.dp),
-                modifier = Modifier.testTag("terminal-input-surface")) { Text(if (state.terminalSurface) "Terminal ▾" else "System ▾") }
-            DropdownMenu(expanded = surfaceMenu, onDismissRequest = { surfaceMenu = false; state.cancelSurfaceSelection() }) {
-                DropdownMenuItem(text = { Text("System keyboard") }, onClick = { surfaceMenu = false; state.chooseSurface(false) }, modifier = Modifier.testTag("terminal-surface-system"))
-                DropdownMenuItem(text = { Text("Terminal keyboard") }, onClick = { surfaceMenu = false; state.chooseSurface(true) }, modifier = Modifier.testTag("terminal-surface-terminal"))
-                if (!state.terminalSurface) DropdownMenuItem(text = { Text(if (state.expanded) "Fewer terminal keys" else "More terminal keys") }, onClick = { surfaceMenu = false; state.cancelSurfaceSelection(); state.toggleExpanded() }, modifier = Modifier.testTag("terminal-input-expand-menu"))
-            }
-        }
-        if (state.direct && !state.terminalSurface && !state.keyboardDismissed) TextButton(onClick = state::toggleExpanded, modifier = Modifier.testTag("terminal-input-expand").semantics { contentDescription = if (state.expanded) "Fewer terminal keys" else "More terminal keys" }) { Text(if (state.expanded) "−" else "+") }
-        trailingActions()
+            if (composerAvailable) TextButton(onClick = state::chooseComposer,
+                modifier = Modifier.testTag("terminal-input-composer")) { Text(if (state.direct) "Composer" else "✓ Composer") }
+            TextButton(onClick = { state.chooseDirect() }, enabled = state.canInput(),
+                modifier = Modifier.testTag("terminal-input-direct")) { Text(if (state.direct) "✓ Direct" else "Direct input") }
+            trailingActions()
         }
         if (state.direct) TextButton(onClick = { state.toggleKeyboard() }, enabled = state.canInput(),
             contentPadding = PaddingValues(horizontal = 6.dp),
             modifier = Modifier.width(48.dp).testTag("terminal-input-keyboard").semantics {
-                contentDescription = if (state.keyboardDismissed) "Show ${if (state.terminalSurface) "Terminal" else "System"} keyboard" else "Hide keyboard"
+                contentDescription = if (state.keyboardDismissed) "Show Android keyboard" else "Hide Android keyboard"
                 stateDescription = if (state.keyboardDismissed) "Hidden" else "Open"
             }) { Text(if (state.keyboardDismissed) "⌨" else "⌨⌄") }
     }
-    // Inline confirmation keeps the terminal editor focused; a dialog can make an IME
-    // finish and flush its preedit before the owner chooses to discard it.
-    if (state.surfaceBlocked) Surface(color = MaterialTheme.colorScheme.secondaryContainer) {
-        Column(Modifier.fillMaxWidth().padding(horizontal = 8.dp)) {
-            Text("Unfinished system-keyboard text", style = MaterialTheme.typography.labelMedium)
-            Row {
-                TextButton(onClick = state::cancelSurfaceSelection) { Text("Keep System") }
-                TextButton(onClick = { state.chooseSurface(true, discard = true) }) { Text("Discard and switch") }
-            }
+}
+
+/** Named terminal keys do not submit or focus the Composer's draft. */
+@Composable
+fun ComposerTerminalShortcuts(input: TerminalInputController) {
+    if (input.direct) return
+    val generation = input.getInputGeneration()
+    Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).testTag("composer-terminal-shortcuts")) {
+        listOf("UP" to "↑", "DOWN" to "↓", "ENTER" to "Enter", "SHIFT_TAB" to "Shift+Tab", "SHIFT_LEFT" to "Shift+Left").forEach { (key, label) ->
+            TextButton(onClick = { input.composerKey(key, generation) }, enabled = input.canInput(),
+                contentPadding = PaddingValues(horizontal = 8.dp),
+                modifier = Modifier.testTag("composer-terminal-key-$key")) { Text(label, maxLines = 1) }
         }
     }
 }

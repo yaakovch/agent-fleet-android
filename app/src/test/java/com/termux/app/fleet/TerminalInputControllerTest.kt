@@ -21,7 +21,7 @@ class TerminalInputControllerTest {
         assertEquals(0, sends)
         input.chooseDirect(); input.toggleProfile(); input.toggleExpanded()
         input.bind("two", true)
-        assertFalse(input.direct); assertFalse(input.compatibility); assertFalse(input.expanded)
+        assertFalse(input.direct); assertFalse(input.compatibility); assertTrue(input.expanded)
         input.bind("shell", false); assertTrue(input.direct)
     }
     @Test fun shiftLeftOpensFirstAndSendsOneKeyWithoutSubmitting() {
@@ -80,6 +80,33 @@ class TerminalInputControllerTest {
         input.onDirect = { valid = false }
         var sends = 0; input.send = { _, _ -> sends++; true }
         assertFalse(input.answerQuestion()); assertEquals(0, sends)
+    }
+    @Test fun composerKeysPreserveDraftReadingModeAndAttachmentsAndRejectStaleTargets() {
+        val input = live(); input.draft = "Keep me"
+        input.attachments = { listOf("image.png") }
+        var viewChanges = 0; input.onDirect = { viewChanges++ }; input.onComposer = { viewChanges++ }
+        val writes = mutableListOf<String>()
+        input.send = { key, bits -> writes += TerminalKeys.encode(key, bits)!!; true }
+        listOf("UP", "DOWN", "ENTER", "SHIFT_TAB", "SHIFT_LEFT").forEach { assertTrue(input.composerKey(it)) }
+        assertEquals(listOf("\u001b[A", "\u001b[B", "\r", "\u001b[Z", "\u001b[1;2D"), writes)
+        assertEquals("Keep me", input.draft); assertEquals(listOf("image.png"), input.attachments())
+        assertFalse(input.direct); assertEquals(0, viewChanges)
+        input.connection(false); assertFalse(input.composerKey("ENTER")); input.connection(true)
+        val old = input.getInputGeneration()
+        input.onTerminalTargetChanged(Any(), Any())
+        assertFalse(input.composerKey("ENTER", old))
+        input.beforeKey = { input.onTerminalTargetChanged(Any(), Any()) }
+        assertFalse(input.composerKey("ENTER")); assertEquals(5, writes.size)
+    }
+    @Test fun scrollNavigationIsIndependentOfTypingButRetainsAvailabilityAndFocusChecks() {
+        val input = live()
+        assertTrue(input.isScrollNavigationAllowed()); assertFalse(input.isInputAllowed())
+        input.focus(false); assertFalse(input.isScrollNavigationAllowed()); input.focus(true)
+        input.connection(false); assertFalse(input.isScrollNavigationAllowed()); input.connection(true)
+        input.available = { false }; assertFalse(input.isScrollNavigationAllowed())
+        input.available = { true }; input.chooseDirect(); assertTrue(input.isScrollNavigationAllowed())
+        input.restore(true, true, false); input.restoreSurface(true, false)
+        assertTrue(input.expanded); assertFalse(input.terminalSurface); assertTrue(input.keyboardDismissed)
     }
     private fun TerminalInputController.inputGenerationForTest() = getInputGeneration()
 }
