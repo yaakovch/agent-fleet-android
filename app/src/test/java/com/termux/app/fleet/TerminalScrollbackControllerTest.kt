@@ -13,6 +13,33 @@ import org.robolectric.RobolectricTestRunner
 
 @RunWith(RobolectricTestRunner::class)
 class TerminalScrollbackControllerTest {
+    @Test fun hiddenSameTargetKeepsPinnedHistoryButClosingReleasesIt() {
+        val context = org.robolectric.RuntimeEnvironment.getApplication()
+        val view = com.termux.view.TerminalView(context, null)
+        val output = object : com.termux.terminal.TerminalOutput() {
+            override fun write(data: ByteArray, offset: Int, count: Int) = Unit
+            override fun titleChanged(oldTitle: String?, newTitle: String?) = Unit
+            override fun onCopyTextToClipboard(text: String?) = Unit
+            override fun onPasteTextFromClipboard() = Unit
+            override fun onBell() = Unit
+            override fun onColorsChanged() = Unit
+        }
+        val live = com.termux.terminal.TerminalEmulator(output, 20, 10, 1, 1, 100, null)
+        val alternate = "\u001b[?1049hLive".toByteArray(); live.append(alternate, alternate.size)
+        view.mEmulator = live
+        val controller = TerminalScrollbackController(context)
+        controller.setTerminalView(view)
+        assertTrue(view.setLocalScrollback((0..40).joinToString("\n") { "pinned-$it" }.toByteArray(), 20, 10))
+        assertTrue(view.enterPreparedLocalHistory())
+        val pinned = view.displayedEmulator()
+        val row = view.topRow
+        controller.onStart(); controller.onStop(); controller.onStart()
+        org.junit.Assert.assertSame(pinned, view.displayedEmulator())
+        assertEquals(row, view.topRow); assertTrue(view.isLocalScrollbackActive)
+        controller.close()
+        assertFalse(view.isLocalScrollbackActive); assertFalse(view.hasLocalScrollback())
+    }
+
     @Test fun paneFitsBelowTmuxChromeWithoutAcceptingAChangedWrappingWidth() {
         val snapshot = parsePaneScrollbackSnapshot(frame("wtmux-main", "row".toByteArray()), "wtmux-main")
         assertTrue(snapshot.fitsViewport(120, 33))

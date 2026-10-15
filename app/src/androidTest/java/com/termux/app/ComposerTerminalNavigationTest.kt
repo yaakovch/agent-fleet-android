@@ -238,6 +238,45 @@ class ComposerTerminalNavigationTest {
             assertEquals(panes[0].id, state.value.layout.focusedPaneId)
             assertTrue(workspacePanes(state.value.layout.root).all { it.viewMode == WorkspaceViewMode.Terminal })
             capture("workspace-composer-shortcuts")
+            fun findTerminal(root: android.view.View): TerminalView? {
+                if (root is TerminalView && root.currentSession === terminals[0]) return root
+                if (root is android.view.ViewGroup) for (i in 0 until root.childCount) findTerminal(root.getChildAt(i))?.let { return it }
+                return null
+            }
+            lateinit var retainedView: TerminalView
+            compose.runOnUiThread {
+                retainedView = requireNotNull(findTerminal(compose.activity.window.decorView))
+                val rows = (1..100).joinToString("") { "reading-$it synthetic\r\n" }.toByteArray()
+                terminals[0].emulator.append(rows, rows.size); retainedView.onScreenUpdated()
+                retainedView.topRow = -10
+            }
+            compose.onNodeWithTag("workspace-mode-native").performScrollTo().performClick()
+            compose.onNodeWithTag("workspace-mode-terminal").performScrollTo().performClick()
+            compose.waitForIdle()
+            compose.runOnUiThread {
+                assertSame("Same pane retains its local reader", retainedView, findTerminal(compose.activity.window.decorView))
+                assertTrue("Return must retain deliberate upward reading", retainedView.topRow < 0)
+                assertEquals(TerminalView.PresentationState.READY, retainedView.presentationState)
+            }
+            control(0, "agent-fleet-message-input").assertTextContains("Keep workspace draft")
+            capture("workspace-retained-reader")
+            val liveBytes = files[0].length()
+            val origin = IntArray(2)
+            compose.runOnUiThread { retainedView.getLocationOnScreen(origin) }
+            val automation = InstrumentationRegistry.getInstrumentation().uiAutomation
+            val now = android.os.SystemClock.uptimeMillis()
+            val density = compose.activity.resources.displayMetrics.density
+            for (action in listOf(android.view.MotionEvent.ACTION_DOWN, android.view.MotionEvent.ACTION_UP)) {
+                val event = android.view.MotionEvent.obtain(now, android.os.SystemClock.uptimeMillis(), action,
+                    origin[0] + retainedView.width - 32 * density, origin[1] + 24 * density, 0)
+                event.source = android.view.InputDevice.SOURCE_TOUCHSCREEN
+                try { assertTrue(automation.injectInputEvent(event, true)) } finally { event.recycle() }
+            }
+            compose.waitUntil(5_000) { retainedView.topRow == 0 }
+            assertEquals("Live must not send remote navigation", liveBytes, files[0].length())
+            control(0, "agent-fleet-message-input").assertTextContains("Keep workspace draft")
+            capture("workspace-live-local")
+
             compose.onNodeWithTag("workspace-input-mode").performScrollTo().performClick()
             compose.onNodeWithTag("workspace-input-mode").assertTextContains("Composer")
             control(0, "terminal-letter-q").performScrollTo().performClick()

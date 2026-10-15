@@ -75,11 +75,25 @@ public final class TerminalView extends View {
     private PresentationState mPresentationState = PresentationState.READY;
     private final Handler mPresentationHandler = new Handler(Looper.getMainLooper());
     private boolean mShowLiveOffered;
+    private boolean mPresentationRevealed;
+    private boolean mReturnLiveTouch;
+    private final RectF mReturnLiveBounds = new RectF();
     private long mPresentationStarted;
     private long mSizeAppliedUptime;
     private int mPendingColumns, mPendingRows, mPendingCellWidth, mPendingCellHeight;
     private boolean mSizePending;
     private long mTerminalPaintCount;
+    private boolean mOutputDrawScheduled;
+    private final Runnable mDrawOutput = () -> { mOutputDrawScheduled = false; invalidate(); };
+    private void scheduleOutputDraw() {
+        // Revealing a busy stream must not turn each parser callback into a full paint.
+        // User scroll/selection/input invalidations remain immediate.
+        if (!mOutputDrawScheduled) {
+            mOutputDrawScheduled = true;
+            mPresentationHandler.postDelayed(mDrawOutput, 33);
+        }
+    }
+
     private final Paint mPresentationPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final RectF mShowLiveBounds = new RectF();
     public PresentationState getPresentationState() { return mPresentationState; }
@@ -87,7 +101,7 @@ public final class TerminalView extends View {
     public long getTerminalPaintCount() { return mTerminalPaintCount; }
 
     private void beginPresentation() {
-        if (mLocalScrollbackActive) return;
+        if (mLocalScrollbackActive || mPresentationRevealed) return;
         if (mPresentationState != PresentationState.LOADING) {
             mPresentationStarted = SystemClock.uptimeMillis();
             mShowLiveOffered = false;
@@ -101,6 +115,7 @@ public final class TerminalView extends View {
     public void showLive() {
         mPresentationHandler.removeCallbacks(mCheckPresentation);
         mPresentationState = PresentationState.READY;
+        mPresentationRevealed = true;
         mShowLiveOffered = false;
         invalidate();
         sendAccessibilityEvent(android.view.accessibility.AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED);
@@ -113,15 +128,13 @@ public final class TerminalView extends View {
                 showLive(); mPresentationState = PresentationState.FAILED; return;
             }
             long now = SystemClock.uptimeMillis();
-            if (!mSizePending && mEmulator != null && mTermSession.getOutputBytesProcessed() > 0
-                    && mTermSession.getPendingOutputBytes() == 0
-                    && now - Math.max(mTermSession.getLastOutputUptime(), mSizeAppliedUptime) >= 150) {
+            long elapsed = now - mPresentationStarted;
+            // The maximum cover deadline is independent of silence, bytes and size revisions.
+            if (elapsed >= 2000 || (!mSizePending && mEmulator != null
+                    && mTermSession.getOutputBytesProcessed() > 0
+                    && (elapsed >= 500 || (mTermSession.getPendingOutputBytes() == 0
+                    && now - Math.max(mTermSession.getLastOutputUptime(), mSizeAppliedUptime) >= 150)))) {
                 showLive(); return;
-            }
-            if (!mShowLiveOffered && now - mPresentationStarted >= 2000) {
-                mShowLiveOffered = true;
-                invalidate();
-                sendAccessibilityEvent(android.view.accessibility.AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED);
             }
             mPresentationHandler.postDelayed(this, 50);
         }
@@ -413,6 +426,9 @@ public final class TerminalView extends View {
         mTermSession = session;
         if (mInputBridge != null) mInputBridge.onTerminalTargetChanged(this, session);
         mEmulator = null;
+        mPresentationRevealed = false;
+        mPresentationState = PresentationState.READY;
+        mReturnLiveTouch = false;
         beginPresentation();
         mCombiningAccent = 0;
 
@@ -629,7 +645,7 @@ public final class TerminalView extends View {
 
         if (mLocalScrollbackActive) {
             mEmulator.clearScrollCounter();
-            invalidate();
+            scheduleOutputDraw();
             if (mAccessibilityEnabled) setContentDescription(getText());
             return;
         }
@@ -663,7 +679,7 @@ public final class TerminalView extends View {
             showLive(); mPresentationState = PresentationState.FAILED;
         }
         if (mPresentationState != PresentationState.LOADING) {
-            invalidate();
+            scheduleOutputDraw();
             if (mAccessibilityEnabled) setContentDescription(getText());
         }
     }
@@ -848,6 +864,7 @@ public final class TerminalView extends View {
     }
 
     public void returnToLiveTerminal() {
+        stopTextSelectionMode();
         leaveLocalHistory();
         mTopRow = 0;
         invalidate();
@@ -909,6 +926,15 @@ public final class TerminalView extends View {
     @Override
     @TargetApi(23)
     public boolean onTouchEvent(MotionEvent event) {
+        if (event.getActionMasked() == MotionEvent.ACTION_DOWN && isReadingTerminalHistory()
+                && mReturnLiveBounds.contains(event.getX(), event.getY())) mReturnLiveTouch = true;
+        if (mReturnLiveTouch) {
+            if (event.getActionMasked() == MotionEvent.ACTION_UP) {
+                if (isReadingTerminalHistory() && mReturnLiveBounds.contains(event.getX(), event.getY())) performClick();
+                mReturnLiveTouch = false;
+            } else if (event.getActionMasked() == MotionEvent.ACTION_CANCEL) mReturnLiveTouch = false;
+            return true;
+        }
         if (mPresentationState == PresentationState.LOADING) {
             if (mShowLiveOffered && event.getAction() == MotionEvent.ACTION_UP
                     && mShowLiveBounds.contains(event.getX(), event.getY())) performClick();
@@ -1397,16 +1423,41 @@ public final class TerminalView extends View {
             // render the text selection handles
             renderTextSelection();
         }
+        float density = getResources().getDisplayMetrics().density;
+        if (mEmulator == null || (mTermSession != null && mTermSession.getOutputBytesProcessed() == 0)) {
+            mPresentationPaint.setTextSize(12 * density);
+            mPresentationPaint.setColor(0xffe5e7eb);
+            mPresentationPaint.setTextAlign(Paint.Align.LEFT);
+            canvas.drawText(mEmulator == null ? "Waiting for terminal layout…" : "Waiting for terminal…", 8 * density, 18 * density, mPresentationPaint);
+        }
+        if (isReadingTerminalHistory()) {
+            mReturnLiveBounds.set(Math.max(0, getWidth() - 64 * density), 0, getWidth(), 48 * density);
+            mPresentationPaint.setColor(0xff263449);
+            canvas.drawRoundRect(mReturnLiveBounds, 6 * density, 6 * density, mPresentationPaint);
+            mPresentationPaint.setTextSize(14 * density);
+            mPresentationPaint.setTextAlign(Paint.Align.CENTER);
+            mPresentationPaint.setColor(0xffe5e7eb);
+            canvas.drawText("Live", mReturnLiveBounds.centerX(), 29 * density, mPresentationPaint);
+        } else mReturnLiveBounds.setEmpty();
+    }
+
+    private boolean isReadingTerminalHistory() {
+        return mLocalScrollbackActive || mTopRow < 0 || isSelectingText();
     }
 
     @Override public boolean performClick() {
         super.performClick();
+        if (isReadingTerminalHistory()) { returnToLiveTerminal(); showLive(); return true; }
         if (mPresentationState == PresentationState.LOADING && mShowLiveOffered) { showLive(); return true; }
         return false;
     }
 
     @Override public void onInitializeAccessibilityNodeInfo(AccessibilityNodeInfo info) {
         super.onInitializeAccessibilityNodeInfo(info);
+        if (isReadingTerminalHistory()) {
+            info.addAction(new AccessibilityNodeInfo.AccessibilityAction(AccessibilityNodeInfo.ACTION_CLICK, "Return to latest terminal output"));
+            info.setClickable(true);
+        }
         if (mPresentationState == PresentationState.LOADING) {
             info.setText(mShowLiveOffered ? "Preparing terminal. Show live" : "Preparing terminal");
             if (mShowLiveOffered) {
@@ -1417,7 +1468,8 @@ public final class TerminalView extends View {
     }
 
     @Override public boolean performAccessibilityAction(int action, Bundle args) {
-        if (action == AccessibilityNodeInfo.ACTION_CLICK && mPresentationState == PresentationState.LOADING && mShowLiveOffered)
+        if (action == AccessibilityNodeInfo.ACTION_CLICK && (isReadingTerminalHistory() ||
+                (mPresentationState == PresentationState.LOADING && mShowLiveOffered)))
             return performClick();
         return super.performAccessibilityAction(action, args);
     }
@@ -1855,6 +1907,8 @@ public final class TerminalView extends View {
     protected void onDetachedFromWindow() {
         super.onDetachedFromWindow();
         mPresentationHandler.removeCallbacks(mCheckPresentation);
+        mPresentationHandler.removeCallbacks(mDrawOutput);
+        mOutputDrawScheduled = false;
         mPresentationHandler.removeCallbacks(mApplySize);
         mSizePending = false;
 

@@ -52,6 +52,7 @@ class TerminalEntryPresentationTest {
             waitUi(60_000) { session.emulator?.screen?.transcriptText?.contains("SETTLED") == true }
             waitUi(10_000) { view.presentationState == TerminalView.PresentationState.READY }
             val stableMs = SystemClock.uptimeMillis() - started
+            compose.runOnUiThread { assertEquals("Fresh entry follows latest", 0, view.topRow) }
             var before = 0
             var after = 0
             compose.runOnUiThread {
@@ -72,7 +73,7 @@ class TerminalEntryPresentationTest {
             }
             assertTrue(updates > 0)
             assertEquals("Keep the same reading text as one new line enters history", before - 1, after)
-            assertTrue("Entry must not paint every output callback", view.terminalPaintCount < updates)
+            assertTrue("Entry must not paint every output callback", view.terminalPaintCount < updates / 2)
             var historyColumns = 0
             compose.runOnUiThread {
                 val event = android.view.MotionEvent.obtain(SystemClock.uptimeMillis(), SystemClock.uptimeMillis(), android.view.MotionEvent.ACTION_DOWN, 50f, 100f, 0)
@@ -100,6 +101,7 @@ class TerminalEntryPresentationTest {
                 assertEquals(snapshot, view.displayedEmulator().screen.transcriptText)
                 historyColumns = session.emulator.mColumns
                 view.setTextSize(28)
+                assertEquals("Warm resize stays readable", TerminalView.PresentationState.READY, view.presentationState)
             }
             waitUi(10_000) { session.emulator.mColumns != historyColumns }
             compose.runOnUiThread {
@@ -141,7 +143,7 @@ class TerminalEntryPresentationTest {
         java.io.File(compose.activity.externalMediaDirs.first(), "terminal-matched-times.txt").writeText(samples.joinToString("\n"))
     }
 
-    @Test fun busyTerminalOffersShowLiveAndFailureRevealsImmediately() {
+    @Test fun busyTerminalRevealsAutomaticallyAndFailureRevealsImmediately() {
         lateinit var view: TerminalView
         lateinit var session: TerminalSession
         compose.runOnUiThread {
@@ -154,26 +156,62 @@ class TerminalEntryPresentationTest {
             view.setTerminalViewClient(com.termux.app.fleet.WorkspaceTerminalViewClient {})
             view.setTextSize(26); compose.activity.setContentView(view); view.attachSession(session)
         }
+        val started = SystemClock.uptimeMillis()
         try {
-            waitUi(10_000) { view.isShowLiveOffered }
+            waitUi(2_800) { view.presentationState == TerminalView.PresentationState.READY }
             compose.runOnUiThread {
-                assertEquals(TerminalView.PresentationState.LOADING, view.presentationState)
-                assertEquals(0L, view.terminalPaintCount)
-                assertTrue(view.performClick())
-                assertEquals(TerminalView.PresentationState.READY, view.presentationState)
+                assertFalse(view.isShowLiveOffered)
+                assertEquals(0, view.topRow)
+                val bitmap = Bitmap.createBitmap(view.width, view.height, Bitmap.Config.ARGB_8888)
+                view.draw(Canvas(bitmap))
+                java.io.File(compose.activity.externalMediaDirs.first(), "terminal-busy-visible.png").outputStream().use { bitmap.compress(Bitmap.CompressFormat.PNG, 100, it) }
+                java.io.File(compose.activity.externalMediaDirs.first(), "terminal-busy-visible.txt").writeText("revealMs=${SystemClock.uptimeMillis()-started} parsedBytes=${session.outputBytesProcessed} queueBytes=${session.pendingOutputBytes} topRow=${view.topRow}")
                 view.setTextSize(28)
+                assertEquals(TerminalView.PresentationState.READY, view.presentationState)
                 session.finishIfRunning()
             }
             waitUi(10_000) { view.presentationState == TerminalView.PresentationState.FAILED }
         } finally { compose.runOnUiThread { session.finishIfRunning() } }
     }
 
+    @Test fun silentTerminalRevealsWithoutOutputAndKeepsTheDeadlineThroughResize() {
+        lateinit var view: TerminalView
+        lateinit var session: TerminalSession
+        val started = SystemClock.uptimeMillis()
+        compose.runOnUiThread {
+            session = TerminalSession("/system/bin/sh", "/", arrayOf("sh", "-c", "sleep 120"),
+                arrayOf("PATH=/system/bin", "TERM=xterm-256color"), 1000,
+                object : TermuxTerminalSessionClientBase() { override fun onTextChanged(session: TerminalSession) { view.onScreenUpdated() } })
+            view = TerminalView(compose.activity, null)
+            view.setTerminalViewClient(com.termux.app.fleet.WorkspaceTerminalViewClient {})
+            view.setTextSize(26); compose.activity.setContentView(view); view.attachSession(session)
+        }
+        try {
+            repeat(8) { sample ->
+                SystemClock.sleep(200)
+                compose.runOnUiThread { view.setTextSize(26 + sample % 2); view.updateSize() }
+            }
+            waitUi(1_200) { view.presentationState == TerminalView.PresentationState.READY }
+            compose.runOnUiThread {
+                assertEquals(0L, session.outputBytesProcessed)
+                assertEquals(0, view.topRow)
+                val bitmap = Bitmap.createBitmap(view.width, view.height, Bitmap.Config.ARGB_8888)
+                view.draw(Canvas(bitmap))
+                java.io.File(compose.activity.externalMediaDirs.first(), "terminal-silent-visible.png").outputStream().use { bitmap.compress(Bitmap.CompressFormat.PNG, 100, it) }
+                java.io.File(compose.activity.externalMediaDirs.first(), "terminal-silent-visible.txt").writeText("revealMs=${SystemClock.uptimeMillis()-started} parsedBytes=${session.outputBytesProcessed} queueBytes=${session.pendingOutputBytes}")
+            }
+        } finally { compose.runOnUiThread { session.finishIfRunning() } }
+    }
+
     @Test fun exitedProcessDrainsCompleteOutputTail() {
         lateinit var view: TerminalView
         lateinit var session: TerminalSession
+        val payload = (0 until 3000).joinToString("") { "tail-%04d\r\n".format(it) } + "TAIL_COMPLETE\r\n"
+        val started = SystemClock.uptimeMillis()
         compose.runOnUiThread {
             session = TerminalSession("/system/bin/sh", "/", arrayOf("sh", "-c",
-                "i=0; while [ \$i -lt 3000 ]; do printf 'tail-%04d\\r\\n' \$i; i=\$((i+1)); done; printf 'TAIL_COMPLETE\\r\\n'"),
+                // One bounded write exercises exit-tail draining without 3,000 shell printf invocations.
+                "printf '%s' '$payload'"),
                 arrayOf("PATH=/system/bin", "TERM=xterm-256color"), 4000,
                 object : TermuxTerminalSessionClientBase() {
                     override fun onTextChanged(session: TerminalSession) { view.onScreenUpdated() }
@@ -195,7 +233,11 @@ class TerminalEntryPresentationTest {
                 assertTrue(text.contains("TAIL_COMPLETE")); assertEquals(0, session.pendingOutputBytes)
                 assertEquals(TerminalView.PresentationState.FAILED, view.presentationState)
             }
-        } finally { compose.runOnUiThread { session.finishIfRunning() } }
+        } finally { compose.runOnUiThread {
+            java.io.File(compose.activity.externalMediaDirs.first(), "terminal-tail-state.txt").writeText(
+                "elapsedMs=${SystemClock.uptimeMillis()-started} pid=${session.pid} parsedBytes=${session.outputBytesProcessed} queueBytes=${session.pendingOutputBytes} tailComplete=${session.emulator?.screen?.transcriptText?.contains("TAIL_COMPLETE")} paints=${view.terminalPaintCount}")
+            session.finishIfRunning()
+        } }
     }
 
     @Test fun fragmentedUnicodeInputReachesPtyExactlyOnce() {

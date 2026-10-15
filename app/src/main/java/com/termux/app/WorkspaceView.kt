@@ -732,6 +732,13 @@ private fun WorkspacePaneView(
                     }
                 }
                 else -> key(agentFleetWorkspaceTarget(session)) {
+                    val terminalContext = LocalContext.current
+                    val retainedTerminal = remember { RetainedEmbeddedTerminal(terminalContext) }
+                    LaunchedEffect(session.hostId, session.internalName, session.tool) {
+                        retainedTerminal.scrollback.bind(session.hostId, session.internalName,
+                            session.tool in setOf("codex", "claude", "copilot"))
+                    }
+                    DisposableEffect(retainedTerminal) { onDispose { retainedTerminal.close() } }
                     // Retain the editor, uploads and launchers while Direct input is visible.
                     EmbeddedNative(
                         pane.id, session, broker, input,
@@ -742,7 +749,7 @@ private fun WorkspacePaneView(
                         onClose = { onClose(pane.id) }
                     )
                     if (terminalView) EmbeddedTerminal(
-                        session, broker, input, focused, Modifier.fillMaxSize().padding(top = 36.dp)
+                        session, broker, input, focused, retainedTerminal, Modifier.fillMaxSize().padding(top = 36.dp)
                     )
                 }
             }
@@ -851,24 +858,23 @@ private fun WorkspaceStatusDot(status: String) {
     )
 }
 
+private class RetainedEmbeddedTerminal(context: Context) {
+    val scrollback = TerminalScrollbackController(context.applicationContext)
+    var view: TerminalView? = null
+    fun close() { scrollback.close(); view?.setInputBridge(null); view = null }
+}
+
 @Composable
-private fun EmbeddedTerminal(session: FleetSession, broker: WorkspaceTerminalBroker, input: TerminalInputController, focused: Boolean, modifier: Modifier) {
+private fun EmbeddedTerminal(session: FleetSession, broker: WorkspaceTerminalBroker, input: TerminalInputController, focused: Boolean, retained: RetainedEmbeddedTerminal, modifier: Modifier) {
     val binding by broker.state(session.id)
     LaunchedEffect(session.id) { broker.attach(session) }
     val context = LocalContext.current
-    val scrollback = remember(session.id) { TerminalScrollbackController(context.applicationContext) }
-    LaunchedEffect(session.id, session.hostId, session.internalName, session.tool) {
-        scrollback.bind(
-            session.hostId,
-            session.internalName,
-            session.tool in setOf("codex", "claude", "copilot")
-        )
-    }
+    val scrollback = retained.scrollback
     DisposableEffect(scrollback) {
         scrollback.onStart()
-        onDispose { scrollback.close() }
+        onDispose { scrollback.onStop() }
     }
-    var view by remember(session.id) { mutableStateOf<TerminalView?>(null) }
+    var view by remember(session.id) { mutableStateOf(retained.view) }
     val observer = remember(session.id, binding.terminal) {
         object : TermuxTerminalSessionClientBase() {
             override fun onTextChanged(changedSession: TerminalSession) {
@@ -916,10 +922,11 @@ private fun EmbeddedTerminal(session: FleetSession, broker: WorkspaceTerminalBro
         AndroidView(
             modifier = Modifier.fillMaxSize(),
             factory = { androidContext ->
-                TerminalView(androidContext, null).apply {
+                (retained.view ?: TerminalView(androidContext, null).apply { setTextSize(26) }).apply {
+                    (parent as? ViewGroup)?.removeView(this)
+                    retained.view = this
                     setTerminalViewClient(WorkspaceTerminalViewClient { reference -> com.termux.app.fleet.HostFilePreviewActivity.open(androidContext, session, reference) })
                     setInputBridge(input)
-                    setTextSize(26)
                     setBackgroundColor(AndroidColor.BLACK)
                     isFocusableInTouchMode = true
                     view = this

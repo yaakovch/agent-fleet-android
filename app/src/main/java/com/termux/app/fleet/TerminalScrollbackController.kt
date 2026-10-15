@@ -192,13 +192,15 @@ class TerminalScrollbackController(context: Context) {
         lifecycleVisible = false
         generation++
         main.removeCallbacks(quietRequest)
-        terminalView?.clearLocalScrollback()
-        installedRevision = ""; installedBinding = ""; pendingPrepared = null
+        // A hidden same-target reader keeps its pinned representation. Generation revokes captures.
         openAfterCapture = false; refreshVisible = false
     }
 
     fun close() {
         onStop()
+        terminalView?.clearLocalScrollback()
+        terminalView?.setLocalHistoryListener(null)
+        installedRevision = ""; installedBinding = ""; pendingPrepared = null
         terminalView = null
     }
 
