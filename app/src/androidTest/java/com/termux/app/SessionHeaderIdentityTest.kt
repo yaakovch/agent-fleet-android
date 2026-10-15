@@ -23,6 +23,52 @@ import org.junit.runner.RunWith
 class SessionHeaderIdentityTest {
     @get:Rule val compose = createAndroidComposeRule<TerminalKeyboardTestHostActivity>()
 
+    @Test fun sameProjectThreadsKeepTheirOwnStatusAcrossNativeAndTerminal() {
+        var terminal by mutableStateOf(false)
+        var state by mutableStateOf(NativeSessionUiState("shared-daemon:1", "owned-host", "first-thread", adapter = "codex",
+            connection = "Live", sessionTopic = "First thread", workStatus = SessionWorkStatus("working", java.time.Instant.now().toString())))
+        compose.setContent {
+            AgentFleetTheme(darkTheme = true) {
+                Box(Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing)) {
+                if (terminal) AgentFleetTerminalSessionChrome(state.copy(viewMode = NativeViewMode.ManualTerminal), {}, {}, { _, _, _, _ -> }, {})
+                else NativeSessionScreen(state = state, aiComposer = true,
+                    onToggleTerminal = {}, onRetry = {}, onLoadOlder = {}, onApproval = { _, _ -> }, onQuestion = { _, _ -> },
+                    onShellCommand = {}, onShellKey = {}, onDirectory = {}, onRefreshDirectory = {}, onControlC = {},
+                    onCloseSession = {}, onKillSession = {}, onScheduleContinue = {}, onDismissAttention = {},
+                    localSuggestionsAvailableOverride = false, applyStatusBarInset = false)
+                }
+            }
+        }
+        fun capture(name: String) {
+            val automation = InstrumentationRegistry.getInstrumentation().uiAutomation
+            automation.waitForIdle(300, 5_000)
+            val bitmap = requireNotNull(automation.takeScreenshot())
+            val file = java.io.File(compose.activity.externalMediaDirs.first(), "session-identity/$name.png")
+            file.parentFile!!.mkdirs()
+            file.outputStream().use { bitmap.compress(Bitmap.CompressFormat.PNG, 100, it) }
+            bitmap.recycle()
+        }
+        compose.runOnIdle { state = state.copy(workStatus = SessionWorkStatus("working", java.time.Instant.now().toString())) }
+        capture("shared-daemon-working")
+        compose.onNodeWithText("Codex · Working").assertIsDisplayed()
+        compose.onNodeWithTag("session-topic").assertTextEquals("First thread")
+        compose.runOnIdle {
+            terminal = true
+            state = state.copy(sessionLabel = "shared-daemon:2", internalSession = "second-thread", sessionTopic = "Second thread",
+                workStatus = SessionWorkStatus("waiting", java.time.Instant.now().toString()))
+        }
+        compose.onNodeWithText("Codex · Waiting for input").assertIsDisplayed()
+        compose.onNodeWithTag("session-topic").assertTextEquals("Second thread")
+        capture("shared-daemon-waiting")
+        compose.runOnIdle {
+            terminal = false
+            state = state.copy(sessionLabel = "shared-daemon:1", internalSession = "first-thread", sessionTopic = "First thread",
+                workStatus = SessionWorkStatus("working", java.time.Instant.now().toString()))
+        }
+        compose.onNodeWithText("Codex · Working").assertIsDisplayed()
+        compose.onNodeWithTag("session-topic").assertTextEquals("First thread")
+    }
+
     @Test fun folderTopicAndWorkStatusStayOrderedAcrossBothViewsAndSizes() {
         var native by mutableStateOf(true)
         var narrow by mutableStateOf(false)

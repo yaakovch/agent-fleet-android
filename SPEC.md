@@ -989,3 +989,36 @@ The bundled runtime preserves the installed df99995 title-timeout fix and uses
 new component sequences93/84/54/25. Windows-backed providers without a verified
 lifecycle source report Unknown unless an advancing current Codex footer proves
 Working; silence cannot prove Waiting. This platform constraint avoids false state.
+
+
+# Shared Codex daemons and VS Code title activation — follow-up approved 2026-10-15
+
+The owner authorized implementation of the follow-up plan and chose safe reconnection
+of existing managed VS Code tabs, retaining tmux sessions, agents and history.
+Companion 0.2.5 remained installed on Work-m after its VS Code update; installing
+the runtime alone did not activate new titles.
+
+Use read-only metadata from existing Codex daemons, with one connection per profile
+inside the existing host collector. Validate daemon process incarnation and match
+the active native TUI title and exact project against the complete loaded inventory.
+Reject ambiguous names, missing evidence, thread switches, stale processes and
+incomplete native Windows profile inventories. Never start/resume a conversation or
+query its history. Support native Windows through its raw socket proxy. Keep the
+existing negotiated workStatus contract and freshness/idle budgets.
+
+Migrate existing managed legacy titles once per activation. Resolve the live target,
+capture its tmux incarnation, then create a replacement attachment with a random
+nonce. Dispose the original only after a host probe proves that nonce belongs to
+a live tmux client attached to the unchanged session with title schema 2 enabled.
+On failure retain the original. Preserve focus, tab/split placement and legacy
+restore compatibility. No user agent or tmux session may be restarted for migration.
+
+Validate host status and VS Code lifecycle first, Windows client second, Android
+emulator parity third. Include quiet work, idle, blocking versus async questions,
+same-project threads, duplicate titles, daemon/client replacement, failed attachment
+and expiry. Publish tested next app/runtime/Companion releases through existing
+lanes, preserve rollback and verify served artifacts. Phone installation/smoke is
+owner-operated; offline Work stays pending. Existing app-window reload decisions
+remain owner-controlled.
+
+Verified follow-up details: accept Codex0.160/0.162 exact ASCII title truncation (48-character thread,24-character project, three-dot suffix), rejecting collisions. Longer Unicode truncation/custom title layouts remain Unknown. Reject paged or changing loaded-thread inventories. Native Windows proxy launches use a native working directory. Isolated Work-m1.142 lifecycle and automatic legacy-title upgrade passed with user bindings unchanged; live native Windows Waiting and independent shared Linux states were observed.

@@ -645,7 +645,7 @@ private fun NativeSessionStatusLine(state: NativeSessionUiState, tickerActive: B
             "${compactProviderActivityLabel(exactActivity.label)} · ${formatWorkingDuration(exactActivityStartedAt, nowMillis)}"
         fallbackStartedAt != null -> "Working (${formatWorkingDuration(fallbackStartedAt, nowMillis)})"
         completedDuration != null -> "Worked for ${formatElapsedDuration(completedDuration)}"
-        else -> state.connection
+        else -> work.label
     }
     Text(
         "${prettyAdapter(state.adapter)} · $detail",

@@ -8,6 +8,14 @@ import java.time.Instant
 
 @RunWith(RobolectricTestRunner::class)
 class SessionWorkStatusTest {
+    @Test fun sameProjectDaemonThreadsTransitionAndExpireIndependently() {
+        val stamp = Instant.parse("2026-10-15T00:00:00Z").toEpochMilli()
+        val states = mutableListOf(SessionWorkStatus("working", Instant.ofEpochMilli(stamp).toString()),
+            SessionWorkStatus("waiting", Instant.ofEpochMilli(stamp + 2000).toString()))
+        assertEquals(listOf("↻", "○"), states.map { sessionWorkPresentation(it, true, stamp + 3000).symbol })
+        states[0] = SessionWorkStatus("waiting", Instant.ofEpochMilli(stamp + 4000).toString())
+        assertEquals(listOf("waiting", "unknown"), states.map { sessionWorkPresentation(it, true, stamp + 12000).state })
+    }
     @Test fun neverInfersWorkFromOutputRecencyOrConnection() {
         assertEquals("unknown", sessionWorkPresentation(null).state)
         assertEquals("offline", sessionWorkPresentation(null, false).state)
