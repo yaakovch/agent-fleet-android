@@ -147,6 +147,20 @@ class AgentFleetImageImportTest {
                 "--bin-dir", File(prefix, "bin").absolutePath, "--baseline"
             )
         )
+        // Match production provisioning: activate the mutable registry before
+        // setup. Otherwise setup creates fleet/machines inside the immutable
+        // runtime, breaking subsequent installer integrity checks.
+        val registry = File(context.cacheDir, descriptor.registry.file)
+        context.assets.open("agent-fleet/${descriptor.registry.file}").use { input ->
+            registry.outputStream().use(input::copyTo)
+        }
+        runTermux(context, listOf(
+            File(prefix, "bin/python3").absolutePath,
+            File(runtimeRoot, "current/scripts/wtmux-runtime").absolutePath,
+            "install-registry", "--bundle", registry.absolutePath, "--sha256", descriptor.registry.sha256,
+            "--root", runtimeRoot.absolutePath, "--config", File(home, ".config/wtmux/wtmux.conf").absolutePath,
+            "--preserve-current"
+        ))
         runTermux(
             context,
             listOf(

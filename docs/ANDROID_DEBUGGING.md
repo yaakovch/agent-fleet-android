@@ -462,3 +462,12 @@ Workspace view helpers can also select their target pane. Preserve the original 
 Camera and the dedicated Clear draft row are removed from both Terminal and Native Android composers. Attach, Insert and context-sensitive Enter/Send remain, with terminal shortcuts directly below the writing/action row. `TerminalDirectInputTest` asserts no spare layout row with empty/nonempty drafts, real Insert/Send/empty Enter taps exactly once above the IME, edit-to-empty persistence in the Native saved binding, a constrained200dp/1.6-font pane and actual landscape rotation. It uses the existing configuration-retaining debug host for that rotation. Allow normal button touch padding when comparing Send semantics with the shortcut row, while checking the complete field/action row has no spare space. Native screenshot goldens containing the composer need reviewed candidate updates after an intentional footer change; do not replace unrelated references.
 
 The far-right Direct profile toggle is functional: Terminal keys uses TYPE_NULL, while Compatibility exposes the Android IME text-editor/no-suggestions profile. Switching invalidates retained editors and restarts input. The app's own letter buttons keep the same canonical character path in either profile. Retain the keyboard-profile and stale-IME regressions.
+
+When a packaged-runtime fixture calls `setup.sh`, activate its verified bundled
+registry first, as production provisioning does. Without that step, setup can
+create `fleet/machines` inside the immutable runtime and a later installer must
+reject it. `AgentFleetImageImportTest` now provisions that dependency explicitly;
+running it with `AgentFleetEmbeddedRegistryTest` passes in either class order.
+Keep strict runtime-tree checks. Build Termux artifacts for the runtime root
+`/data/data/com.yaakovch.fleet/files/home/.local/share/agent-fleet/wtmux` (not the
+Termux executable prefix); `/data/user/0` is its equivalent Android spelling.
