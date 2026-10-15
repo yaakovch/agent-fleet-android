@@ -228,7 +228,10 @@ data class NativeSessionUiState(
     val modelControlError: String? = null,
     val conversationView: ConversationView = ConversationView.Conversation,
     val activityPages: Map<String, ActivityPage> = emptyMap(),
-    val attachmentRecovery: SessionAttachmentRecovery? = null
+    val attachmentRecovery: SessionAttachmentRecovery? = null,
+    val sessionTopic: String = "",
+    val workStatus: SessionWorkStatus? = null,
+    val hostAvailable: Boolean = true
 ) {
     val mutationsAllowed: Boolean get() = providerState.mutationsAllowed && attachmentRecovery == null
 }

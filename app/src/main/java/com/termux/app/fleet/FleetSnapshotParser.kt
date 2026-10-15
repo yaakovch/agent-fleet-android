@@ -60,7 +60,7 @@ object FleetSnapshotParser {
                         "id", "hostId", "internalName", "name", "title", "project", "tool", "backend", "activity",
                         "attached", "updatedAt", "pendingScheduleCount"
                     ),
-                    optional = setOf("nameMode", "projectPath", "locationKind", "physicalHostId", "executionTargetId")
+                    optional = setOf("nameMode", "projectPath", "locationKind", "physicalHostId", "executionTargetId", "workStatus")
                 )
                 require(session.has("projectPath") == session.has("locationKind")) { "Incomplete session path metadata" }
                 require(session.has("physicalHostId") == hasIdentityGraph && session.has("executionTargetId") == hasIdentityGraph) {
@@ -83,6 +83,14 @@ object FleetSnapshotParser {
                     tool = session.requiredString("tool", 32),
                     backend = session.requiredString("backend", 32),
                     activity = session.requiredString("activity", 32),
+                    workStatus = if (session.has("workStatus")) session.getJSONObject("workStatus").let {
+                        it.requireExactFields(setOf("state", "observedAt"))
+                        val status = it.requiredString("state", 16)
+                        require(status in SESSION_WORK_STATES) { "Invalid work status" }
+                        val observedAt = it.requiredString("observedAt", 40)
+                        java.time.Instant.parse(observedAt)
+                        SessionWorkStatus(status, observedAt)
+                    } else null,
                     attached = session.requiredBoolean("attached"),
                     updatedAt = session.optionalString("updatedAt", 40),
                     pendingScheduleCount = session.requiredInt("pendingScheduleCount", 0, 10_000),

@@ -33,7 +33,8 @@ internal fun bridgeHelpSupportsIdentityGraph(exitCode: Int, output: String): Boo
 internal fun snapshotBridgeArguments(
     titlesEnabled: Boolean,
     titlesSupported: Boolean = true,
-    identityGraphSupported: Boolean = true
+    identityGraphSupported: Boolean = true,
+    workStatusSupported: Boolean = false
 ): List<String> = buildList {
     add("--snapshot")
     // Cold client environments (first SSH handshakes over tailnet, endpoint
@@ -42,15 +43,18 @@ internal fun snapshotBridgeArguments(
     add("--startup-timeout")
     add("15")
     if (identityGraphSupported) add("--identity-graph")
+    if (workStatusSupported) add("--work-status")
     if (titlesEnabled && titlesSupported) add("--session-titles")
 }
 
 internal fun stdioBridgeArguments(
     titlesEnabled: Boolean,
     titlesSupported: Boolean = true,
-    identityGraphSupported: Boolean = true
+    identityGraphSupported: Boolean = true,
+    workStatusSupported: Boolean = false
 ): List<String> = buildList {
     add("--stdio")
     if (identityGraphSupported) add("--identity-graph")
+    if (workStatusSupported) add("--work-status")
     if (titlesEnabled && titlesSupported) add("--session-titles")
 }

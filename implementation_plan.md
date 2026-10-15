@@ -2267,3 +2267,33 @@ Android lifecycle constraint: switching a workspace pane to Native detaches its 
 The owner declined SPEC and requested Android five-hour/weekly reset timing before each profile's update age. Use authoritative existing reset timestamps; preserve percentages and last-updated meaning. Both clients show remaining time, an exact local reset date/time, unknown when missing/invalid, and reset due only at/after the timestamp. Do not reset usage or imply fresh data when a deadline passes. Android presents the two reset lines directly before update age and refreshes its clock while foreground Limits is visible; it stops the ticker when hidden/backgrounded. Windows retains compact countdown cells and provides the exact local reset time through native hover titles because desktop has hover and Android touch does not. No protocol, provider or host-runtime changes.
 
 Continue from clean beta.42/1719f91 and Android .117/c691d2dd on new fix/limits-reset-20261015 branches with recorded source reuse and sealed prior evidence. Windows first focused/typecheck/quality plus native packaged renderer acceptance; Android reproduce omitted lines, test formatter/timezones/boundaries/unknown/due and actual Limits navigation, placement before update age and large fonts. Run canonical local and clean-pushed signed full release gates, then publish beta.43 and .118/code1132 to existing lanes, verify served hashes and keep rollback. Phone smoke and Windows enrollment remain owner-operated/separate. The tmux/wtmux question is analysis only; attach behavior remains unchanged.
+
+
+# Session identity and work status — approved 2026-10-15
+
+Execution is authorized by “Implement the plan.” Existing stage decisions are inherited.
+
+Use folder/session first, topic second and host as secondary metadata across Android,
+Windows and VS Code. Show Working, Waiting, Needs attention, Stopped, Unknown and
+Offline distinctly. Keep legacy output-recency activity separate. Work status is
+optional, negotiated, timestamped and expires after ten seconds. Missing evidence
+means Unknown. Blocking input differs from asynchronous questions.
+
+One host collector shares bounded incremental provider observations and batched pane
+inspection. Refresh every two seconds, stop thirty seconds after demand disappears.
+Never launch per-tab conversation streams or use recent output as work evidence.
+Keep inventory independent of optional status failures. Titles use cached tmux options,
+without subprocess format expansion. Restore by immutable host/project/session with
+legacy title migration and live-inventory validation. Upgrade Companion compatibility
+before new title activation. Native progress is optional if safely supported.
+
+Validate Windows/VS Code first, Android second, including old-host compatibility,
+stale/source/process transitions, quiet work, async questions, layouts and restoration.
+Preserve existing dirty root, prior releases and sealed evidence. Publish tested updater
+lanes after their gates; no physical phone operations. Ask before first tailnet remote
+command. Baselines: runtime aece515, Android c7152d55 (.118), Windows 905a30d (beta.43).
+
+The bundled runtime preserves the installed df99995 title-timeout fix and uses
+new component sequences93/84/54/25. Windows-backed providers without a verified
+lifecycle source report Unknown unless an advancing current Codex footer proves
+Working; silence cannot prove Waiting. This platform constraint avoids false state.

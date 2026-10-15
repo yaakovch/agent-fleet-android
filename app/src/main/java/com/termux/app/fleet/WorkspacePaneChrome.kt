@@ -31,14 +31,15 @@ fun workspacePaneChrome(
         hasSessionActions = false, opening = true
     )
     if (!available) return WorkspacePaneChrome(
-        sessionIdentityPresentation(session).primary, "${session.hostId} · Host unavailable", modeBadge, "offline",
+        "× ${sessionIdentityPresentation(session).primary}", "${session.hostId} · Host unavailable", modeBadge, "offline",
         nativeEnabled = false, terminalEnabled = false, retryVisible = false,
         hasSessionActions = true, opening = false
     )
+    val work = sessionWorkPresentation(session.workStatus, available)
     val ready = attachmentStatus == "live" || attachmentStatus == "ended"
     return WorkspacePaneChrome(
-        sessionIdentityPresentation(session).primary,
-        "${session.hostId} · ${session.project} · $attachmentMessage",
+        "${work.symbol} ${sessionIdentityPresentation(session).primary}",
+        listOf(sessionIdentityPresentation(session).secondary, work.label, session.hostId, attachmentMessage).filter(String::isNotBlank).joinToString(" · "),
         modeBadge,
         attachmentStatus,
         nativeEnabled = ready && session.tool != "shell",

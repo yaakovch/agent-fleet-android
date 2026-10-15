@@ -189,6 +189,8 @@ class NativeSessionController @JvmOverloads constructor(
             NativeSessionSettings.isEnabled(activity.nativeContext) && (nextLocal || (host.isNotBlank() && session.isNotBlank()))
         val snapshot = FleetSnapshotStore.latestSnapshot()
         val metadata = DrawerSessionStore(activity.nativeContext.applicationContext).sessionFor(nextWorkspace)
+        val descriptor = snapshot?.sessions?.firstOrNull { it.hostId == host && it.internalName == session } ?: metadata
+        val identity = descriptor?.let(::sessionListPresentation)
         val binding = JSONArray(listOf(host, session, nextWorkspace, project, nextLocal.toString(),
             metadata?.tool.orEmpty(), metadata?.backend.orEmpty(), metadata?.executionTargetId.orEmpty(),
             metadata?.projectPath.orEmpty(), snapshot?.hosts?.firstOrNull { it.id == host }?.wtmuxVersion.orEmpty(),
@@ -199,7 +201,7 @@ class NativeSessionController @JvmOverloads constructor(
             if (intent?.getBooleanExtra(AgentFleetContract.EXTRA_NOTIFICATION_ENTRY, false) == true) focusNotification()
             if (uiState.value.conversationView != bindingView) restartForView()
             aiComposer = intent?.getBooleanExtra(AgentFleetContract.EXTRA_COMPOSE_INPUT, false) == true
-            uiState.value = uiState.value.copy(sessionLabel = label.ifBlank { uiState.value.sessionLabel })
+            uiState.value = uiState.value.copy(sessionLabel = identity?.primary ?: label.ifBlank { uiState.value.sessionLabel }, sessionTopic = identity?.secondary.orEmpty(), workStatus = descriptor?.workStatus)
             when (intent?.getStringExtra(AgentFleetContract.EXTRA_INITIAL_SURFACE)) {
                 AgentFleetContract.SURFACE_NATIVE -> applyViewMode(NativeViewMode.Native)
                 AgentFleetContract.SURFACE_TERMINAL -> applyViewMode(NativeViewMode.ManualTerminal)
@@ -230,11 +232,14 @@ class NativeSessionController @JvmOverloads constructor(
         enabled = nextEnabled
         completedQuestions.clear()
         uiState.value = NativeSessionUiState(
-            label.ifBlank { if (localSession) "Local shell" else "Session" },
+            identity?.primary ?: label.ifBlank { if (localSession) "Local shell" else "Session" },
             host,
             if (localSession) "local" else session,
             adapter = if (localSession) "shell" else cached?.adapter ?: "connecting",
             sourceMode = if (localSession) "shell" else "ai",
+            sessionTopic = identity?.secondary.orEmpty(),
+            workStatus = descriptor?.workStatus,
+            hostAvailable = localSession || snapshot?.hosts?.any { it.id == host && it.status == "healthy" } == true,
             connection = if (localSession) "Live" else if (cached?.items?.isNotEmpty() == true) "Refreshing…" else "Connecting…",
             items = cached?.items.orEmpty(),
             revision = cached?.revision.orEmpty(),
@@ -545,7 +550,7 @@ class NativeSessionController @JvmOverloads constructor(
             when (state) {
                 is FleetLoadState.Ready -> applyFleetSnapshot(state.snapshot)
                 is FleetLoadState.Unavailable -> if (uiState.value.attention == null) {
-                    uiState.value = uiState.value.copy(attentionError = state.reason)
+                    uiState.value = uiState.value.copy(attentionError = state.reason, hostAvailable = false, workStatus = null)
                 }
                 FleetLoadState.Loading -> Unit
             }
@@ -566,7 +571,10 @@ class NativeSessionController @JvmOverloads constructor(
         val attention = activeAttentionForSession(snapshot, sessionId, dismissedAttentionId)
         val sameAttention = attention?.id == uiState.value.attention?.id
         uiState.value = uiState.value.copy(
-            sessionLabel = session?.let(::sessionIdentityPresentation)?.primary ?: uiState.value.sessionLabel,
+            sessionLabel = session?.let(::sessionListPresentation)?.primary ?: uiState.value.sessionLabel,
+            sessionTopic = session?.let(::sessionListPresentation)?.secondary ?: uiState.value.sessionTopic,
+            workStatus = session?.workStatus,
+            hostAvailable = snapshot.hosts.any { it.id == uiState.value.hostId && it.status == "healthy" },
             attention = attention,
             attentionBusy = if (sameAttention) uiState.value.attentionBusy else false,
             attentionError = if (sameAttention) uiState.value.attentionError else null

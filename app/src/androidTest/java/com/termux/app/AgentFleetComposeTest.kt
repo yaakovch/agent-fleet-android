@@ -310,14 +310,14 @@ class AgentFleetComposeTest {
                 }
             }
         }
-        compose.onNodeWithTag("terminal-session-chrome").assertIsDisplayed().assertHeightIsEqualTo(96.dp)
-        compose.onNodeWithTag("compact-session-identity-row").assertHeightIsEqualTo(48.dp)
+        compose.onNodeWithTag("terminal-session-chrome").assertIsDisplayed().assertHeightIsEqualTo(112.dp)
+        compose.onNodeWithTag("compact-session-identity-row").assertHeightIsAtLeast(64.dp)
         compose.onNodeWithTag("compact-session-control-row").assertHeightIsEqualTo(48.dp)
         val identity = compose.onNodeWithTag("compact-session-identity-row").fetchSemanticsNode().boundsInRoot
         val controls = compose.onNodeWithTag("compact-session-control-row").fetchSemanticsNode().boundsInRoot
         assertTrue(identity.bottom <= controls.top)
         compose.onNodeWithText("Working fixture").assertIsDisplayed()
-        compose.onNodeWithText("Codex · Live").assertIsDisplayed()
+        compose.onNodeWithText("Codex · Unknown").assertIsDisplayed()
         compose.onNodeWithText("Native").assertIsDisplayed()
         compose.onNodeWithText("Actions").performClick()
         compose.onNodeWithText("Ctrl+C").performClick()
@@ -373,11 +373,11 @@ class AgentFleetComposeTest {
                 )
             }
 
-            compose.onNodeWithTag("native-session-header").assertIsDisplayed().assertHeightIsEqualTo(96.dp)
-            compose.onNodeWithTag("compact-session-identity-row").assertHeightIsEqualTo(48.dp)
+            compose.onNodeWithTag("native-session-header").assertIsDisplayed().assertHeightIsEqualTo(112.dp)
+            compose.onNodeWithTag("compact-session-identity-row").assertHeightIsAtLeast(64.dp)
             compose.onNodeWithTag("compact-session-control-row").assertHeightIsEqualTo(48.dp)
             compose.onNodeWithText(title).assertIsDisplayed()
-            compose.onNodeWithText("Codex · Live").assertIsDisplayed()
+            compose.onNodeWithText("Codex · Unknown").assertIsDisplayed()
             compose.onNodeWithText(modelLabel).assertIsDisplayed()
             compose.onNodeWithText("Actions").assertIsDisplayed()
             compose.onNodeWithText("Terminal").assertIsDisplayed()
@@ -397,6 +397,7 @@ class AgentFleetComposeTest {
     fun nativeHeaderRowsDoNotOverlapAtThePhoneFontScale() {
         val state = NativeSessionUiState(
             "wtmux:1", "gaming", "wtmux-main", adapter = "codex", connection = "Live",
+            workStatus = com.termux.app.fleet.SessionWorkStatus("working", java.time.Instant.now().toString()),
             optimisticWorkStartedAt = System.currentTimeMillis() - 70L * 60L * 1_000L,
             modelControl = FleetModelControlState(
                 sessionId = "gaming:wtmux-main", configRevision = "0123456789abcdef", tool = "codex", status = "ready",
@@ -411,8 +412,8 @@ class AgentFleetComposeTest {
             }
         }
 
-        compose.onNodeWithTag("native-session-header").assertHeightIsEqualTo(96.dp)
-        compose.onNodeWithTag("compact-session-identity-row").assertHeightIsEqualTo(48.dp)
+        compose.onNodeWithTag("native-session-header").assertHeightIsAtLeast(136.dp)
+        compose.onNodeWithTag("compact-session-identity-row").assertHeightIsAtLeast(64.dp)
         compose.onNodeWithTag("compact-session-control-row").assertHeightIsEqualTo(48.dp)
         val header = compose.onNodeWithTag("native-session-header").fetchSemanticsNode().boundsInRoot
         val identity = compose.onNodeWithTag("compact-session-identity-row").fetchSemanticsNode().boundsInRoot
@@ -440,7 +441,7 @@ class AgentFleetComposeTest {
     }
 
     @Test
-    fun terminalHeaderTransitionsFromAProviderWorkingEventToCompletedDuration() {
+    fun terminalHeaderUsesFreshWorkObservationsRatherThanHistoricalEvents() {
         val state = mutableStateOf(
             NativeSessionUiState("wtmux:1", "gaming", "wtmux-main", adapter = "codex", connection = "Live")
         )
@@ -449,7 +450,7 @@ class AgentFleetComposeTest {
                 AgentFleetTerminalSessionChrome(state.value, {}, {}, { _, _, _, _ -> }, {})
             }
         }
-        compose.onNodeWithText("Codex · Live").assertIsDisplayed()
+        compose.onNodeWithText("Codex · Unknown").assertIsDisplayed()
         compose.runOnIdle {
             state.value = state.value.copy(items = listOf(ConversationItem(
                 id = "working", kind = "status", timestamp = "2026-07-19T11:23:18Z", role = "",
@@ -457,22 +458,28 @@ class AgentFleetComposeTest {
                 attachments = emptyList(), choices = emptyList()
             )))
         }
+        // Historical transcript rows do not prove the current agent is working.
+        compose.onNodeWithText("Codex · Unknown").assertIsDisplayed()
+        compose.runOnIdle {
+            state.value = state.value.copy(workStatus = com.termux.app.fleet.SessionWorkStatus("working", java.time.Instant.now().toString()))
+        }
         compose.onNodeWithText("Codex · Working (", substring = true).assertIsDisplayed()
         compose.runOnIdle {
-            state.value = state.value.copy(items = state.value.items + ConversationItem(
+            state.value = state.value.copy(workStatus = com.termux.app.fleet.SessionWorkStatus("waiting", java.time.Instant.now().toString()), items = state.value.items + ConversationItem(
                 id = "done", kind = "status", timestamp = "2026-07-19T11:31:00Z", role = "",
                 title = "Done", text = "", detail = "", state = "complete", tool = "codex",
                 attachments = emptyList(), choices = emptyList(),
                 startedAt = "2026-07-19T11:23:20Z", completedAt = "2026-07-19T11:31:00Z"
             ))
         }
-        compose.onNodeWithText("Codex · Worked for 7m 40s").assertIsDisplayed()
+        compose.onNodeWithText("Codex · Waiting for input").assertIsDisplayed()
     }
 
     @Test
     fun nativeShowsLiveWorkingTime() {
         val state = NativeSessionUiState(
             "Working fixture", "gaming", "wtmux-main", adapter = "codex", connection = "Live",
+            workStatus = com.termux.app.fleet.SessionWorkStatus("working", java.time.Instant.now().toString()),
             optimisticWorkStartedAt = System.currentTimeMillis() - 2_000L
         )
         compose.setContent { NativeStateFixture(state) }
@@ -483,6 +490,7 @@ class AgentFleetComposeTest {
     fun nativeKeepsTheCompactCodexPhaseAndHostCounterVisible() {
         val state = NativeSessionUiState(
             "Working fixture", "gaming", "wtmux-main", adapter = "codex", connection = "Live",
+            workStatus = com.termux.app.fleet.SessionWorkStatus("working", java.time.Instant.now().toString()),
             providerActivity = ProviderActivity(
                 "Waiting for background terminal", 617,
                 "2026-07-19T17:00:00Z", System.currentTimeMillis()

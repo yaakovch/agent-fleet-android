@@ -122,6 +122,7 @@ import com.termux.app.fleet.NativeSessionSettings
 import com.termux.app.fleet.NativeSessionRegistry
 import com.termux.app.fleet.AutomaticSessionTitleSettings
 import com.termux.app.fleet.sessionIdentityPresentation
+import com.termux.app.fleet.rememberSessionWorkPresentation
 import com.termux.app.fleet.sessionListPresentation
 import com.termux.app.fleet.transportHostId
 import com.termux.app.fleet.physicalHostRecoveryDetail
@@ -1361,7 +1362,7 @@ fun AgentFleetApp(
     ) { padding ->
         when (section) {
             FleetSection.Sessions -> SessionsScreen(padding, fleetState, visibleSessions, localAttachments, onRefresh, onOpenSession, { actionSession = it.id; actionPane = null }, { showCreateSession = true }, { showPairing = true })
-            FleetSection.Terminal -> TerminalScreen(padding, recentSessions, onOpenSession, onOpenAppearance)
+            FleetSection.Terminal -> TerminalScreen(padding, recentSessions, fleetState, onOpenSession, onOpenAppearance)
             FleetSection.Limits -> LimitsScreen(padding, fleetState, onScheduleAttention, onDismissAttention)
             FleetSection.More -> MoreScreen(
                 padding,
@@ -1762,6 +1763,7 @@ private fun SessionCard(
     onMore: () -> Unit
 ) {
     val identity = sessionListPresentation(session)
+    val work = rememberSessionWorkPresentation(session.workStatus, available)
     Card(
         modifier = Modifier.fillMaxWidth().testTag("session-${session.id}"),
         shape = RoundedCornerShape(14.dp),
@@ -1769,15 +1771,15 @@ private fun SessionCard(
     ) {
         Column(Modifier.padding(4.dp), verticalArrangement = Arrangement.spacedBy(3.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                StatusDot(if (available && session.activity == "active") ReadyGreen else QuietGray)
+                Text(work.symbol, modifier = Modifier.testTag("session-work-symbol"), color = if (work.state == "working") ReadyGreen else QuietGray)
                 Spacer(Modifier.size(6.dp))
                 Column(Modifier.weight(1f)) {
                     Text(identity.primary, fontSize = 13.sp, fontWeight = FontWeight.Bold)
                     if (identity.secondary.isNotBlank()) Text(identity.secondary, fontWeight = FontWeight.Normal, fontSize = 11.sp, maxLines = 1, overflow = TextOverflow.Ellipsis, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
                 Text(
-                    if (!available) "Unavailable" else if (session.activity == "active") "Active" else "Idle",
-                    color = if (available && session.activity == "active") ReadyGreen else QuietGray,
+                    work.label,
+                    color = if (work.state == "working") ReadyGreen else QuietGray,
                     fontWeight = FontWeight.SemiBold, fontSize = 12.sp
                 )
             }
@@ -2491,9 +2493,12 @@ internal fun FleetUnavailableCard(state: FleetLoadState.Unavailable, onRefresh: 
 private fun TerminalScreen(
     padding: PaddingValues,
     recentSessions: List<FleetSession>,
+    fleetState: FleetLoadState,
     onOpenSession: (FleetSession) -> Unit,
     onOpenAppearance: () -> Unit
 ) {
+    val snapshot = (fleetState as? FleetLoadState.Ready)?.snapshot
+    val liveSessions = snapshot?.sessions?.associateBy { it.id }.orEmpty()
     LazyColumn(
         modifier = Modifier.fillMaxSize().padding(padding).testTag("terminal-screen"),
         contentPadding = PaddingValues(18.dp),
@@ -2513,9 +2518,14 @@ private fun TerminalScreen(
         if (recentSessions.isEmpty()) {
             item { EmptyState("Your opened fleet sessions will appear here.") }
         } else {
-            items(recentSessions, key = { it.id }) { session ->
+            items(recentSessions, key = { it.id }) { saved ->
+                val session = liveSessions[saved.id] ?: saved.copy(workStatus = null)
+                val available = snapshot?.let { liveSessions[saved.id] != null && isFleetSessionAvailable(it, session) } == true
+                val work = rememberSessionWorkPresentation(session.workStatus, available)
                 Card(shape = RoundedCornerShape(18.dp), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)) {
                     Row(Modifier.fillMaxWidth().padding(18.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Text(work.symbol, modifier = Modifier.semantics { contentDescription = work.label })
+                        Spacer(Modifier.size(8.dp))
                         Column(Modifier.weight(1f)) {
                             val identity = sessionListPresentation(session)
                             Text(identity.primary, fontSize = 19.sp, fontWeight = FontWeight.Bold)

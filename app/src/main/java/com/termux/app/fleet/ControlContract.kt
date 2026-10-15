@@ -52,7 +52,7 @@ object ControlContract {
         if (params.has("tool")) require(params.requiredString("tool") in setOf("shell", "codex", "claude", "copilot"))
         if (params.has("locationKind")) require(params.requiredString("locationKind") in setOf("project", "custom"))
         if (params.has("action")) require(params.get("action") == "continue")
-        listOf("includeSessionTitles", "includeHidden", "includeCatalog", "custom", "historyImpactAcknowledged").forEach { key ->
+        listOf("includeWorkStatus", "includeSessionTitles", "includeHidden", "includeCatalog", "custom", "historyImpactAcknowledged").forEach { key ->
             if (params.has(key)) require(params.get(key) is Boolean) { "$key is invalid" }
         }
         if (params.has("deliverAt")) requireInstant(params.requiredString("deliverAt"))

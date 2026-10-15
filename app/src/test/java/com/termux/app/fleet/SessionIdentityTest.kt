@@ -13,24 +13,24 @@ class SessionIdentityTest {
     )
 
     @Test fun automaticUsesSmartPrimaryAndStableSecondary() {
-        assertEquals("Fix Android session titles", sessionIdentityPresentation(session).primary)
-        assertEquals("demo:1 · host · demo", sessionIdentityPresentation(session).secondary)
+        assertEquals("demo:1", sessionIdentityPresentation(session).primary)
+        assertEquals("Fix Android session titles", sessionIdentityPresentation(session).secondary)
     }
 
     @Test fun manualOverrideSuppressesAutomaticTitleInCompactUi() {
         val presentation = sessionIdentityPresentation(session.copy(name = "Release work", nameMode = "manual"))
-        assertEquals("Release work", presentation.primary)
-        assertEquals("host · demo", presentation.secondary)
+        assertEquals("demo", presentation.primary)
+        assertEquals("Release work", presentation.secondary)
     }
 
     @Test fun inheritedTitleIsWordSafelyCappedWithoutChangingManualNames() {
         val longTitle = "Use the reclaimed native session space without allowing inherited titles to crowd the controls"
         val automatic = sessionIdentityPresentation(session.copy(title = longTitle))
-        assertEquals("Use the reclaimed native session space…", automatic.primary)
-        assertTrue(automatic.primary.length <= MAX_INHERITED_SESSION_TITLE_CHARS)
+        assertEquals("Use the reclaimed native session space…", automatic.secondary)
+        assertTrue(automatic.secondary.length <= MAX_INHERITED_SESSION_TITLE_CHARS)
         assertEquals(longTitle, sessionIdentityPresentation(
             session.copy(name = longTitle, title = "ignored", nameMode = "manual")
-        ).primary)
+        ).secondary)
         val emoji = inheritedSessionTitle("🙂".repeat(60))
         assertEquals(48, emoji.codePointCount(0, emoji.length))
         assertTrue(emoji.endsWith("…"))

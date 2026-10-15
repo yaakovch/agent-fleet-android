@@ -489,25 +489,27 @@ private fun CompactSessionHeader(
     Surface(
         modifier = modifier
             .fillMaxWidth()
-            .height(dimensionResource(com.termux.R.dimen.agent_fleet_compact_session_header_height))
+            .heightIn(min = dimensionResource(com.termux.R.dimen.agent_fleet_compact_session_header_height) + (48 * (androidx.compose.ui.platform.LocalDensity.current.fontScale - 1).coerceAtLeast(0f)).dp)
             .testTag(headerTag),
         color = MaterialTheme.colorScheme.background,
         tonalElevation = 2.dp
     ) {
-        Column(Modifier.fillMaxSize().padding(start = 12.dp, end = 5.dp)) {
+        Column(Modifier.fillMaxWidth().padding(start = 12.dp, end = 5.dp)) {
             Row(
-                Modifier.fillMaxWidth().height(48.dp).testTag("compact-session-identity-row"),
+                Modifier.fillMaxWidth().heightIn(min = 64.dp).testTag("compact-session-identity-row"),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(4.dp)
             ) {
                 Column(Modifier.weight(1f)) {
-                    Text(
-                        state.sessionLabel,
-                        fontSize = 13.sp,
-                        fontWeight = FontWeight.Bold,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
-                    )
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        val work = rememberSessionWorkPresentation(state.workStatus, state.hostAvailable, tickerActive)
+                        Text(work.symbol, fontSize = 13.sp, modifier = Modifier.padding(end = 4.dp).semantics { contentDescription = work.label })
+                        Text(state.sessionLabel, fontSize = 13.sp, fontWeight = FontWeight.Bold,
+                            maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
+                    }
+                    if (state.sessionTopic.isNotBlank()) Text(state.sessionTopic,
+                        fontSize = 12.sp, fontWeight = FontWeight.Normal, maxLines = 1,
+                        overflow = TextOverflow.Ellipsis, modifier = Modifier.testTag("session-topic"))
                     val recovery = state.attachmentRecovery
                     if (recovery == null) NativeSessionStatusLine(state, tickerActive)
                     else Row(Modifier.fillMaxWidth().height(20.dp).testTag("session-attachment-recovery"), verticalAlignment = Alignment.CenterVertically) {
@@ -636,7 +638,9 @@ private fun NativeSessionStatusLine(state: NativeSessionUiState, tickerActive: B
             delay(1_000)
         }
     }
+    val work = rememberSessionWorkPresentation(state.workStatus, state.hostAvailable, tickerActive)
     val detail = when {
+        work.state != "working" -> work.label + if (state.connection != "Live") " · ${state.connection}" else ""
         exactActivity != null && exactActivityStartedAt != null ->
             "${compactProviderActivityLabel(exactActivity.label)} · ${formatWorkingDuration(exactActivityStartedAt, nowMillis)}"
         fallbackStartedAt != null -> "Working (${formatWorkingDuration(fallbackStartedAt, nowMillis)})"
@@ -646,7 +650,7 @@ private fun NativeSessionStatusLine(state: NativeSessionUiState, tickerActive: B
     Text(
         "${prettyAdapter(state.adapter)} · $detail",
         fontSize = 10.sp,
-        color = if (workingStartedAt != null || completedDuration != null || state.connection == "Live") ReadyGreen else MaterialTheme.colorScheme.onSurfaceVariant,
+        color = if (work.state == "working") ReadyGreen else MaterialTheme.colorScheme.onSurfaceVariant,
         maxLines = 1,
         overflow = TextOverflow.Ellipsis,
         modifier = Modifier.testTag("native-session-status")

@@ -118,7 +118,8 @@ class FleetRuntime(private val context: Context) {
     private data class BridgeOptionSupport(
         val identity: String,
         val sessionTitles: Boolean,
-        val identityGraph: Boolean
+        val identityGraph: Boolean,
+        val workStatus: Boolean = false
     )
 
     private data class RepositoryBridge(
@@ -175,7 +176,8 @@ class FleetRuntime(private val context: Context) {
         val process = ProcessBuilder(listOf(python.absolutePath, bridge.absolutePath) + snapshotBridgeArguments(
             titlesEnabled,
             !titlesEnabled || support.sessionTitles,
-            support.identityGraph
+            support.identityGraph,
+            support.workStatus
         ))
             .directory(userHome)
             .redirectErrorStream(true)
@@ -882,7 +884,8 @@ class FleetRuntime(private val context: Context) {
         val process = ProcessBuilder(listOf(python.absolutePath, bridge.absolutePath) + stdioBridgeArguments(
             titlesEnabled,
             !titlesEnabled || support.sessionTitles,
-            support.identityGraph
+            support.identityGraph,
+            support.workStatus
         ))
             .directory(userHome)
             .redirectErrorStream(true)
@@ -1290,7 +1293,8 @@ class FleetRuntime(private val context: Context) {
         BridgeOptionSupport(
             identity,
             sessionTitles = valid && bridgeHelpSupportsSessionTitles(process.exitValue(), help),
-            identityGraph = valid && bridgeHelpSupportsIdentityGraph(process.exitValue(), help)
+            identityGraph = valid && bridgeHelpSupportsIdentityGraph(process.exitValue(), help),
+            workStatus = valid && process.exitValue() == 0 && "--work-status" in help
         )
     }.getOrDefault(BridgeOptionSupport(identity, sessionTitles = false, identityGraph = false))
 

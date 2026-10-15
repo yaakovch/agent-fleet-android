@@ -130,6 +130,7 @@ import com.termux.app.fleet.WorkspaceViewMode
 import com.termux.app.fleet.agentFleetWorkspaceTarget
 import com.termux.app.fleet.agentFleetWorkspaceImageCapacity
 import com.termux.app.fleet.isFleetSessionAvailable
+import com.termux.app.fleet.rememberSessionWorkPresentation
 import com.termux.app.fleet.sessionIdentityPresentation
 import com.termux.app.fleet.workspacePanes
 import com.termux.app.fleet.workspacePaneChrome
@@ -362,7 +363,8 @@ fun DesktopWorkspaceScreen(
                                 Column(Modifier.fillMaxWidth().padding(10.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                                     Row(verticalAlignment = Alignment.CenterVertically) {
                                         Column(Modifier.weight(1f)) {
-                                            Text(sessionIdentityPresentation(session).primary, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                            val work = rememberSessionWorkPresentation(session.workStatus, available)
+                                            Text("${work.symbol} ${sessionIdentityPresentation(session).primary}", fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
                                             Text(
                                                 if (available) sessionIdentityPresentation(session).secondary else "Unavailable",
                                                 fontSize = 12.sp,

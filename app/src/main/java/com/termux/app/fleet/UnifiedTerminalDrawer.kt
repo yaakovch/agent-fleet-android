@@ -51,6 +51,8 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
@@ -607,6 +609,7 @@ private fun RemoteDrawerRow(
         onLeftAction = onRevealKill
     ) {
         val identity = sessionListPresentation(row.session)
+        val work = rememberSessionWorkPresentation(row.session.workStatus, row.available)
         val borderColor = if (active) MaterialTheme.colorScheme.primary else Color.Transparent
         Row(
             Modifier.fillMaxWidth().padding(horizontal = 6.dp, vertical = 1.dp)
@@ -628,6 +631,7 @@ private fun RemoteDrawerRow(
             Column(Modifier.padding(start = 8.dp).weight(1f)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     if (row.pinned) Text("★ ", color = MaterialTheme.colorScheme.primary, fontSize = density.drawerMetadataSp.sp)
+                    Text(work.symbol, modifier = Modifier.padding(end = 4.dp).semantics { contentDescription = work.label })
                     Text(identity.primary, Modifier.weight(1f), fontSize = density.drawerTitleSp.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 }
                 val location = listOf(identity.secondary, hostName).filter(String::isNotBlank).joinToString(" · ")

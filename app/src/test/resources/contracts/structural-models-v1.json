@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "packageVersion": "1.14.0",
+  "packageVersion": "1.15.0",
   "protocolVersions": {
     "control": 1,
     "conversation": 2,
@@ -748,7 +748,8 @@
       "required": [],
       "optional": [
         "includeIdentityGraph",
-        "includeSessionTitles"
+        "includeSessionTitles",
+        "includeWorkStatus"
       ],
       "rejectUnknown": true
     },
@@ -1400,8 +1401,18 @@
         "locationKind",
         "nameMode",
         "physicalHostId",
-        "projectPath"
+        "projectPath",
+        "workStatus"
       ],
+      "rejectUnknown": true
+    },
+    {
+      "id": "fleet-snapshot-v1:#/$defs/workStatus",
+      "required": [
+        "observedAt",
+        "state"
+      ],
+      "optional": [],
       "rejectUnknown": true
     },
     {
@@ -2206,7 +2217,8 @@
       "required": [],
       "optional": [
         "includeIdentityGraph",
-        "includeSessionTitles"
+        "includeSessionTitles",
+        "includeWorkStatus"
       ]
     },
     "protocol.capabilities": {

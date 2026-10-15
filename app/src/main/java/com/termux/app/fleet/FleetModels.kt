@@ -64,7 +64,8 @@ data class FleetSession(
     val locationKind: String = "project",
     val nameMode: String = "automatic",
     val physicalHostId: String = hostId,
-    val executionTargetId: String = if (backend == "windows") "windows" else "linux"
+    val executionTargetId: String = if (backend == "windows") "windows" else "linux",
+    val workStatus: SessionWorkStatus? = null
 )
 
 data class FleetDirectoryEntry(val name: String, val path: String)
@@ -313,14 +314,7 @@ internal fun inheritedSessionTitle(value: String): String {
 }
 
 fun sessionIdentityPresentation(session: FleetSession): FleetSessionIdentity {
-    val automatic = session.nameMode != "manual"
-    val primary = if (automatic && session.title.isNotBlank()) inheritedSessionTitle(session.title) else session.name
-    val secondary = if (automatic && session.title.isNotBlank()) {
-        listOf(session.name, session.hostId, session.project).filter(String::isNotBlank).joinToString(" · ")
-    } else {
-        listOf(session.hostId, session.project).filter(String::isNotBlank).joinToString(" · ")
-    }
-    return FleetSessionIdentity(primary, secondary, session.name)
+    return sessionListPresentation(session)
 }
 
 /** List labels put the stable folder/session label before the descriptive title. */
