@@ -1022,3 +1022,31 @@ owner-operated; offline Work stays pending. Existing app-window reload decisions
 remain owner-controlled.
 
 Verified follow-up details: accept Codex0.160/0.162 exact ASCII title truncation (48-character thread,24-character project, three-dot suffix), rejecting collisions. Longer Unicode truncation/custom title layouts remain Unknown. Reject paged or changing loaded-thread inventories. Native Windows proxy launches use a native working directory. Isolated Work-m1.142 lifecycle and automatic legacy-title upgrade passed with user bindings unchanged; live native Windows Waiting and independent shared Linux states were observed.
+
+
+## Android Direct defaults to the Android keyboard — authorized 2026-10-15
+
+The owner requested direct implementation of the missing keyboard revision (existing
+SPEC-first decline is inherited). Entering Direct opens the Android IME by default
+and displays only the existing shortcut strip. Its pinned keyboard action switches
+to the three horizontally scrolling English letter rows, hiding the IME; switching
+back hides those rows and opens the IME. The two letter keyboards do not share the
+screen. Back may dismiss input without submitting text. Keep modifier, compatibility,
+connection, focus, attachment and captured-generation checks; preserve draft,
+attachments, reading view and unfinished IME text. New Direct entry resets to the
+entry preference, while recreation retains an explicit layout selection. Migrate
+legacy entry preferences to Android-visible once; subsequent settings choices
+remain authoritative. A hidden entry preference starts with just the strip.
+
+This is Android-specific touch/IME behavior. Windows uses hardware/xterm input and
+needs no new release; no shared protocol or runtime change is needed. Continue from
+clean .120/d9c81379 in the existing warm isolated Android worktree on
+fix/direct-android-keyboard-default-20261015, preserving the .120 branch/artifacts
+and unrelated root changes. Reproduce the redundant letter rows with the IME open
+before production edits. Verify real default entry, fresh workspace shells, explicit
+letter reveal/return, exact PTY bytes, preedit retention and stale callback rejection,
+settings migration, state restoration, portrait, physical landscape, 200dp panes and
+large fonts. Run focused regressions, canonical local quality, then the clean-pushed
+signed-release pipeline with the full protected API36 suite. Publish .121 through
+fleet/latest after all gates, retain .120 rollback and verify served signed APKs.
+Leave phone installation and final usability smoke to the owner.

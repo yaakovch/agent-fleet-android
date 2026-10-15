@@ -20,6 +20,8 @@ class TerminalInputController : TerminalInputBridge {
         private set
     var keyboardDismissed by mutableStateOf(true)
         private set
+    var letterKeysVisible by mutableStateOf(false)
+        private set
     var keyboardReady by mutableStateOf(false)
         private set
     private var selectingSurface by mutableStateOf(false)
@@ -49,7 +51,7 @@ class TerminalInputController : TerminalInputBridge {
     var onDirect: () -> Unit = {}
     var onComposer: () -> Unit = {}
     var onKeyboard: () -> Unit = {}
-    var systemImeOnEntry: () -> Boolean = { false }
+    var systemImeOnEntry: () -> Boolean = { true }
     var beforeKey: () -> Unit = {}
     var send: (String, Int) -> Boolean = { _, _ -> false }
 
@@ -65,6 +67,7 @@ class TerminalInputController : TerminalInputBridge {
         direct = !ai
         compatibility = false
         terminalSurface = false
+        letterKeysVisible = false
         keyboardDismissed = !(direct && systemImeOnEntry())
         modifiers = 0
         invalidateInput()
@@ -112,6 +115,7 @@ class TerminalInputController : TerminalInputBridge {
         freezeComposition()
         direct = true
         terminalSurface = false
+        letterKeysVisible = false
         keyboardDismissed = !(useEntryPreference && systemImeOnEntry())
         invalidateInput()
         onDirect()
@@ -124,12 +128,14 @@ class TerminalInputController : TerminalInputBridge {
         previousNative = true
         modifiers = 0
         direct = false
+        letterKeysVisible = false
         invalidateInput()
     }
 
     fun chooseComposer() {
         modifiers = 0
         direct = false
+        letterKeysVisible = false
         surfaceBlocked = false
         selectingSurface = false
         invalidateInput()
@@ -150,10 +156,12 @@ class TerminalInputController : TerminalInputBridge {
         gestures.cancel()
     }
 
-    fun restoreSurface(terminal: Boolean, dismissed: Boolean = false) {
+    @JvmOverloads
+    fun restoreSurface(terminal: Boolean, dismissed: Boolean = false, letters: Boolean = false) {
         // Saved app-keyboard surfaces migrate to Android keyboard hidden.
         terminalSurface = false
-        keyboardDismissed = terminal || dismissed
+        letterKeysVisible = direct && letters
+        keyboardDismissed = terminal || dismissed || letterKeysVisible
         invalidateInput()
     }
 
@@ -189,6 +197,7 @@ class TerminalInputController : TerminalInputBridge {
         selectingSurface = false
         if (!direct && !enterDirect(useEntryPreference = false)) return false
         terminalSurface = terminal
+        letterKeysVisible = false
         keyboardDismissed = false
         invalidateInput()
         onKeyboard()
@@ -200,6 +209,7 @@ class TerminalInputController : TerminalInputBridge {
     fun showKeyboard(): Boolean {
         if (!canInput() || !chooseDirect() || !canInput() || surfaceBlocked) return false
         keyboardDismissed = false
+        letterKeysVisible = false
         invalidateInput()
         onKeyboard()
         return true
@@ -207,11 +217,27 @@ class TerminalInputController : TerminalInputBridge {
 
     fun toggleKeyboard(): Boolean = if (!direct || keyboardDismissed) showKeyboard() else dismissKeyboard()
 
+    fun showLetterKeys(): Boolean {
+        if (!canInput() || !chooseDirect() || !canInput() || surfaceBlocked) return false
+        // Freeze before hiding the IME so its late callbacks cannot submit preedit.
+        freezeComposition()
+        terminalSurface = false
+        keyboardDismissed = true
+        letterKeysVisible = true
+        invalidateInput()
+        onKeyboard()
+        return true
+    }
+
+    fun toggleKeyboardLayout(): Boolean =
+        if (letterKeysVisible || keyboardDismissed) showKeyboard() else showLetterKeys()
+
     fun dismissKeyboard(): Boolean {
-        if (!direct || keyboardDismissed) return false
+        if (!direct || (keyboardDismissed && !letterKeysVisible)) return false
         // Preserve the editor's preedit before revoking its callbacks and restarting input.
         freezeComposition()
         keyboardDismissed = true
+        letterKeysVisible = false
         invalidateInput()
         onKeyboard()
         return true
@@ -307,12 +333,12 @@ val LocalTerminalInputController = androidx.compose.runtime.staticCompositionLoc
 fun rememberTerminalInputController(id: String, ai: Boolean): TerminalInputController {
     val context = androidx.compose.ui.platform.LocalContext.current.applicationContext
     return androidx.compose.runtime.saveable.rememberSaveable(id, ai, saver = androidx.compose.runtime.saveable.listSaver(
-        save = { input: TerminalInputController -> listOf(input.direct, input.compatibility, input.expanded, input.previousNative, input.draft, input.terminalSurface, input.keyboardDismissed) },
+        save = { input: TerminalInputController -> listOf(input.direct, input.compatibility, input.expanded, input.previousNative, input.draft, input.terminalSurface, input.keyboardDismissed, input.letterKeysVisible) },
         restore = { values -> TerminalKeyboardSettings.controller(context).apply {
             bind(id, ai)
             restore(values[0] as Boolean, values[1] as Boolean, values[2] as Boolean, values[3] as Boolean)
             draft = values[4] as String
-            restoreSurface(values.getOrNull(5) as? Boolean ?: false, values.getOrNull(6) as? Boolean ?: true)
+            restoreSurface(values.getOrNull(5) as? Boolean ?: false, values.getOrNull(6) as? Boolean ?: true, values.getOrNull(7) as? Boolean ?: false)
         } }
     )) { TerminalKeyboardSettings.controller(context).apply { bind(id, ai) } }
 }

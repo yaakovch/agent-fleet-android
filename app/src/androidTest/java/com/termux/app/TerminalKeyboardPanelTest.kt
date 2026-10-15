@@ -37,7 +37,7 @@ class TerminalKeyboardPanelTest {
     @Before fun resize() { compose.runOnUiThread {
         com.termux.shared.view.KeyboardUtils.setSoftInputModeAdjustResize(compose.activity)
         previousEntry = TerminalKeyboardSettings.load(compose.activity)
-        TerminalKeyboardSettings.save(compose.activity, TerminalKeyboardSettings.Entry.Hidden)
+        TerminalKeyboardSettings.save(compose.activity, TerminalKeyboardSettings.Entry.Android)
     } }
     @After fun restoreEntryPreference() { compose.runOnUiThread { TerminalKeyboardSettings.save(compose.activity, previousEntry) } }
     private lateinit var view: TerminalView
@@ -89,7 +89,7 @@ class TerminalKeyboardPanelTest {
             compose.runOnUiThread { settingsVisible.value = false }
         }
         if (!showSystem) {
-            compose.onNodeWithTag("agent-fleet-message-input").performClick()
+            tap("agent-fleet-message-input")
             compose.waitUntil(5_000) { ViewCompat.getRootWindowInsets(view)?.isVisible(WindowInsetsCompat.Type.ime()) == true }
             tap("native-direct-input")
         } else compose.onNodeWithTag("native-direct-input").performClick()
@@ -143,23 +143,42 @@ class TerminalKeyboardPanelTest {
         val file = java.io.File(compose.activity.externalMediaDirs.first(), "terminal-keyboard/$name.png")
         file.parentFile?.mkdirs(); file.outputStream().use { bitmap.compress(Bitmap.CompressFormat.PNG, 100, it) }; bitmap.recycle()
     }
-    @Test fun androidKeyboardToggleKeepsExpandedShortcutsAndPendingText() {
+    @Test fun androidEntryShowsOnlyShortcutRowUntilLettersAreRevealed() {
+        compose.runOnUiThread { compose.activity.getSharedPreferences("agent-fleet-terminal-keyboard", 0).edit().clear().commit() }
         setup(1, showSystem = false)
         try {
+            compose.waitUntil(5_000) { ViewCompat.getRootWindowInsets(view)?.isVisible(WindowInsetsCompat.Type.ime()) == true }
+            compose.onNodeWithTag("terminal-navigation-row").assertIsDisplayed()
+            capture("android-default-shortcuts-only")
+            compose.onNodeWithTag("terminal-letter-row-0").assertDoesNotExist()
+            tap("terminal-input-keyboard")
             compose.waitUntil(5_000) { ViewCompat.getRootWindowInsets(view)?.isVisible(WindowInsetsCompat.Type.ime()) == false }
-            compose.onNodeWithTag("terminal-key-panel").assertExists()
-            compose.onNodeWithTag("terminal-letter-m").assertExists()
-            compose.onNodeWithTag("terminal-input-expand").assertDoesNotExist()
-            compose.onNodeWithTag("terminal-input-surface").assertDoesNotExist()
-            capture("direct-expanded-ime-hidden")
+            compose.onNodeWithTag("terminal-letter-row-0").assertIsDisplayed()
+            capture("android-default-letters-revealed")
             tap("terminal-input-keyboard")
             compose.waitUntil(5_000) { ViewCompat.getRootWindowInsets(view)?.isVisible(WindowInsetsCompat.Type.ime()) == true }
+            compose.onNodeWithTag("terminal-letter-row-0").assertDoesNotExist()
+            compose.runOnUiThread { view.onCreateInputConnection(EditorInfo())!!.commitText("x", 1) }
+            await("78"); await("CAPTURED")
+            assertEquals("Keep this draft", input.draft); assertTrue(keys.isEmpty())
+        } finally { compose.runOnUiThread { terminal.finishIfRunning() } }
+    }
+    @Test fun androidKeyboardSwitchKeepsShortcutsAndPendingText() {
+        setup(1, showSystem = false)
+        try {
+            compose.waitUntil(5_000) { ViewCompat.getRootWindowInsets(view)?.isVisible(WindowInsetsCompat.Type.ime()) == true }
+            compose.onNodeWithTag("terminal-key-panel").assertExists()
+            compose.onNodeWithTag("terminal-letter-m").assertDoesNotExist()
+            compose.onNodeWithTag("terminal-input-expand").assertDoesNotExist()
+            compose.onNodeWithTag("terminal-input-surface").assertDoesNotExist()
             val old = arrayOfNulls<InputConnection>(1)
             compose.runOnUiThread { old[0] = view.onCreateInputConnection(EditorInfo()); old[0]!!.setComposingText("unfinished", 1) }
             capture("direct-expanded-ime-visible")
             tap("terminal-input-keyboard")
             compose.waitUntil(5_000) { ViewCompat.getRootWindowInsets(view)?.isVisible(WindowInsetsCompat.Type.ime()) == false }
             compose.onNodeWithTag("terminal-key-panel").assertExists()
+            compose.onNodeWithTag("terminal-letter-m").assertExists()
+            capture("direct-letters-ime-hidden")
             compose.runOnUiThread {
                 assertTrue(view.hasPendingImeComposition()); assertNull(view.onCreateInputConnection(EditorInfo()))
                 old[0]!!.commitText("BAD", 1); old[0]!!.deleteSurroundingText(1, 0)
@@ -186,6 +205,8 @@ class TerminalKeyboardPanelTest {
     @Test fun directUsesOneShortcutStripAndThreeScrollableLetterRows() {
         setup(32, showSystem = false)
         try {
+            tap("terminal-input-keyboard")
+            compose.waitUntil(5_000) { ViewCompat.getRootWindowInsets(view)?.isVisible(WindowInsetsCompat.Type.ime()) == false }
             compose.onNodeWithTag("terminal-input-mode-row").assertDoesNotExist()
             compose.onNodeWithTag("terminal-key-F1").assertDoesNotExist()
             compose.onNodeWithTag("terminal-key-F12").assertDoesNotExist()
@@ -232,6 +253,19 @@ class TerminalKeyboardPanelTest {
     @Test fun narrowLargeFontKeepsKeyboardPinnedAndKeysReachable() {
         setup(1, showSystem = false, narrow = true)
         try {
+            compose.waitUntil(5_000) { ViewCompat.getRootWindowInsets(view)?.isVisible(WindowInsetsCompat.Type.ime()) == true }
+            compose.onNodeWithTag("terminal-letter-row-0").assertDoesNotExist()
+            val layouts = mutableListOf<androidx.compose.ui.text.TextLayoutResult>()
+            compose.onNodeWithText("ABC", useUnmergedTree = true)
+                .performSemanticsAction(androidx.compose.ui.semantics.SemanticsActions.GetTextLayoutResult) { it(layouts) }
+            capture("direct-android-narrow-large-font")
+            val label = layouts.single()
+            // Paragraph minimum width can exceed the text's reported size even when every glyph fits.
+            assertEquals("All ABC letters must remain visible", 3, label.getLineEnd(0, true))
+            assertTrue("ABC glyphs must fit at large font size", label.getLineLeft(0) >= 0 &&
+                label.getLineRight(0) <= label.size.width && label.getLineBottom(0) <= label.size.height)
+            tap("terminal-input-keyboard")
+            compose.waitUntil(5_000) { ViewCompat.getRootWindowInsets(view)?.isVisible(WindowInsetsCompat.Type.ime()) == false }
             val row = compose.onNodeWithTag("terminal-navigation-row").fetchSemanticsNode().boundsInRoot
             val keyboard = compose.onNodeWithTag("terminal-input-keyboard").fetchSemanticsNode().boundsInRoot
             assertTrue("Keyboard action is pinned beside the scroll strip", keyboard.left >= row.right - 1)
@@ -268,6 +302,7 @@ class TerminalKeyboardPanelTest {
                 assertFalse(input.character('q'.code, direct))
                 assertFalse(view.inputDirectCodePoint('q'.code, direct))
                 input.chooseDirect()
+                input.showLetterKeys()
             }
             compose.onNodeWithTag("terminal-letter-x").performScrollTo().performClick()
             await("CAPTURED"); await("78")
@@ -277,10 +312,14 @@ class TerminalKeyboardPanelTest {
     @Test fun settingsMigrateOldEntriesAndControlOnlyAndroidImeOnNextEntry() {
         compose.runOnUiThread {
             val prefs = compose.activity.getSharedPreferences("agent-fleet-terminal-keyboard", 0)
-            for (old in listOf("hidden", "terminal")) {
-                prefs.edit().putString("direct-entry", old).commit()
-                assertEquals(TerminalKeyboardSettings.Entry.Hidden, TerminalKeyboardSettings.load(compose.activity))
+            prefs.edit().clear().commit()
+            assertEquals(TerminalKeyboardSettings.Entry.Android, TerminalKeyboardSettings.load(compose.activity))
+            for (old in listOf("hidden", "terminal", "android")) {
+                prefs.edit().clear().putString("direct-entry", old).commit()
+                assertEquals(TerminalKeyboardSettings.Entry.Android, TerminalKeyboardSettings.load(compose.activity))
             }
+            TerminalKeyboardSettings.save(compose.activity, TerminalKeyboardSettings.Entry.Hidden)
+            assertEquals(TerminalKeyboardSettings.Entry.Hidden, TerminalKeyboardSettings.load(compose.activity))
         }
         setup(1, showSystem = false, chooseSettings = true)
         try {
@@ -316,15 +355,20 @@ class TerminalKeyboardPanelTest {
             assertTrue(current.expanded); assertTrue(current.compatibility); assertEquals("Saved draft", current.draft); assertEquals(0, current.modifiers)
         }
         compose.onNodeWithTag("terminal-key-panel").assertExists()
-        compose.onNodeWithTag("terminal-letter-m").assertExists()
+        compose.onNodeWithTag("terminal-letter-m").assertDoesNotExist()
         compose.onNodeWithTag("terminal-keyboard-dock").assertDoesNotExist()
     }
-    @Test fun landscapeKeepsExpandedShortcutsWithAndroidImeHidden() {
+    @Test fun landscapeStartsWithAndroidAndRevealsLettersOnRequest() {
         setup(1, showSystem = false)
         val original = compose.activity.requestedOrientation
         try {
             compose.runOnUiThread { compose.activity.requestedOrientation = android.content.pm.ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE }
             compose.waitUntil(10_000) { compose.activity.resources.configuration.orientation == android.content.res.Configuration.ORIENTATION_LANDSCAPE }
+            compose.waitUntil(5_000) { ViewCompat.getRootWindowInsets(view)?.isVisible(WindowInsetsCompat.Type.ime()) == true }
+            compose.onNodeWithTag("terminal-letter-row-0").assertDoesNotExist()
+            capture("direct-android-landscape")
+            tap("terminal-input-keyboard")
+            compose.waitUntil(5_000) { ViewCompat.getRootWindowInsets(view)?.isVisible(WindowInsetsCompat.Type.ime()) == false }
             compose.onNodeWithTag("terminal-letter-row-2").performScrollTo()
             compose.onNodeWithTag("terminal-letter-m").performScrollTo().assertIsDisplayed()
             compose.onNodeWithTag("terminal-navigation-row").assertIsDisplayed()

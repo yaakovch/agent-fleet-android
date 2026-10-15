@@ -16,13 +16,12 @@ import androidx.compose.ui.unit.dp
 object TerminalKeyboardSettings {
     enum class Entry(val value: String) { Hidden("hidden"), Android("android") }
     private const val PREFERENCES = "agent-fleet-terminal-keyboard"
-    private const val KEY_ENTRY = "direct-entry"
+    // Legacy hidden/Terminal choices predate Android-first Direct. New choices persist here.
+    private const val KEY_ENTRY = "direct-entry-v2"
 
     fun load(context: Context): Entry {
         val preferences = context.getSharedPreferences(PREFERENCES, Context.MODE_PRIVATE)
-        val saved = preferences.getString(KEY_ENTRY, "hidden")
-        if (saved == "terminal") preferences.edit().putString(KEY_ENTRY, "hidden").apply()
-        return if (saved == "android") Entry.Android else Entry.Hidden
+        return if (preferences.getString(KEY_ENTRY, "android") == "hidden") Entry.Hidden else Entry.Android
     }
 
     fun save(context: Context, entry: Entry) {
@@ -41,10 +40,10 @@ fun TerminalKeyboardSettingsCard() {
     Card(Modifier.fillMaxWidth().testTag("terminal-keyboard-settings")) {
         Column(Modifier.fillMaxWidth().padding(18.dp).selectableGroup()) {
             Text("Direct keyboard", style = MaterialTheme.typography.titleMedium)
-            Text("Choose how Direct starts. The ⌨ button always shows or hides your keyboard.",
+            Text("Choose how Direct starts. The ABC/⌨ button switches between letter keys and your Android keyboard.",
                 style = MaterialTheme.typography.bodyMedium)
-            listOf(TerminalKeyboardSettings.Entry.Hidden to "Start with Android keyboard hidden",
-                TerminalKeyboardSettings.Entry.Android to "Start with Android keyboard visible").forEach { (entry, label) ->
+            listOf(TerminalKeyboardSettings.Entry.Android to "Start with Android keyboard visible",
+                TerminalKeyboardSettings.Entry.Hidden to "Start with Android keyboard hidden").forEach { (entry, label) ->
                 Row(Modifier.fillMaxWidth().testTag("terminal-keyboard-entry-${entry.value}")
                     .selectable(selected == entry, role = Role.RadioButton, onClick = {
                         selected = entry; TerminalKeyboardSettings.save(context, entry)

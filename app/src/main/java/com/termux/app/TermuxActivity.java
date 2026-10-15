@@ -289,7 +289,7 @@ public final class TermuxActivity extends ComponentActivity implements ServiceCo
         if (savedInstanceState != null && managedSessionId(getIntent()) != null) {
             mDirectInput.restore(savedInstanceState.getBoolean("fleet.direct", mDirectInput.getDirect()), savedInstanceState.getBoolean("fleet.compatibility"), savedInstanceState.getBoolean("fleet.keysExpanded"), savedInstanceState.getBoolean("fleet.previousNative", true));
             mDirectInput.setDraft(savedInstanceState.getString("fleet.draft", ""));
-            mDirectInput.restoreSurface(savedInstanceState.getBoolean("fleet.terminalSurface"), savedInstanceState.getBoolean("fleet.keyboardDismissed", true));
+            mDirectInput.restoreSurface(savedInstanceState.getBoolean("fleet.terminalSurface"), savedInstanceState.getBoolean("fleet.keyboardDismissed", true), savedInstanceState.getBoolean("fleet.letterKeysVisible"));
             if (mDirectInput.getDirect()) mAgentFleetNativeSession.enterDirectInput();
         }
 
@@ -918,6 +918,7 @@ public final class TermuxActivity extends ComponentActivity implements ServiceCo
         savedInstanceState.putBoolean("fleet.direct", mDirectInput.getDirect());
         savedInstanceState.putBoolean("fleet.terminalSurface", mDirectInput.getTerminalSurface());
         savedInstanceState.putBoolean("fleet.keyboardDismissed", mDirectInput.getKeyboardDismissed());
+        savedInstanceState.putBoolean("fleet.letterKeysVisible", mDirectInput.getLetterKeysVisible());
         savedInstanceState.putBoolean("fleet.compatibility", mDirectInput.getCompatibility());
         savedInstanceState.putBoolean("fleet.keysExpanded", mDirectInput.getExpanded());
         savedInstanceState.putBoolean("fleet.previousNative", mDirectInput.getPreviousNative());

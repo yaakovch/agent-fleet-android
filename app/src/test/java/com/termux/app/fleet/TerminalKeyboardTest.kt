@@ -6,8 +6,8 @@ import org.junit.Test
 
 class TerminalKeyboardTest {
     private fun live() = TerminalInputController().apply { bind("one", true); connection(true); available = { true }; chooseDirect(); chooseSurface(true); updateKeyboardReady(true) }
-    @Test fun directEntryKeepsBothKeyboardsHiddenWithoutBlockingHardwareOrNamedKeys() {
-        val input = TerminalInputController().apply { bind("hidden", true); connection(true); available = { true }; draft = "Keep me" }
+    @Test fun explicitHiddenEntryKeepsBothKeyboardsHiddenWithoutBlockingHardwareOrNamedKeys() {
+        val input = TerminalInputController().apply { systemImeOnEntry = { false }; bind("hidden", true); connection(true); available = { true }; draft = "Keep me" }
         input.chooseDirect()
         assertTrue(input.keyboardDismissed)
         assertFalse(input.isSystemImeAllowed())
@@ -20,6 +20,30 @@ class TerminalKeyboardTest {
         assertEquals("Keep me", input.draft)
         input.bind("shell", false)
         assertTrue(input.direct); assertTrue(input.keyboardDismissed)
+    }
+    @Test fun directDefaultsToAndroidAndLetterRevealRetainsDraftAndRevokesOldEditors() {
+        val input = TerminalInputController().apply { bind("ai", true); connection(true); available = { true }; draft = "Keep me" }
+        input.attachments = { listOf("image.png") }
+        var writes = 0; var freezes = 0; var discards = 0
+        input.send = { _, _ -> writes++; true }
+        input.freezeComposition = { freezes++ }; input.discardComposition = { discards++ }
+        input.chooseDirect()
+        assertTrue(input.isSystemImeAllowed()); assertFalse(input.letterKeysVisible)
+        val old = input.getInputGeneration()
+        input.modifier(KeyHandler.KEYMOD_CTRL)
+        assertTrue(input.toggleKeyboardLayout())
+        assertTrue(input.letterKeysVisible); assertTrue(input.keyboardDismissed); assertFalse(input.isSystemImeAllowed())
+        assertNotEquals(old, input.getInputGeneration()); assertFalse(input.key("ENTER", old)); assertEquals(0, input.modifiers)
+        assertEquals(2, freezes); assertEquals(0, discards); assertEquals(0, writes)
+        assertEquals("Keep me", input.draft); assertEquals(listOf("image.png"), input.attachments())
+        assertTrue(input.toggleKeyboardLayout()); assertTrue(input.isSystemImeAllowed()); assertFalse(input.letterKeysVisible)
+        input.showLetterKeys(); assertTrue(input.dismissKeyboard()); assertFalse(input.letterKeysVisible)
+        assertTrue(input.keyboardDismissed)
+        input.chooseComposer(); input.chooseDirect()
+        assertTrue(input.isSystemImeAllowed()); assertFalse(input.letterKeysVisible)
+        input.bind("fresh-shell", false); input.connection(true)
+        assertTrue(input.isSystemImeAllowed()); assertFalse(input.letterKeysVisible)
+        input.connection(false); assertFalse(input.showLetterKeys()); assertFalse(input.letterKeysVisible)
     }
     @Test fun hideRevokesBothSourcesAndFreezesPreeditUntilExplicitReveal() {
         val input = live(); input.chooseSurface(false)
@@ -81,7 +105,7 @@ class TerminalKeyboardTest {
         input.gestures.downModifier(1, KeyHandler.KEYMOD_CTRL)
         input.chooseComposer()
         assertFalse(input.appKey(TerminalKeyboardLayout.rows("ABC")[1][0], 0, old)); assertEquals(0, input.gestures.bits)
-        input.chooseDirect(); assertFalse(input.keyboardReady); assertFalse(input.isSystemImeAllowed())
+        input.chooseDirect(); assertFalse(input.keyboardReady); assertTrue(input.isSystemImeAllowed())
         input.showKeyboard(); input.updateKeyboardReady(true); assertTrue(input.dismissKeyboard()); assertFalse(input.wantsTerminalKeyboard())
         input.connection(false); input.connection(true); assertFalse(input.wantsTerminalKeyboard())
         input.chooseDirect(); assertFalse(input.wantsTerminalKeyboard())

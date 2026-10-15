@@ -23,7 +23,7 @@ import androidx.compose.ui.unit.sp
 import com.termux.terminal.KeyHandler
 import com.termux.view.TerminalView
 
-/** One shortcut strip and three letter rows; short windows retain vertical scrolling. */
+/** One shortcut strip; explicitly revealed letter rows replace the Android keyboard. */
 @Composable
 fun TerminalInputControls(state: TerminalInputController) {
     if (!state.direct) return
@@ -45,14 +45,14 @@ fun TerminalInputControls(state: TerminalInputController) {
                         Text(if (state.compatibility) "Compatibility" else "Terminal keys", maxLines = 1)
                     }
                 }
-                TextButton(onClick = { state.toggleKeyboard() }, enabled = state.canInput(),
-                    contentPadding = PaddingValues(horizontal = 6.dp),
+                TextButton(onClick = { state.toggleKeyboardLayout() }, enabled = state.canInput(),
+                    contentPadding = PaddingValues(0.dp),
                     modifier = Modifier.width(48.dp).testTag("terminal-input-keyboard").semantics {
-                        contentDescription = if (state.keyboardDismissed) "Show Android keyboard" else "Hide Android keyboard"
-                        stateDescription = if (state.keyboardDismissed) "Hidden" else "Open"
-                    }) { Text(if (state.keyboardDismissed) "⌨" else "⌨⌄") }
+                        contentDescription = if (state.letterKeysVisible || state.keyboardDismissed) "Show Android keyboard" else "Show letter keys"
+                        stateDescription = when { state.letterKeysVisible -> "Letter keys"; state.keyboardDismissed -> "Hidden"; else -> "Android keyboard" }
+                    }) { Text(if (state.letterKeysVisible || state.keyboardDismissed) "⌨" else "ABC", fontSize = 12.sp, lineHeight = 16.sp, letterSpacing = 0.sp, maxLines = 1) }
             }
-            Column(Modifier.heightIn(max = if (landscape) 48.dp else 192.dp).verticalScroll(rememberScrollState())) {
+            if (state.letterKeysVisible) Column(Modifier.heightIn(max = if (landscape) 48.dp else 192.dp).verticalScroll(rememberScrollState())) {
                 listOf("qwertyuiop", "asdfghjkl", "zxcvbnm").forEachIndexed { row, letters ->
                     Row(Modifier.fillMaxWidth().testTag("terminal-letter-row-$row").horizontalScroll(rememberScrollState())) {
                         letters.forEach { letter ->

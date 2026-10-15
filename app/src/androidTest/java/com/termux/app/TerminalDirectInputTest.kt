@@ -42,6 +42,11 @@ class TerminalDirectInputTest {
             androidx.core.view.ViewCompat.getRootWindowInsets(decor)
                 ?.isVisible(androidx.core.view.WindowInsetsCompat.Type.ime()) == true
         }
+        tapVisibleControl(tag)
+    }
+
+    private fun tapVisibleControl(tag: String) {
+        val decor = compose.activity.window.decorView
         compose.waitForIdle()
         val bounds = compose.onNodeWithTag(tag).fetchSemanticsNode().boundsInWindow
         val visible = android.graphics.Rect()
@@ -116,7 +121,7 @@ class TerminalDirectInputTest {
         assertTrue("Send moves up beside the writing field", sendBounds.bottom <= fieldBounds.bottom + gap)
         assertTrue("No spare row may separate Send from shortcuts: send=$sendBounds shortcuts=$shortcutBounds", shortcutBounds.top - sendBounds.bottom <= 12 * compose.activity.resources.displayMetrics.density)
 
-        compose.onNodeWithTag("agent-fleet-message-input").performClick()
+        tapVisibleControl("agent-fleet-message-input")
         captureUi("compact-composer-controls.png")
         val field = compose.onNodeWithTag("agent-fleet-message-input").fetchSemanticsNode().boundsInRoot
         val direct = compose.onNodeWithTag("native-direct-input").fetchSemanticsNode().boundsInRoot
@@ -246,7 +251,7 @@ class TerminalDirectInputTest {
             capture(view, "direct-input-question-before.png")
             compose.onNodeWithTag("compact-session-actions").performClick()
             compose.onNodeWithTag("terminal-answer-question").performClick()
-            compose.onNodeWithTag("terminal-input-keyboard").performClick()
+            compose.onNodeWithTag("terminal-letter-row-0").assertDoesNotExist()
             compose.onNodeWithTag("terminal-key-ENTER").performScrollTo().assertIsDisplayed()
             await(terminal, "Question: Choose a direction")
             await(terminal, "1b 5b 31 3b 32 44")
@@ -267,11 +272,11 @@ class TerminalDirectInputTest {
         } finally { compose.runOnUiThread { terminal.finishIfRunning() } }
     }
 
-    @Test fun workspaceShellOpensDirectAndWritesToItsRealTerminal() = workspaceShellEntry(TerminalKeyboardSettings.Entry.Hidden)
+    @Test fun workspaceShellOpensAndroidByDefaultAndWritesToItsRealTerminal() = workspaceShellEntry(null)
 
-    @Test fun workspaceShellHonorsAndroidVisibleSettingAndWritesToItsRealTerminal() = workspaceShellEntry(TerminalKeyboardSettings.Entry.Android)
+    @Test fun workspaceShellHonorsExplicitHiddenSettingAndWritesToItsRealTerminal() = workspaceShellEntry(TerminalKeyboardSettings.Entry.Hidden)
 
-    private fun workspaceShellEntry(entry: TerminalKeyboardSettings.Entry) {
+    private fun workspaceShellEntry(entry: TerminalKeyboardSettings.Entry?) {
         val session = FleetSession("fixture:shell", "fixture", "shell", "Shell", "Shell", "fixture", "shell", "linux", "active", false, null, 0)
         val snapshot = FleetSnapshot("shell-default", "2026-10-12T17:00:00Z",
             listOf(FleetHost("fixture", "Fixture", "healthy", "wsl", null, emptySet())), listOf(session), emptyList(), emptyList())
@@ -290,7 +295,8 @@ class TerminalDirectInputTest {
         }
         val previousEntry = TerminalKeyboardSettings.load(compose.activity)
         try {
-            TerminalKeyboardSettings.save(compose.activity, entry)
+            if (entry == null) compose.activity.getSharedPreferences("agent-fleet-terminal-keyboard", 0).edit().clear().commit()
+            else TerminalKeyboardSettings.save(compose.activity, entry)
             compose.setContent { AgentFleetTheme(darkTheme = true) {
                 CompositionLocalProvider(LocalWorkspaceNativeSessionRegistry provides registry) {
                     Box(Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing)) {
@@ -307,6 +313,7 @@ class TerminalDirectInputTest {
             await(terminal, "READY")
             compose.onNodeWithTag("terminal-key-panel").assertExists()
             compose.onNodeWithTag("terminal-input-keyboard").assertIsDisplayed()
+            compose.onNodeWithTag("terminal-letter-row-0").assertDoesNotExist()
             val root = compose.activity.window.decorView
             if (entry == TerminalKeyboardSettings.Entry.Hidden) compose.onNodeWithTag("terminal-input-keyboard").performClick()
             try {
@@ -316,6 +323,7 @@ class TerminalDirectInputTest {
                 java.io.File(compose.activity.externalMediaDirs.first(), "terminal-direct-input/workspace-android-entry-semantics.txt").writeText(compose.onRoot().printToString())
                 throw error
             }
+            captureUi(if (entry == null) "workspace-direct-android-default.png" else "workspace-direct-android-revealed.png")
             compose.onNodeWithTag("terminal-key-ENTER").performScrollTo().assertIsEnabled().performClick()
             await(terminal, "0d")
         } finally { compose.runOnUiThread {
@@ -422,11 +430,12 @@ class TerminalDirectInputTest {
         compose.onNodeWithTag("terminal-input-expand").assertDoesNotExist()
         compose.onNodeWithTag("terminal-input-profile").performScrollTo().performClick()
         compose.onNodeWithTag("terminal-modifier-Shift").performScrollTo().performClick()
-        compose.onNodeWithTag("terminal-input-keyboard").performClick()
         restoration.emulateSavedInstanceStateRestore()
         assertTrue(current.direct); assertTrue(current.compatibility); assertEquals(0, current.modifiers)
         assertTrue(current.keyboardDismissed); assertFalse(current.isSystemImeAllowed())
+        assertTrue(current.letterKeysVisible)
         compose.onNodeWithTag("terminal-key-panel").assertExists()
+        compose.onNodeWithTag("terminal-letter-row-0").assertExists()
         compose.onNodeWithTag("native-direct-input").performClick()
         compose.onNodeWithTag("agent-fleet-message-input").assertTextContains("Saved unsent draft")
     }

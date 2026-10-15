@@ -32,9 +32,15 @@ class ComposerTerminalNavigationTest {
     private var writes = 0
     private var viewChanges = 0
     private val attachments = mutableStateListOf("/fixture/image.png")
+    private lateinit var previousEntry: TerminalKeyboardSettings.Entry
     @Before fun useProductionKeyboardResize() {
-        compose.runOnUiThread { com.termux.shared.view.KeyboardUtils.setSoftInputModeAdjustResize(compose.activity) }
+        compose.runOnUiThread {
+            com.termux.shared.view.KeyboardUtils.setSoftInputModeAdjustResize(compose.activity)
+            previousEntry = TerminalKeyboardSettings.load(compose.activity)
+            TerminalKeyboardSettings.save(compose.activity, TerminalKeyboardSettings.Entry.Android)
+        }
     }
+    @After fun restoreKeyboardEntry() { TerminalKeyboardSettings.save(compose.activity, previousEntry) }
 
     private fun setup() {
         compose.runOnUiThread {
@@ -279,6 +285,9 @@ class ComposerTerminalNavigationTest {
 
             compose.onNodeWithTag("workspace-input-mode").performScrollTo().performClick()
             compose.onNodeWithTag("workspace-input-mode").assertTextContains("Composer")
+            control(0, "terminal-letter-row-0").assertDoesNotExist()
+            capture("workspace-direct-android-default")
+            control(0, "terminal-input-keyboard").performClick()
             control(0, "terminal-letter-q").performScrollTo().performClick()
             compose.waitUntil(5_000) { files[0].length() == expected.toByteArray().size.toLong() + 1 }
             assertEquals(expected + "q", files[0].readText()); assertEquals(0L, files[1].length())
