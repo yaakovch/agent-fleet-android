@@ -4,7 +4,6 @@ import android.graphics.Bitmap
 import android.text.InputType
 import android.view.KeyEvent
 import android.view.inputmethod.EditorInfo
-import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.layout.*
 import androidx.compose.runtime.CompositionLocalProvider
@@ -13,6 +12,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.viewinterop.AndroidView
+import androidx.compose.ui.unit.dp
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.io.PlatformTestStorageRegistry
 import com.termux.app.fleet.*
@@ -28,7 +28,7 @@ import org.junit.runner.RunWith
 /** Production controls and editor connected to a deterministic real PTY, without a model request. */
 @RunWith(AndroidJUnit4::class)
 class TerminalDirectInputTest {
-    @get:Rule val compose = createAndroidComposeRule<ComponentActivity>()
+    @get:Rule val compose = createAndroidComposeRule<TerminalKeyboardTestHostActivity>()
 
     @Before fun useProductionKeyboardResize() {
         compose.runOnUiThread {
@@ -94,6 +94,7 @@ class TerminalDirectInputTest {
     }
 
     @Test fun composerControlsFitBelowWritingField() {
+        val calls = mutableListOf<Pair<String, Boolean>>()
         val input = TerminalInputController().apply { bind("compact-composer", true); connection(true); available = { true }; draft = "Unsent message" }
         compose.setContent { AgentFleetTheme(darkTheme = true) {
             CompositionLocalProvider(LocalTerminalInputController provides input) {
@@ -101,11 +102,20 @@ class TerminalDirectInputTest {
                     ModeHeader(input)
                     Spacer(Modifier.weight(1f))
                     AgentFleetComposerContent("compact-composer", AgentFleetComposerNativeState(), emptyList(), false, null,
-                        onShowPendingQuestion = {}, onAttach = {}, onRemoveAttachment = {}, onComposerText = { _, _ -> false })
+                        onShowPendingQuestion = {}, onAttach = {}, onRemoveAttachment = {}, onComposerText = { text, submit -> calls += text to submit; false })
                 }
             }
         } }
         compose.onNodeWithTag("agent-fleet-message-input").assertTextContains("Unsent message")
+        compose.onNodeWithTag("agent-fleet-composer-camera").assertDoesNotExist()
+        compose.onNodeWithTag("agent-fleet-clear-draft").assertDoesNotExist()
+        val fieldBounds = compose.onNodeWithTag("agent-fleet-message-input").fetchSemanticsNode().boundsInRoot
+        val sendBounds = compose.onNodeWithTag("agent-fleet-composer-send").fetchSemanticsNode().boundsInRoot
+        val shortcutBounds = compose.onNodeWithTag("composer-terminal-shortcuts").fetchSemanticsNode().boundsInRoot
+        val gap = 8 * compose.activity.resources.displayMetrics.density
+        assertTrue("Send moves up beside the writing field", sendBounds.bottom <= fieldBounds.bottom + gap)
+        assertTrue("No spare row may separate Send from shortcuts: send=$sendBounds shortcuts=$shortcutBounds", shortcutBounds.top - sendBounds.bottom <= 12 * compose.activity.resources.displayMetrics.density)
+
         compose.onNodeWithTag("agent-fleet-message-input").performClick()
         captureUi("compact-composer-controls.png")
         val field = compose.onNodeWithTag("agent-fleet-message-input").fetchSemanticsNode().boundsInRoot
@@ -114,10 +124,77 @@ class TerminalDirectInputTest {
         assertTrue("Input switch belongs in the top header", direct.bottom <= field.top)
         val shortcuts = compose.onNodeWithTag("composer-terminal-shortcuts").fetchSemanticsNode().boundsInRoot
         assertTrue("Composer shortcuts stay beneath the writing field", shortcuts.top >= field.bottom)
+        assertAboveKeyboardAndTap("agent-fleet-composer-insert")
+        assertAboveKeyboardAndTap("agent-fleet-composer-send")
+        assertEquals(listOf("Unsent message" to false, "Unsent message" to true), calls)
+        assertEquals("Unsent message", input.draft)
         assertAboveKeyboardAndTap("native-direct-input")
         assertTrue("A real screen tap must activate Direct with the keyboard open", input.direct)
         compose.onNodeWithTag("native-direct-input").performClick()
         compose.onNodeWithTag("agent-fleet-message-input").assertTextContains("Unsent message")
+        compose.onNodeWithTag("agent-fleet-message-input").performTextClearance()
+        compose.onNodeWithTag("agent-fleet-composer-send").assertTextContains("Enter")
+        assertAboveKeyboardAndTap("agent-fleet-composer-send")
+        assertEquals("" to true, calls.last()); assertEquals(3, calls.size)
+        val emptyField = compose.onNodeWithTag("agent-fleet-message-input").fetchSemanticsNode().boundsInRoot
+        val emptyActions = compose.onNodeWithTag("agent-fleet-composer-action-stack").fetchSemanticsNode().boundsInRoot
+        val emptyShortcuts = compose.onNodeWithTag("composer-terminal-shortcuts").fetchSemanticsNode().boundsInRoot
+        val dp = compose.activity.resources.displayMetrics.density
+        val emptyGap = (emptyShortcuts.top - maxOf(emptyField.bottom, emptyActions.bottom)) / dp
+        assertTrue("Empty Composer must not reserve a spare row", emptyGap <= 8)
+        val metrics = java.io.File(compose.activity.externalMediaDirs.first(), "terminal-direct-input/composer-geometry.json")
+        metrics.parentFile?.mkdirs()
+        metrics.writeText(org.json.JSONObject().put("draftSendGapDp", (shortcutBounds.top - sendBounds.bottom) / dp)
+            .put("emptyLayoutGapDp", emptyGap).toString())
+        captureUi("compact-composer-empty.png")
+    }
+
+    @Test fun composerActionsStayCompactInNarrowLargeFontAndPhysicalLandscape() {
+        val input = TerminalInputController().apply { bind("composer-layout", true); connection(true); available = { true }; draft = "Draft" }
+        val narrow = mutableStateOf(false)
+        val largeFont = mutableStateOf(false)
+        val original = compose.activity.requestedOrientation
+        try {
+            compose.setContent {
+                val density = androidx.compose.ui.platform.LocalDensity.current
+                CompositionLocalProvider(androidx.compose.ui.platform.LocalDensity provides androidx.compose.ui.unit.Density(density.density, if (largeFont.value) 1.6f else density.fontScale)) {
+                    AgentFleetTheme(darkTheme = true) {
+                        CompositionLocalProvider(LocalTerminalInputController provides input) {
+                            Box(Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing)) {
+                                Column(Modifier.fillMaxHeight().then(if (narrow.value) Modifier.width(200.dp) else Modifier.fillMaxWidth())) {
+                                    ModeHeader(input)
+                                    Spacer(Modifier.weight(1f))
+                                    AgentFleetComposerContent("composer-layout", AgentFleetComposerNativeState(), emptyList(), false, null,
+                                        onShowPendingQuestion = {}, onAttach = {}, onRemoveAttachment = {}, onComposerText = { _, _ -> false })
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            fun compact() {
+                compose.onNodeWithTag("agent-fleet-composer-camera").assertDoesNotExist()
+                compose.onNodeWithTag("agent-fleet-clear-draft").assertDoesNotExist()
+                val field = compose.onNodeWithTag("agent-fleet-message-input").fetchSemanticsNode().boundsInRoot
+                val actions = compose.onNodeWithTag("agent-fleet-composer-action-stack").fetchSemanticsNode().boundsInRoot
+                val shortcuts = compose.onNodeWithTag("composer-terminal-shortcuts").fetchSemanticsNode().boundsInRoot
+                val dp = compose.activity.resources.displayMetrics.density
+                assertTrue("Shortcuts follow the writing/actions row without a spare row", shortcuts.top - maxOf(field.bottom, actions.bottom) <= 8 * dp)
+                compose.onNodeWithTag("agent-fleet-message-input").assertTextContains("Draft")
+                compose.onNodeWithTag("agent-fleet-composer-send").assertIsDisplayed()
+            }
+            compact(); captureUi("composer-compact-portrait.png")
+            compose.runOnUiThread { narrow.value = true; largeFont.value = true }
+            compact(); captureUi("composer-compact-narrow-large-font.png")
+            compose.runOnUiThread { narrow.value = false; compose.activity.requestedOrientation = android.content.pm.ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE }
+            compose.waitUntil(10_000) { compose.activity.resources.configuration.orientation == android.content.res.Configuration.ORIENTATION_LANDSCAPE }
+            compact(); captureUi("composer-compact-landscape-large-font.png")
+            assertEquals("Draft", input.draft)
+        } finally {
+            compose.runOnUiThread { compose.activity.requestedOrientation = android.content.pm.ActivityInfo.SCREEN_ORIENTATION_PORTRAIT }
+            compose.waitUntil(10_000) { compose.activity.resources.configuration.orientation == android.content.res.Configuration.ORIENTATION_PORTRAIT }
+            compose.runOnUiThread { compose.activity.requestedOrientation = original }
+        }
     }
 
     @androidx.compose.runtime.Composable
@@ -271,6 +348,8 @@ class TerminalDirectInputTest {
                 }
             } }
             compose.onNodeWithTag("native-message-input").assertTextContains("Saved native draft")
+            compose.onNodeWithTag("native-camera").assertDoesNotExist()
+            compose.onNodeWithText("Clear draft").assertDoesNotExist()
             assertEquals("Saved native draft", input.draft)
             compose.onNodeWithTag("native-message-input").performClick()
             captureUi("compact-native-composer-controls.png")
@@ -284,6 +363,10 @@ class TerminalDirectInputTest {
             assertTrue("Native Direct must accept a real tap above the keyboard", input.direct)
             compose.onNodeWithTag("native-direct-input").performClick()
             compose.onNodeWithTag("native-message-input").assertTextContains("Saved native draft")
+            compose.onNodeWithTag("native-message-input").performTextClearance()
+            SavedSessionStates.writer.submit {}.get()
+            assertEquals("", binding.message.value)
+            assertEquals("", input.draft)
         } finally { SavedSessionStates.writer.submit {}.get(); directory.deleteRecursively() }
     }
 

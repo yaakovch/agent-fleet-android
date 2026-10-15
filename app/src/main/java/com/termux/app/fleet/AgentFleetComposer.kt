@@ -726,13 +726,6 @@ internal fun AgentFleetComposerContent(
                             unfocusedPlaceholderColor = PlanAmber
                         ) else OutlinedTextFieldDefaults.colors()
                     )
-                    val clearDraft: @Composable () -> Unit = {
-                        if (text.isNotEmpty()) TextButton(
-                            onClick = { changeText(""); savedBinding?.clearMessage() },
-                            modifier = Modifier.testTag("agent-fleet-clear-draft")
-                        ) { Text("Clear draft") }
-                    }
-                    clearDraft()
                 }
                 val actionModifier = if (compactComposer) Modifier.widthIn(min = 70.dp, max = 82.dp) else Modifier.fillMaxWidth()
                 val actions: @Composable () -> Unit = {
@@ -742,12 +735,6 @@ internal fun AgentFleetComposerContent(
                         modifier = actionModifier.testTag("agent-fleet-composer-attach"),
                         contentPadding = DenseButtonPadding
                     ) { Text(if (uploading) "Wait…" else "Attach", fontSize = density.nativeMetadataSp.sp) }
-                    TextButton(
-                        onClick = onCamera,
-                        enabled = !uploading && attachments.size < MAX_ATTACHMENTS,
-                        modifier = actionModifier.testTag("agent-fleet-composer-camera"),
-                        contentPadding = DenseButtonPadding
-                    ) { Text("Camera", fontSize = density.nativeMetadataSp.sp) }
                     TextButton(
                         onClick = {
                             if (onComposerText(composed, false)) {

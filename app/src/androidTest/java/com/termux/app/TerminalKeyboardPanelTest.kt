@@ -169,7 +169,16 @@ class TerminalKeyboardPanelTest {
             }
             assertTrue(input.keyboardDismissed); assertEquals("Keep this draft", input.draft); assertTrue(keys.isEmpty())
             tap("terminal-input-keyboard")
-            compose.waitUntil(5_000) { ViewCompat.getRootWindowInsets(view)?.isVisible(WindowInsetsCompat.Type.ime()) == true }
+            try {
+                assertFalse("A real keyboard tap must select visible input", input.keyboardDismissed)
+                compose.waitUntil(5_000) { ViewCompat.getRootWindowInsets(view)?.isVisible(WindowInsetsCompat.Type.ime()) == true }
+            } catch (failure: Throwable) {
+                val file = java.io.File(compose.activity.externalMediaDirs.first(), "terminal-keyboard/reopen-state.txt")
+                file.parentFile?.mkdirs()
+                file.writeText("dismissed=${input.keyboardDismissed} allowed=${input.isSystemImeAllowed()} focused=${view.hasFocus()} windowFocus=${view.hasWindowFocus()} attached=${view.isAttachedToWindow} generation=${input.getInputGeneration()}")
+                runCatching { capture("direct-ime-reopen-failure") }
+                throw failure
+            }
             compose.runOnUiThread { assertTrue(view.hasPendingImeComposition()); view.discardImeComposition(); view.onCreateInputConnection(EditorInfo())!!.commitText("x", 1) }
             await("78"); await("CAPTURED")
         } finally { compose.runOnUiThread { terminal.finishIfRunning() } }

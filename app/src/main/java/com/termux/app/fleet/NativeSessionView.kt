@@ -307,7 +307,7 @@ fun NativeSessionScreen(
             } else if (aiComposer && inlineComposer && state.mutationsAllowed) {
                 NativeAiComposer(
                     state.interactionMode, state.items, state.revision, state.liveEventSerial,
-                    suggestionSurfaceActive, localSuggestions, onComposerText, onAttach, onCamera
+                    suggestionSurfaceActive, localSuggestions, onComposerText, onAttach
                 )
             } else if (aiComposer && inlineComposer && state.providerStateKnown) {
                 ProviderFallbackBar(
@@ -833,11 +833,8 @@ private fun ModelControlDialog(
 }
 
 @Composable
-private fun NativeInputFooter(input: TerminalInputController, onClearDraft: (() -> Unit)? = null) {
-    Column {
-        ComposerTerminalShortcuts(input)
-        if (onClearDraft != null) TextButton(onClick = onClearDraft) { Text("Clear draft") }
-    }
+private fun NativeInputFooter(input: TerminalInputController) {
+    ComposerTerminalShortcuts(input)
 }
 
 @Composable
@@ -849,8 +846,7 @@ private fun NativeAiComposer(
     active: Boolean,
     localSuggestions: NativeLocalSuggestionState,
     onComposerText: (String, Boolean) -> Boolean,
-    onAttach: () -> Unit,
-    onCamera: () -> Unit
+    onAttach: () -> Unit
 ) {
     val input = LocalTerminalInputController.current
     val composerFocus = remember { androidx.compose.ui.focus.FocusRequester() }
@@ -897,13 +893,6 @@ private fun NativeAiComposer(
                 TextButton(onClick = onAttach, contentPadding = PaddingValues(horizontal = 7.dp, vertical = 4.dp)) {
                     Text("Attach", fontSize = 12.sp)
                 }
-                TextButton(
-                    onClick = onCamera,
-                    modifier = Modifier.testTag("native-camera"),
-                    contentPadding = PaddingValues(horizontal = 7.dp, vertical = 4.dp)
-                ) {
-                    Text("Camera", fontSize = 12.sp)
-                }
                 OutlinedTextField(
                     value = value,
                     onValueChange = {
@@ -925,9 +914,7 @@ private fun NativeAiComposer(
                     if (onComposerText(value, true)) { changeValue(""); savedBinding?.clearMessage() }
                 }) { Text(if (value.isEmpty()) "Enter" else "Send", fontSize = 12.sp) }
             }
-            if (input != null) NativeInputFooter(input,
-                onClearDraft = if (value.isNotEmpty()) ({ changeValue(""); savedBinding?.clearMessage() }) else null)
-            else if (value.isNotEmpty()) TextButton(onClick = { changeValue(""); savedBinding?.clearMessage() }) { Text("Clear draft") }
+            if (input != null) NativeInputFooter(input)
             if (localSuggestions.targetKey == "composer") {
                 LocalSuggestionChoices(
                     localSuggestions,

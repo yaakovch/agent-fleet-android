@@ -14,6 +14,7 @@ import android.widget.TextView
 import androidx.compose.ui.test.junit4.createEmptyComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.performTextInput
+import androidx.compose.ui.test.performTextClearance
 import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.assertTextContains
 import androidx.compose.ui.test.performClick
@@ -131,11 +132,11 @@ class NativeStartupAcceptanceTest {
                     awaitVisible(scenario, "NATIVE_STARTUP_READY", 500)
                     warm += SystemClock.elapsedRealtime() - started
                 }
-                compose.onNodeWithTag("agent-fleet-clear-draft").performClick()
+                compose.onNodeWithTag("agent-fleet-message-input").performTextClearance()
                 SavedSessionStates.writer.submit {}.get(5, java.util.concurrent.TimeUnit.SECONDS)
                 val cleared = SavedSessionBinding(File(context.filesDir, "session-state-v1"))
                 cleared.install(saved.identity, saved.executionTarget)
-                assertEquals("Explicit Clear must be durable", "", cleared.message.value)
+                assertEquals("Editing the draft empty must be durable", "", cleared.message.value)
                 screenshot("native-startup-warm.png")
                 val old = service.getAgentFleetWorkspaceSession(descriptor.id)!!.terminalSession
                 val oldHandle = old.mHandle
