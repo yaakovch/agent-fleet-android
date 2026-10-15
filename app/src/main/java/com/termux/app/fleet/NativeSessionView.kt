@@ -318,7 +318,7 @@ fun NativeSessionScreen(
             }
             if (inlineComposer && sharedInput != null && !composerVisible) {
                 if (aiComposer) NativeInputFooter(sharedInput)
-                else TerminalInputControls(sharedInput, composerAvailable = false)
+                else TerminalInputControls(sharedInput)
             }
           }
         }
@@ -586,8 +586,7 @@ private fun CompactSessionHeader(
                 } else {
                     Spacer(Modifier.weight(1f))
                 }
-                if (terminalInput != null && aiComposer) TextButton(onClick = { terminalInput.chooseDirect() },
-                    enabled = terminalInput.canInput(), modifier = Modifier.testTag("native-direct-input")) { Text("Direct input", fontSize = 11.sp) }
+                if (terminalInput != null && aiComposer) TerminalInputModeButton(terminalInput)
                 OutlinedButton(
                     onClick = onToggleView,
                     modifier = Modifier.height(40.dp).testTag("compact-session-view-switch"),
@@ -837,9 +836,7 @@ private fun ModelControlDialog(
 private fun NativeInputFooter(input: TerminalInputController, onClearDraft: (() -> Unit)? = null) {
     Column {
         ComposerTerminalShortcuts(input)
-        TerminalInputModeControls(input, trailingActions = {
-            if (onClearDraft != null) TextButton(onClick = onClearDraft) { Text("Clear draft") }
-        })
+        if (onClearDraft != null) TextButton(onClick = onClearDraft) { Text("Clear draft") }
     }
 }
 

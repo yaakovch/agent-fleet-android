@@ -108,5 +108,31 @@ class TerminalInputControllerTest {
         input.restore(true, true, false); input.restoreSurface(true, false)
         assertTrue(input.expanded); assertFalse(input.terminalSurface); assertTrue(input.keyboardDismissed)
     }
+    @Test fun touchCharactersAndNamedKeysRejectCapturedAuthorityFromEarlierTargets() {
+        val input = live()
+        var characters = 0
+        var named = 0
+        input.directLiteral = { cp, captured ->
+            assertEquals('q'.code, cp)
+            assertEquals(input.getInputGeneration(), captured)
+            characters++; true
+        }
+        input.send = { _, _ -> named++; true }
+        assertFalse(input.character('q'.code))
+        input.chooseDirect()
+        val old = input.getInputGeneration()
+        assertTrue(input.character('q'.code, old))
+        input.connection(false)
+        assertFalse(input.character('q'.code)); assertFalse(input.key("ENTER", old))
+        input.connection(true)
+        assertFalse(input.character('q'.code, old)); assertFalse(input.key("ENTER", old))
+        input.focus(false); assertFalse(input.character('q'.code)); input.focus(true)
+        val attachment = input.getInputGeneration()
+        input.onTerminalTargetChanged(Any(), Any())
+        assertFalse(input.character('q'.code, attachment))
+        input.chooseComposer(); assertFalse(input.character('q'.code))
+        assertEquals(1, characters); assertEquals(0, named)
+        assertEquals("", input.draft)
+    }
     private fun TerminalInputController.inputGenerationForTest() = getInputGeneration()
 }

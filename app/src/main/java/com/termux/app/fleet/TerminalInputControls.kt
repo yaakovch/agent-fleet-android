@@ -19,59 +19,62 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.termux.terminal.KeyHandler
 import com.termux.view.TerminalView
 
+/** One shortcut strip and three letter rows; short windows retain vertical scrolling. */
 @Composable
-fun TerminalInputControls(state: TerminalInputController, composerAvailable: Boolean = true) {
+fun TerminalInputControls(state: TerminalInputController) {
+    if (!state.direct) return
     val landscape = LocalConfiguration.current.orientation == android.content.res.Configuration.ORIENTATION_LANDSCAPE
+    val generation = state.getInputGeneration()
     Column(Modifier.fillMaxWidth().testTag("terminal-input-controls")) {
-        TerminalInputModeControls(state, composerAvailable)
-        if (state.direct) Column(Modifier.testTag("terminal-key-panel").heightIn(max = if (landscape) 96.dp else 240.dp).verticalScroll(rememberScrollState())) {
-            val modifiers: @Composable () -> Unit = {
-                listOf("Ctrl" to KeyHandler.KEYMOD_CTRL, "Alt" to KeyHandler.KEYMOD_ALT, "Shift" to KeyHandler.KEYMOD_SHIFT).forEach { (label, bit) ->
-                    TextButton(onClick = { state.modifier(bit) }, enabled = state.isInputAllowed(),
-                        modifier = Modifier.testTag("terminal-modifier-$label")) { Text(if (state.modifiers and bit != 0) "✓ $label" else label) }
+        Column(Modifier.testTag("terminal-key-panel")) {
+            Row(Modifier.fillMaxWidth()) {
+                Row(Modifier.weight(1f).testTag("terminal-navigation-row").horizontalScroll(rememberScrollState())) {
+                    keyButtons(state, listOf("LEFT", "UP", "DOWN", "RIGHT", "SHIFT_TAB", "SHIFT_LEFT", "ENTER", "BACKSPACE", "DELETE"))
+                    TextButton(onClick = { state.character(' '.code, generation) }, enabled = state.isInputAllowed(),
+                        modifier = Modifier.testTag("terminal-key-SPACE")) { Text("Space", maxLines = 1) }
+                    listOf("Ctrl" to KeyHandler.KEYMOD_CTRL, "Alt" to KeyHandler.KEYMOD_ALT, "Shift" to KeyHandler.KEYMOD_SHIFT).forEach { (label, bit) ->
+                        TextButton(onClick = { state.modifier(bit, generation) }, enabled = state.isInputAllowed(),
+                            modifier = Modifier.testTag("terminal-modifier-$label")) { Text(if (state.modifiers and bit != 0) "✓ $label" else label, maxLines = 1) }
+                    }
+                    keyButtons(state, listOf("ESC", "TAB", "HOME", "END", "PAGE_UP", "PAGE_DOWN"))
+                    TextButton(onClick = state::toggleProfile, modifier = Modifier.testTag("terminal-input-profile")) {
+                        Text(if (state.compatibility) "Compatibility" else "Terminal keys", maxLines = 1)
+                    }
                 }
+                TextButton(onClick = { state.toggleKeyboard() }, enabled = state.canInput(),
+                    contentPadding = PaddingValues(horizontal = 6.dp),
+                    modifier = Modifier.width(48.dp).testTag("terminal-input-keyboard").semantics {
+                        contentDescription = if (state.keyboardDismissed) "Show Android keyboard" else "Hide Android keyboard"
+                        stateDescription = if (state.keyboardDismissed) "Hidden" else "Open"
+                    }) { Text(if (state.keyboardDismissed) "⌨" else "⌨⌄") }
             }
-            if (landscape) Row(Modifier.testTag("terminal-navigation-row").fillMaxWidth().horizontalScroll(rememberScrollState())) {
-                modifiers(); keyButtons(state, listOf("ESC", "TAB", "LEFT", "UP", "DOWN", "RIGHT", "SHIFT_LEFT", "ENTER"))
-            } else {
-                Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState())) { modifiers(); keyButtons(state, listOf("ESC", "TAB")) }
-                Row(Modifier.testTag("terminal-navigation-row").fillMaxWidth().horizontalScroll(rememberScrollState())) { keyButtons(state, listOf("LEFT", "UP", "DOWN", "RIGHT", "SHIFT_LEFT", "ENTER")) }
-            }
-            run {
-                Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState())) {
-                    keyButtons(state, listOf("SHIFT_TAB", "HOME", "END", "PAGE_UP", "PAGE_DOWN", "DELETE", "BACKSPACE"))
+            Column(Modifier.heightIn(max = if (landscape) 48.dp else 192.dp).verticalScroll(rememberScrollState())) {
+                listOf("qwertyuiop", "asdfghjkl", "zxcvbnm").forEachIndexed { row, letters ->
+                    Row(Modifier.fillMaxWidth().testTag("terminal-letter-row-$row").horizontalScroll(rememberScrollState())) {
+                        letters.forEach { letter ->
+                            TextButton(onClick = { state.character(letter.code, generation) }, enabled = state.isInputAllowed(),
+                                contentPadding = PaddingValues(horizontal = 8.dp),
+                                modifier = Modifier.widthIn(min = 48.dp).testTag("terminal-letter-$letter")) {
+                                Text(if (state.modifiers and KeyHandler.KEYMOD_SHIFT != 0) letter.uppercase() else letter.toString(), maxLines = 1)
+                            }
+                        }
+                    }
                 }
-                (1..12).chunked(6).forEach { keys -> Row(Modifier.testTag("terminal-function-row-${keys.first()}").fillMaxWidth().horizontalScroll(rememberScrollState())) { keyButtons(state, keys.map { "F$it" }) } }
-                TextButton(onClick = state::toggleProfile, modifier = Modifier.testTag("terminal-input-profile")) { Text(if (state.compatibility) "Compatibility" else "Terminal keys") }
             }
         }
     }
 }
 
-/** Mode selection can share the composer's existing footer instead of adding a row above it. */
+/** Shared by the Native/Terminal header and the focused workspace toolbar. */
 @Composable
-fun TerminalInputModeControls(
-    state: TerminalInputController,
-    composerAvailable: Boolean = true,
-    trailingActions: @Composable RowScope.() -> Unit = {}
-) {
-    Row(Modifier.fillMaxWidth().testTag("terminal-input-mode-row")) {
-        Row(Modifier.weight(1f).horizontalScroll(rememberScrollState())) {
-            if (composerAvailable) TextButton(onClick = state::chooseComposer,
-                modifier = Modifier.testTag("terminal-input-composer")) { Text(if (state.direct) "Composer" else "✓ Composer") }
-            TextButton(onClick = { state.chooseDirect() }, enabled = state.canInput(),
-                modifier = Modifier.testTag("terminal-input-direct")) { Text(if (state.direct) "✓ Direct" else "Direct input") }
-            trailingActions()
-        }
-        if (state.direct) TextButton(onClick = { state.toggleKeyboard() }, enabled = state.canInput(),
-            contentPadding = PaddingValues(horizontal = 6.dp),
-            modifier = Modifier.width(48.dp).testTag("terminal-input-keyboard").semantics {
-                contentDescription = if (state.keyboardDismissed) "Show Android keyboard" else "Hide Android keyboard"
-                stateDescription = if (state.keyboardDismissed) "Hidden" else "Open"
-            }) { Text(if (state.keyboardDismissed) "⌨" else "⌨⌄") }
+fun TerminalInputModeButton(state: TerminalInputController, tag: String = "native-direct-input") {
+    TextButton(onClick = { if (state.direct) state.chooseComposer() else state.chooseDirect() },
+        enabled = state.direct || state.canInput(), modifier = Modifier.testTag(tag)) {
+        Text(if (state.direct) "Composer" else "Direct input", fontSize = 11.sp, maxLines = 1)
     }
 }
 
@@ -90,9 +93,10 @@ fun ComposerTerminalShortcuts(input: TerminalInputController) {
 }
 
 @Composable private fun RowScope.keyButtons(state: TerminalInputController, keys: List<String>) {
+    val generation = state.getInputGeneration()
     val labels = mapOf("LEFT" to "←", "RIGHT" to "→", "UP" to "↑", "DOWN" to "↓", "SHIFT_LEFT" to "Shift+←", "SHIFT_TAB" to "Shift+Tab", "PAGE_UP" to "PgUp", "PAGE_DOWN" to "PgDn")
-    keys.forEach { key -> TextButton(onClick = { state.key(key) }, enabled = state.isInputAllowed(),
-        modifier = Modifier.testTag("terminal-key-$key"), contentPadding = PaddingValues(horizontal = 8.dp)) { Text(labels[key] ?: key.lowercase().replaceFirstChar(Char::uppercase)) } }
+    keys.forEach { key -> TextButton(onClick = { state.key(key, generation) }, enabled = state.isInputAllowed(),
+        modifier = Modifier.testTag("terminal-key-$key"), contentPadding = PaddingValues(horizontal = 8.dp)) { Text(labels[key] ?: key.lowercase().replaceFirstChar(Char::uppercase), maxLines = 1) } }
 }
 
 object TerminalKeyboard {

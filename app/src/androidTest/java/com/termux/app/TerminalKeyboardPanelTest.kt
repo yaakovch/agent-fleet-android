@@ -13,6 +13,7 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.viewinterop.AndroidView
+import androidx.compose.ui.unit.dp
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.test.ext.junit.runners.AndroidJUnit4
@@ -43,7 +44,7 @@ class TerminalKeyboardPanelTest {
     private lateinit var terminal: TerminalSession
     private lateinit var input: TerminalInputController
     private val keys = mutableListOf<String>()
-    private fun setup(bytes: Int = 16, showSystem: Boolean = true, chooseSettings: Boolean = false) {
+    private fun setup(bytes: Int = 16, showSystem: Boolean = true, chooseSettings: Boolean = false, narrow: Boolean = false) {
         check(android.os.Build.VERSION.SDK_INT == 36 && "x86_64" in android.os.Build.SUPPORTED_ABIS)
         compose.runOnUiThread {
             settingsVisible = mutableStateOf(chooseSettings)
@@ -56,6 +57,7 @@ class TerminalKeyboardPanelTest {
                 setTerminalViewClient(WorkspaceTerminalViewClient()); setInputBridge(input); setTextSize(26)
                 isFocusableInTouchMode = true; attachSession(terminal)
             }
+            input.directLiteral = view::inputDirectCodePoint
             input.literal = view::inputAppCodePoint
             input.freezeComposition = view::freezeImeComposition
             input.pendingComposition = view::hasPendingImeComposition
@@ -64,7 +66,11 @@ class TerminalKeyboardPanelTest {
             input.send = { name, bits -> TerminalKeys.encode(name, bits, terminal.emulator)?.let { keys += it; terminal.write(it); true } ?: false }
         }
         compose.setContent { AgentFleetTheme(darkTheme = true) {
-            Column(Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing)) {
+            val density = androidx.compose.ui.platform.LocalDensity.current
+            CompositionLocalProvider(androidx.compose.ui.platform.LocalDensity provides androidx.compose.ui.unit.Density(density.density, if (narrow) 1.6f else density.fontScale)) {
+            Box(Modifier.fillMaxSize()) {
+            Column(Modifier.fillMaxHeight().then(if (narrow) Modifier.width(200.dp) else Modifier.fillMaxWidth()).windowInsetsPadding(WindowInsets.safeDrawing)) {
+                TerminalInputModeButton(input)
                 AndroidView(factory = { view }, modifier = Modifier.weight(1f))
                 if (settingsVisible.value) TerminalKeyboardSettingsCard()
                 else if (showSystem) TerminalInputControls(input)
@@ -72,6 +78,8 @@ class TerminalKeyboardPanelTest {
                     AgentFleetComposerContent("keyboard-fixture", AgentFleetComposerNativeState(), emptyList(), false, null,
                         onShowPendingQuestion = {}, onAttach = {}, onRemoveAttachment = {}, onComposerText = { _, _ -> false })
                 }
+            }
+            }
             }
         } }
         await("READY")
@@ -83,8 +91,8 @@ class TerminalKeyboardPanelTest {
         if (!showSystem) {
             compose.onNodeWithTag("agent-fleet-message-input").performClick()
             compose.waitUntil(5_000) { ViewCompat.getRootWindowInsets(view)?.isVisible(WindowInsetsCompat.Type.ime()) == true }
-            tap("terminal-input-direct")
-        } else compose.onNodeWithTag("terminal-input-direct").performClick()
+            tap("native-direct-input")
+        } else compose.onNodeWithTag("native-direct-input").performClick()
 
     }
     private fun await(text: String) { compose.waitUntil(10_000) { var found = false; compose.runOnUiThread { found = terminal.emulator?.screen?.transcriptText?.contains(text) == true }; found } }
@@ -140,7 +148,7 @@ class TerminalKeyboardPanelTest {
         try {
             compose.waitUntil(5_000) { ViewCompat.getRootWindowInsets(view)?.isVisible(WindowInsetsCompat.Type.ime()) == false }
             compose.onNodeWithTag("terminal-key-panel").assertExists()
-            compose.onNodeWithTag("terminal-key-F12").assertExists()
+            compose.onNodeWithTag("terminal-letter-m").assertExists()
             compose.onNodeWithTag("terminal-input-expand").assertDoesNotExist()
             compose.onNodeWithTag("terminal-input-surface").assertDoesNotExist()
             capture("direct-expanded-ime-hidden")
@@ -166,6 +174,97 @@ class TerminalKeyboardPanelTest {
             await("78"); await("CAPTURED")
         } finally { compose.runOnUiThread { terminal.finishIfRunning() } }
     }
+    @Test fun directUsesOneShortcutStripAndThreeScrollableLetterRows() {
+        setup(32, showSystem = false)
+        try {
+            compose.onNodeWithTag("terminal-input-mode-row").assertDoesNotExist()
+            compose.onNodeWithTag("terminal-key-F1").assertDoesNotExist()
+            compose.onNodeWithTag("terminal-key-F12").assertDoesNotExist()
+            capture("direct-qwerty-portrait")
+            val order = listOf("LEFT", "UP", "DOWN", "RIGHT", "SHIFT_TAB", "SHIFT_LEFT", "ENTER", "BACKSPACE", "DELETE", "SPACE")
+            val positions = order.map { compose.onNodeWithTag("terminal-key-$it").getUnclippedBoundsInRoot() }
+            positions.zipWithNext().forEach { (left, right) ->
+                assertTrue("Shortcut strip order and common row", left.right <= right.left && left.top == right.top)
+            }
+            listOf("qwertyuiop", "asdfghjkl", "zxcvbnm").forEachIndexed { row, letters ->
+                compose.onNodeWithTag("terminal-letter-row-$row").performScrollTo()
+                letters.forEach { letter ->
+                    val node = compose.onNodeWithTag("terminal-letter-$letter").performScrollTo()
+                    val bounds = node.fetchSemanticsNode().boundsInRoot
+                    val strip = compose.onNodeWithTag("terminal-letter-row-$row").fetchSemanticsNode().boundsInRoot
+                    assertTrue("Entire letter key must fit after scrolling", bounds.left >= strip.left - 1 && bounds.right <= strip.right + 1)
+                    tapNode(node)
+                }
+            }
+            fun modifier(label: String) {
+                compose.onNodeWithTag("terminal-navigation-row").assertIsDisplayed()
+                compose.onNodeWithTag("terminal-modifier-$label").performScrollTo().performClick()
+            }
+            modifier("Shift")
+            compose.onNodeWithTag("terminal-letter-row-1").performScrollTo()
+            compose.onNodeWithTag("terminal-letter-a").performScrollTo().performClick().performClick()
+            modifier("Ctrl")
+            compose.onNodeWithTag("terminal-letter-row-2").performScrollTo()
+            compose.onNodeWithTag("terminal-letter-c").performScrollTo().performClick()
+            modifier("Alt")
+            compose.onNodeWithTag("terminal-letter-x").performScrollTo().performClick()
+            compose.onNodeWithTag("terminal-navigation-row").assertIsDisplayed()
+            compose.onNodeWithTag("terminal-key-SPACE").performScrollTo().performClick()
+            await("CAPTURED")
+            val expected = "qwertyuiopasdfghjklzxcvbnmAa\u0003\u001bx ".toByteArray().joinToString("") { "%02x".format(it) }
+            compose.runOnUiThread {
+                assertTrue(terminal.emulator.screen.transcriptText.replace(Regex("\\s"), "").contains(expected))
+                assertEquals(0, input.modifiers)
+                assertEquals("Keep this draft", input.draft)
+            }
+            capture("direct-qwerty-typed")
+        } finally { compose.runOnUiThread { terminal.finishIfRunning() } }
+    }
+    @Test fun narrowLargeFontKeepsKeyboardPinnedAndKeysReachable() {
+        setup(1, showSystem = false, narrow = true)
+        try {
+            val row = compose.onNodeWithTag("terminal-navigation-row").fetchSemanticsNode().boundsInRoot
+            val keyboard = compose.onNodeWithTag("terminal-input-keyboard").fetchSemanticsNode().boundsInRoot
+            assertTrue("Keyboard action is pinned beside the scroll strip", keyboard.left >= row.right - 1)
+            listOf("LEFT", "SHIFT_TAB", "SHIFT_LEFT", "ENTER", "BACKSPACE", "DELETE", "SPACE", "ESC", "TAB", "PAGE_DOWN").forEach { key ->
+                val bounds = compose.onNodeWithTag("terminal-key-$key").performScrollTo().fetchSemanticsNode().boundsInRoot
+                assertTrue("Complete $key button fits the narrow strip", bounds.left >= row.left - 1 && bounds.right <= row.right + 1)
+                assertEquals(keyboard, compose.onNodeWithTag("terminal-input-keyboard").fetchSemanticsNode().boundsInRoot)
+            }
+            listOf('p', 'l', 'm').forEachIndexed { index, letter ->
+                compose.onNodeWithTag("terminal-letter-row-$index").performScrollTo()
+                compose.onNodeWithTag("terminal-letter-$letter").performScrollTo().assertIsDisplayed()
+            }
+            capture("direct-qwerty-narrow-large-font")
+            compose.onNodeWithTag("terminal-key-SPACE").performScrollTo().performClick()
+            await("20"); await("CAPTURED")
+        } finally { compose.runOnUiThread { terminal.finishIfRunning() } }
+    }
+    @Test fun letterKeysRejectStaleDisconnectedAndChangingTargets() {
+        setup(1, showSystem = false)
+        try {
+            compose.runOnUiThread {
+                val old = input.getInputGeneration()
+                input.connection(false)
+                assertFalse(input.character('q'.code, old))
+                assertFalse(view.inputDirectCodePoint('q'.code, old))
+                input.connection(true)
+                assertFalse(input.character('q'.code, old))
+                val current = input.getInputGeneration()
+                input.beforeKey = { input.focus(false) }
+                assertFalse(view.inputDirectCodePoint('q'.code, current))
+                input.beforeKey = {}; input.focus(true)
+                val direct = input.getInputGeneration()
+                input.chooseComposer()
+                assertFalse(input.character('q'.code, direct))
+                assertFalse(view.inputDirectCodePoint('q'.code, direct))
+                input.chooseDirect()
+            }
+            compose.onNodeWithTag("terminal-letter-x").performScrollTo().performClick()
+            await("CAPTURED"); await("78")
+            assertTrue(keys.isEmpty())
+        } finally { compose.runOnUiThread { terminal.finishIfRunning() } }
+    }
     @Test fun settingsMigrateOldEntriesAndControlOnlyAndroidImeOnNextEntry() {
         compose.runOnUiThread {
             val prefs = compose.activity.getSharedPreferences("agent-fleet-terminal-keyboard", 0)
@@ -184,7 +283,7 @@ class TerminalKeyboardPanelTest {
             capture("android-entry-settings")
             tap("terminal-keyboard-entry-hidden")
             compose.runOnUiThread { settingsVisible.value = false; input.chooseComposer() }
-            tap("terminal-input-direct")
+            tap("native-direct-input")
             compose.waitUntil(5_000) { ViewCompat.getRootWindowInsets(view)?.isVisible(WindowInsetsCompat.Type.ime()) == false }
             assertTrue(input.keyboardDismissed); assertTrue(input.expanded); assertEquals("Keep this draft", input.draft); assertTrue(keys.isEmpty())
         } finally { compose.runOnUiThread { terminal.finishIfRunning() } }
@@ -208,7 +307,7 @@ class TerminalKeyboardPanelTest {
             assertTrue(current.expanded); assertTrue(current.compatibility); assertEquals("Saved draft", current.draft); assertEquals(0, current.modifiers)
         }
         compose.onNodeWithTag("terminal-key-panel").assertExists()
-        compose.onNodeWithTag("terminal-key-F12").assertExists()
+        compose.onNodeWithTag("terminal-letter-m").assertExists()
         compose.onNodeWithTag("terminal-keyboard-dock").assertDoesNotExist()
     }
     @Test fun landscapeKeepsExpandedShortcutsWithAndroidImeHidden() {
@@ -217,9 +316,9 @@ class TerminalKeyboardPanelTest {
         try {
             compose.runOnUiThread { compose.activity.requestedOrientation = android.content.pm.ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE }
             compose.waitUntil(10_000) { compose.activity.resources.configuration.orientation == android.content.res.Configuration.ORIENTATION_LANDSCAPE }
-            compose.onNodeWithTag("terminal-function-row-7").performScrollTo()
-            compose.onNodeWithTag("terminal-key-F12").performScrollTo().assertIsDisplayed()
-            compose.onNodeWithTag("terminal-navigation-row").performScrollTo()
+            compose.onNodeWithTag("terminal-letter-row-2").performScrollTo()
+            compose.onNodeWithTag("terminal-letter-m").performScrollTo().assertIsDisplayed()
+            compose.onNodeWithTag("terminal-navigation-row").assertIsDisplayed()
             compose.onNodeWithTag("terminal-key-ENTER").performScrollTo().assertIsDisplayed()
             assertFalse(ViewCompat.getRootWindowInsets(view)!!.isVisible(WindowInsetsCompat.Type.ime()))
             capture("direct-expanded-landscape")

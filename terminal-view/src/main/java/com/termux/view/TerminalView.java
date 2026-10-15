@@ -1164,20 +1164,28 @@ public final class TerminalView extends View {
         return true;
     }
 
+    /** Touch letters share hardware character/modifier handling, with captured target authority. */
+    public boolean inputDirectCodePoint(int codePoint, long generation) {
+        final TerminalInputBridge bridge = mInputBridge;
+        if (!isAttachedToWindow() || mTermSession == null || !mTermSession.isRunning() || bridge == null ||
+            bridge.getInputGeneration() != generation || !bridge.isInputAllowed()) return false;
+        return inputCodePointGuarded(codePoint, false, false, false, true, generation);
+    }
+
     public boolean inputAppCodePoint(int codePoint, int modifiers, long generation) {
         final TerminalInputBridge bridge = mInputBridge;
         if (bridge == null || bridge.getInputGeneration() != generation || !bridge.isAppKeyboardAllowed()) return false;
         return inputCodePointGuarded(codePoint, (modifiers & KeyHandler.KEYMOD_CTRL) != 0,
-            (modifiers & KeyHandler.KEYMOD_ALT) != 0, true, generation);
+            (modifiers & KeyHandler.KEYMOD_ALT) != 0, true, false, generation);
     }
 
     public void inputCodePoint(int codePoint, boolean controlDownFromEvent, boolean leftAltDownFromEvent) {
-        inputCodePointGuarded(codePoint, controlDownFromEvent, leftAltDownFromEvent, false,
+        inputCodePointGuarded(codePoint, controlDownFromEvent, leftAltDownFromEvent, false, false,
             mInputBridge == null ? 0 : mInputBridge.getInputGeneration());
     }
 
     private boolean inputCodePointGuarded(int codePoint, boolean controlDownFromEvent, boolean leftAltDownFromEvent,
-                                         boolean appKeyboard, long generation) {
+                                         boolean appKeyboard, boolean directTouch, long generation) {
         final TerminalSession inputSession = mTermSession;
         final TerminalInputBridge inputBridge = mInputBridge;
         if (TERMINAL_VIEW_KEY_LOGGING_ENABLED) {
@@ -1185,9 +1193,9 @@ public final class TerminalView extends View {
                 + leftAltDownFromEvent + ")");
         }
 
-        if (inputSession == null || !validCodePointTarget(inputSession, inputBridge, generation, appKeyboard)) return false;
+        if (inputSession == null || !validCodePointTarget(inputSession, inputBridge, generation, appKeyboard, directTouch)) return false;
         if (inputBridge != null) inputBridge.beforeInput();
-        if (!validCodePointTarget(inputSession, inputBridge, generation, appKeyboard)) return false;
+        if (!validCodePointTarget(inputSession, inputBridge, generation, appKeyboard, directTouch)) return false;
         final int touchMods = inputBridge == null || appKeyboard ? 0 : inputBridge.consumeModifiers();
         if ((touchMods & KeyHandler.KEYMOD_SHIFT) != 0) codePoint = Character.toUpperCase(codePoint);
         controlDownFromEvent |= (touchMods & KeyHandler.KEYMOD_CTRL) != 0;
@@ -1205,9 +1213,9 @@ public final class TerminalView extends View {
         final boolean controlDown = controlDownFromEvent || mClient.readControlKey();
         final boolean altDown = leftAltDownFromEvent || mClient.readAltKey();
 
-        if (!validCodePointTarget(inputSession, inputBridge, generation, appKeyboard)) return false;
+        if (!validCodePointTarget(inputSession, inputBridge, generation, appKeyboard, directTouch)) return false;
         if (mClient.onCodePoint(codePoint, controlDown, inputSession)) return true;
-        if (!validCodePointTarget(inputSession, inputBridge, generation, appKeyboard)) return false;
+        if (!validCodePointTarget(inputSession, inputBridge, generation, appKeyboard, directTouch)) return false;
 
         if (controlDown) {
             if (codePoint >= 'a' && codePoint <= 'z') {
@@ -1255,8 +1263,8 @@ public final class TerminalView extends View {
         return true;
     }
 
-    private boolean validCodePointTarget(TerminalSession session, TerminalInputBridge bridge, long generation, boolean appKeyboard) {
-        return (!appKeyboard || isAttachedToWindow()) && session == mTermSession && bridge == mInputBridge && (bridge == null ||
+    private boolean validCodePointTarget(TerminalSession session, TerminalInputBridge bridge, long generation, boolean appKeyboard, boolean directTouch) {
+        return (!(appKeyboard || directTouch) || isAttachedToWindow()) && (!directTouch || session.isRunning()) && session == mTermSession && bridge == mInputBridge && (bridge == null ||
             (generation == bridge.getInputGeneration() && (appKeyboard ? bridge.isAppKeyboardAllowed() : bridge.isInputAllowed())));
     }
 

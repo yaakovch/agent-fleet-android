@@ -25,6 +25,7 @@ class TerminalInputController : TerminalInputBridge {
     private var selectingSurface by mutableStateOf(false)
     var freezeComposition: () -> Unit = {}
     var surfaceBlocked by mutableStateOf(false)
+    var directLiteral: (Int, Long) -> Boolean = { _, _ -> false }
     var literal: (Int, Int, Long) -> Boolean = { _, _, _ -> false }
     var pendingComposition: () -> Boolean = { false }
     var discardComposition: () -> Unit = {}
@@ -236,11 +237,16 @@ class TerminalInputController : TerminalInputBridge {
     }
 
     fun toggleExpanded() { /* Retained for old saved-state callers; keys stay expanded. */ }
-    fun modifier(bit: Int) { if (isInputAllowed()) modifiers = modifiers xor bit }
+    fun modifier(bit: Int, captured: Long = generation) { if (captured == generation && isInputAllowed()) modifiers = modifiers xor bit }
     fun clearModifiers() { modifiers = 0 }
-    fun key(name: String): Boolean {
+    /** TerminalView consumes one-shot modifiers through its canonical character path. */
+    fun character(codePoint: Int, captured: Long = generation): Boolean {
+        if (captured != generation || !isInputAllowed()) return false
+        return directLiteral(codePoint, captured)
+    }
+    fun key(name: String, captured: Long = generation): Boolean {
+        if (captured != generation) return false
         if (!isInputAllowed()) { clearModifiers(); return false }
-        val captured = generation
         val bits = consumeModifiers()
         beforeInput()
         return isInputAllowed() && captured == generation && send(name, bits)

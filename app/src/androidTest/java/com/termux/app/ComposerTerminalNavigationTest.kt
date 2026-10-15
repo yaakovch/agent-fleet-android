@@ -238,6 +238,16 @@ class ComposerTerminalNavigationTest {
             assertEquals(panes[0].id, state.value.layout.focusedPaneId)
             assertTrue(workspacePanes(state.value.layout.root).all { it.viewMode == WorkspaceViewMode.Terminal })
             capture("workspace-composer-shortcuts")
+            compose.onNodeWithTag("workspace-input-mode").performScrollTo().performClick()
+            compose.onNodeWithTag("workspace-input-mode").assertTextContains("Composer")
+            control(0, "terminal-letter-q").performScrollTo().performClick()
+            compose.waitUntil(5_000) { files[0].length() == expected.toByteArray().size.toLong() + 1 }
+            assertEquals(expected + "q", files[0].readText()); assertEquals(0L, files[1].length())
+            control(0, "terminal-input-mode-row").assertDoesNotExist()
+            capture("workspace-direct-qwerty")
+            compose.onNodeWithTag("workspace-input-mode").performScrollTo().performClick()
+            control(0, "agent-fleet-message-input").assertTextContains("Keep workspace draft")
+            assertTrue(workspacePanes(state.value.layout.root).all { it.viewMode == WorkspaceViewMode.Terminal })
         } finally { compose.runOnUiThread { registry.destroy(); broker.close(); terminals.forEach { it.finishIfRunning() } } }
     }
 }

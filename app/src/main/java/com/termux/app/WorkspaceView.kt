@@ -118,6 +118,7 @@ import com.termux.app.fleet.WorkspaceSplit
 import com.termux.app.fleet.WorkspaceTerminalBroker
 import com.termux.app.fleet.TerminalInputController
 import com.termux.app.fleet.TerminalInputControls
+import com.termux.app.fleet.TerminalInputModeButton
 import com.termux.app.fleet.TerminalKeyboardPanel
 import com.termux.app.fleet.LocalWindowTerminalDock
 import com.termux.app.fleet.TerminalKeyboard
@@ -435,6 +436,9 @@ fun DesktopWorkspaceScreen(
                         stateDescription = if (focusedPane.viewMode == WorkspaceViewMode.Terminal) "Selected" else "Not selected"
                     }.testTag("workspace-mode-terminal")
                 ) { Text("Terminal") }
+                if (focusedSession != null && focusedSession.tool != "shell") {
+                    inputs[focusedPane.id]?.let { TerminalInputModeButton(it, tag = "workspace-input-mode") }
+                }
                 Box(Modifier.width(72.dp)) {
                     if (focusedChrome.retryVisible && focusedSession != null) OutlinedButton(
                         onClick = { broker.attach(focusedSession) },
@@ -890,6 +894,7 @@ private fun EmbeddedTerminal(session: FleetSession, broker: WorkspaceTerminalBro
         onDispose { binding.terminal?.removeTerminalSessionObserver(observer) }
     }
     input.beforeKey = scrollback::returnToLive
+    input.directLiteral = { cp, generation -> view?.inputDirectCodePoint(cp, generation) == true }
     input.literal = { cp, bits, generation -> view?.inputAppCodePoint(cp, bits, generation) == true }
     input.freezeComposition = { view?.freezeImeComposition() }
     input.pendingComposition = { view?.hasPendingImeComposition() == true }
@@ -898,7 +903,7 @@ private fun EmbeddedTerminal(session: FleetSession, broker: WorkspaceTerminalBro
         val generation = input.getInputGeneration()
         view?.post { if (input.isInputAllowed() && input.getInputGeneration() == generation) { scrollback.returnToLive(); view?.let(TerminalKeyboard::show) } }
     }
-    DisposableEffect(input, scrollback) { onDispose { input.onKeyboard = {}; input.beforeKey = {}; input.literal = { _, _, _ -> false }; input.freezeComposition = {}; input.pendingComposition = { false }; input.discardComposition = {} } }
+    DisposableEffect(input, scrollback) { onDispose { input.onKeyboard = {}; input.beforeKey = {}; input.literal = { _, _, _ -> false }; input.directLiteral = { _, _ -> false }; input.freezeComposition = {}; input.pendingComposition = { false }; input.discardComposition = {} } }
     LaunchedEffect(input.direct, binding.terminal, focused, input.canInput(), view, input.getInputGeneration()) { if (input.direct && focused && input.canInput()) input.onKeyboard() }
     val terminal = binding.terminal
     LaunchedEffect(terminal) {
@@ -943,7 +948,7 @@ private fun EmbeddedTerminal(session: FleetSession, broker: WorkspaceTerminalBro
         }
         }
         Surface {
-            if (session.tool == "shell") TerminalInputControls(input, composerAvailable = false)
+            if (session.tool == "shell") TerminalInputControls(input)
             else androidx.compose.runtime.CompositionLocalProvider(
                 LocalTerminalInputController provides input,
                 com.termux.app.fleet.LocalSavedSessionBinding provides com.termux.app.fleet.SavedSessionStates.find(session.hostId, session.internalName)

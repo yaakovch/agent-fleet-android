@@ -103,6 +103,7 @@ object AgentFleetComposer {
         input.beforeKey = { activity.getAgentFleetTerminalScrollback()?.returnToLive() }
         input.onKeyboard = { TerminalKeyboard.show(activity.terminalView) }
         input.send = activity::sendAgentFleetTerminalKey
+        input.directLiteral = { cp, generation -> activity.terminalView.inputDirectCodePoint(cp, generation) }
         input.literal = { cp, bits, generation -> activity.terminalView.inputAppCodePoint(cp, bits, generation) }
         input.freezeComposition = { activity.terminalView.freezeImeComposition() }
         input.pendingComposition = { activity.terminalView.hasPendingImeComposition() }
@@ -130,7 +131,7 @@ object AgentFleetComposer {
         view.setContent {
             MaterialTheme(colorScheme = ComposerColors) {
                 androidx.compose.runtime.CompositionLocalProvider(LocalTerminalInputController provides input) {
-                if (!enabled) TerminalInputControls(input, composerAvailable = false) else AgentFleetComposerContent(
+                if (!enabled) TerminalInputControls(input) else AgentFleetComposerContent(
                     target = target,
                     nativeState = nativeState,
                     attachments = targetState.attachments,
@@ -731,10 +732,7 @@ internal fun AgentFleetComposerContent(
                             modifier = Modifier.testTag("agent-fleet-clear-draft")
                         ) { Text("Clear draft") }
                     }
-                    if (input != null) {
-                        TerminalInputModeControls(input, trailingActions = { clearDraft() })
-                    }
-                    else clearDraft()
+                    clearDraft()
                 }
                 val actionModifier = if (compactComposer) Modifier.widthIn(min = 70.dp, max = 82.dp) else Modifier.fillMaxWidth()
                 val actions: @Composable () -> Unit = {
