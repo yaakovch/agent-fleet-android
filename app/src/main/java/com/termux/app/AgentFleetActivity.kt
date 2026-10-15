@@ -2547,6 +2547,7 @@ private fun LimitsScreen(
     onDismissAttention: (FleetAttention) -> Unit
 ) {
     val context = LocalContext.current
+    val nowMillis = rememberQuotaNowMillis()
     val snapshot = (fleetState as? FleetLoadState.Ready)?.snapshot
     val sessions = snapshot?.sessions?.associateBy { it.id }.orEmpty()
     val activeAttention = snapshot?.attention?.filter { it.state in setOf("detected", "offering", "offered") }.orEmpty()
@@ -2607,14 +2608,14 @@ private fun LimitsScreen(
             if (snapshot.limits.isEmpty()) {
                 item { FeatureCard("No quota profiles reported", "Choose designated desktop sources and update their wtmux runtime to publish quota windows.") }
             } else {
-                items(snapshot.limits, key = { it.id }) { limit -> QuotaProfileCard(limit, snapshot.hosts.firstOrNull { it.id == limit.hostId }?.name ?: limit.hostId) }
+                items(snapshot.limits, key = { it.id }) { limit -> QuotaProfileCard(limit, snapshot.hosts.firstOrNull { it.id == limit.hostId }?.name ?: limit.hostId, nowMillis) }
             }
         }
     }
 }
 
 @Composable
-private fun QuotaProfileCard(limit: FleetLimit, hostName: String) {
+private fun QuotaProfileCard(limit: FleetLimit, hostName: String, nowMillis: Long) {
     Card(shape = RoundedCornerShape(20.dp), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)) {
         Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(11.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -2626,20 +2627,28 @@ private fun QuotaProfileCard(limit: FleetLimit, hostName: String) {
             }
             limit.primary?.let { QuotaWindowRow(it) }
             limit.secondary?.let { QuotaWindowRow(it) }
-            Text(formatAge(limit.updatedAt), fontSize = 14.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            listOf("primary" to limit.primary, "secondary" to limit.secondary).forEach { (slot, window) ->
+                if (window != null) Text(
+                    quotaResetLabel(window, nowMillis),
+                    modifier = Modifier.fillMaxWidth().testTag("quota-${limit.id}-$slot-reset"),
+                    fontSize = 14.sp, color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+            if (limit.primary == null && limit.secondary == null) Text(
+                "Reset times unavailable", modifier = Modifier.testTag("quota-${limit.id}-reset-unknown"),
+                fontSize = 14.sp, color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            Text(formatAge(limit.updatedAt), modifier = Modifier.testTag("quota-${limit.id}-updated"),
+                fontSize = 14.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
     }
 }
 
 @Composable
 private fun QuotaWindowRow(window: FleetLimitWindow) {
-    val label = when (window.windowMinutes) {
-        300 -> "5h"
-        10080 -> "Weekly"
-        else -> "${window.windowMinutes / 60}h"
-    }
+    val label = quotaWindowLabel(window.windowMinutes)
     Row(verticalAlignment = Alignment.CenterVertically) {
-        Text(label, modifier = Modifier.size(width = 64.dp, height = 24.dp), fontWeight = FontWeight.SemiBold)
+        Text(label, modifier = Modifier.widthIn(min = 64.dp).heightIn(min = 24.dp), fontWeight = FontWeight.SemiBold)
         LinearProgressIndicator(
             progress = { (window.remainingPercent / 100.0).toFloat() },
             modifier = Modifier.weight(1f).height(9.dp),

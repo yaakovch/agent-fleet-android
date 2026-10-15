@@ -1884,6 +1884,64 @@ class AgentFleetComposeTest {
         assertTrue("Folder must be above the title", folder.fetchSemanticsNode().boundsInRoot.top < title.fetchSemanticsNode().boundsInRoot.top)
     }
 
+    @Test fun limitsShowBothResetTimesBeforeLastUpdated() {
+        val now = java.time.Instant.now().truncatedTo(java.time.temporal.ChronoUnit.SECONDS)
+        val quota = com.termux.app.fleet.FleetLimit("reset-fixture", "gaming", "codex", "Reset clock fixture", "ready",
+            com.termux.app.fleet.FleetLimitWindow(25.0, 75.0, now.plusSeconds(8100).toString(), 300),
+            com.termux.app.fleet.FleetLimitWindow(60.0, 40.0, now.plusSeconds(273600).toString(), 10080), now.toString())
+        compose.setContent { FixtureApp(fleetSnapshot = snapshot.copy(limits = listOf(quota), attention = emptyList())) }
+        compose.onNodeWithTag("nav-limits").performClick()
+        compose.onNodeWithText("Reset clock fixture").performScrollTo().assertIsDisplayed()
+        discoveryScreenshot("limits-reset-baseline-or-current")
+        compose.onNodeWithTag("quota-reset-fixture-updated").performScrollTo()
+        val fiveHour = compose.onNodeWithTag("quota-reset-fixture-primary-reset").assertIsDisplayed()
+        val weekly = compose.onNodeWithTag("quota-reset-fixture-secondary-reset").assertIsDisplayed()
+        val updated = compose.onNodeWithTag("quota-reset-fixture-updated").assertIsDisplayed()
+        fiveHour.assertTextContains("5h resets in ", substring = true)
+        weekly.assertTextContains("Weekly resets in ", substring = true)
+        assertTrue(fiveHour.fetchSemanticsNode().boundsInRoot.bottom <= weekly.fetchSemanticsNode().boundsInRoot.top)
+        assertTrue(weekly.fetchSemanticsNode().boundsInRoot.bottom <= updated.fetchSemanticsNode().boundsInRoot.top)
+        compose.onNodeWithText("75% left").assertIsDisplayed()
+        compose.onNodeWithText("40% left").assertIsDisplayed()
+        discoveryScreenshot("limits-reset-current")
+    }
+
+    @Test fun limitsResetTimesWrapAtLargeFontsInNarrowPane() {
+        val now = java.time.Instant.now().truncatedTo(java.time.temporal.ChronoUnit.SECONDS)
+        val quota = com.termux.app.fleet.FleetLimit("large-reset", "gaming", "codex", "Large font resets", "ready",
+            com.termux.app.fleet.FleetLimitWindow(25.0, 75.0, now.plusSeconds(8100).toString(), 300),
+            com.termux.app.fleet.FleetLimitWindow(60.0, 40.0, now.plusSeconds(273600).toString(), 10080), now.toString())
+        compose.setContent {
+            val density = LocalDensity.current
+            CompositionLocalProvider(LocalDensity provides Density(density.density, 1.6f)) {
+                Box { Box(Modifier.width(320.dp)) { FixtureApp(fleetSnapshot = snapshot.copy(limits = listOf(quota), attention = emptyList())) } }
+            }
+        }
+        compose.onNodeWithTag("nav-limits").performClick()
+        val reset = compose.onNodeWithTag("quota-large-reset-primary-reset").performScrollTo().assertIsDisplayed()
+        reset.assertTextContains("5h resets in ", substring = true)
+        val weekly = compose.onNodeWithTag("quota-large-reset-secondary-reset").performScrollTo().assertIsDisplayed()
+        weekly.assertTextContains("Weekly resets in ", substring = true)
+        assertTrue(reset.fetchSemanticsNode().boundsInRoot.bottom <= weekly.fetchSemanticsNode().boundsInRoot.top)
+        compose.onNodeWithTag("quota-large-reset-updated").performScrollTo().assertIsDisplayed()
+        discoveryScreenshot("limits-reset-large-font-narrow")
+    }
+
+    @Test fun limitsResetDueAndUnknownKeepExistingPercentages() {
+        val now = java.time.Instant.now().truncatedTo(java.time.temporal.ChronoUnit.SECONDS)
+        val quota = com.termux.app.fleet.FleetLimit("due-reset", "gaming", "codex", "Due and unknown resets", "ready",
+            com.termux.app.fleet.FleetLimitWindow(25.0, 75.0, now.minusSeconds(60).toString(), 300),
+            com.termux.app.fleet.FleetLimitWindow(60.0, 40.0, "", 10080), now.toString())
+        compose.setContent { FixtureApp(fleetSnapshot = snapshot.copy(limits = listOf(quota), attention = emptyList())) }
+        compose.onNodeWithTag("nav-limits").performClick()
+        compose.onNodeWithTag("quota-due-reset-updated").performScrollTo().assertIsDisplayed()
+        compose.onNodeWithTag("quota-due-reset-primary-reset").assertIsDisplayed().assertTextContains("5h reset due", substring = true)
+        compose.onNodeWithTag("quota-due-reset-secondary-reset").assertIsDisplayed().assertTextEquals("Weekly reset time unknown")
+        compose.onNodeWithText("75% left").assertIsDisplayed()
+        compose.onNodeWithText("40% left").assertIsDisplayed()
+        discoveryScreenshot("limits-reset-due-unknown")
+    }
+
     @androidx.compose.runtime.Composable
     private fun FixtureApp(
         fleetSnapshot: FleetSnapshot = snapshot,
