@@ -455,6 +455,8 @@ Use the top input action beside Native/Terminal to switch between Composer and D
 
 Touch letters call TerminalView's guarded canonical character path; do not write code points directly to a workspace broker because that bypasses Ctrl/Alt conversion. Captured generation and live focused attachment authority must survive rechecks after before-input hooks. Keyboard hiding preserves unfinished preedit and rejects retained IME callbacks; it never automatically commits pending text. Windows uses hardware/xterm input and needs no corresponding touch-layout change. Physical-phone installation and final usability smoke remain owner-operated through the signed updater.
 
+Isolate keyboard fixtures before destroying their windows: `TerminalDirectInputTest` closes its IME in `@After` while the window is still attached and waits for hidden insets. Opening touches wait for actual window focus. Retain the subsequent keyboard-visible assertion before tapping actions; an isolated passing case does not replace the ordered class and complete-suite checks.
+
 Workspace view helpers can also select their target pane. Preserve the original selected pane when initializing several shell modes, and assert it before opening controls. Pane focus/session/view publication revokes old input synchronously; the embedded keyboard-show effect includes the actual view and authority becoming available. In resize-sensitive Keep/Discard tests, wait for stable screen bounds, inject the real touch, and verify the choice before waiting on keyboard readiness. A still-visible confirmation with System selected proves the tap did not make the decision; it is not an IME-hide failure.
 
 ### Compact Composer footer (2026-10-15)

@@ -22,6 +22,7 @@ import com.termux.view.TerminalView
 import org.junit.Assert.*
 import org.junit.Rule
 import org.junit.Before
+import org.junit.After
 import org.junit.Test
 import org.junit.runner.RunWith
 
@@ -36,6 +37,20 @@ class TerminalDirectInputTest {
         }
     }
 
+    @After fun closeFixtureKeyboardBeforeDestroyingItsWindow() {
+        val decor = compose.activity.window.decorView
+        val automation = androidx.test.platform.app.InstrumentationRegistry.getInstrumentation().uiAutomation
+        automation.waitForIdle(300, 5_000)
+        compose.runOnUiThread {
+            androidx.core.view.WindowCompat.getInsetsController(compose.activity.window, decor)
+                .hide(androidx.core.view.WindowInsetsCompat.Type.ime())
+        }
+        compose.waitUntil(5_000) {
+            androidx.core.view.ViewCompat.getRootWindowInsets(decor)
+                ?.isVisible(androidx.core.view.WindowInsetsCompat.Type.ime()) == false
+        }
+    }
+
     private fun assertAboveKeyboardAndTap(tag: String) {
         val decor = compose.activity.window.decorView
         compose.waitUntil(5_000) {
@@ -47,6 +62,9 @@ class TerminalDirectInputTest {
 
     private fun tapVisibleControl(tag: String) {
         val decor = compose.activity.window.decorView
+        compose.waitUntil(5_000) { decor.hasWindowFocus() }
+        val automation = androidx.test.platform.app.InstrumentationRegistry.getInstrumentation().uiAutomation
+        automation.waitForIdle(300, 5_000)
         compose.waitForIdle()
         val bounds = compose.onNodeWithTag(tag).fetchSemanticsNode().boundsInWindow
         val visible = android.graphics.Rect()
@@ -57,7 +75,6 @@ class TerminalDirectInputTest {
         }
         assertTrue("Control must remain above the visible keyboard: bounds=$bounds frame=$visible",
             bounds.bottom + origin[1] <= visible.bottom)
-        val automation = androidx.test.platform.app.InstrumentationRegistry.getInstrumentation().uiAutomation
         val downTime = android.os.SystemClock.uptimeMillis()
         for (action in listOf(android.view.MotionEvent.ACTION_DOWN, android.view.MotionEvent.ACTION_UP)) {
             val event = android.view.MotionEvent.obtain(downTime, android.os.SystemClock.uptimeMillis(), action,
