@@ -590,7 +590,7 @@ public final class TermuxActivity extends ComponentActivity implements ServiceCo
 
     private int agentFleetTerminalChromeHeight() {
         return getResources().getDimensionPixelSize(R.dimen.agent_fleet_compact_session_header_height) +
-            Math.round(48 * getResources().getDisplayMetrics().density * Math.max(0, getResources().getConfiguration().fontScale - 1)) +
+            Math.round(8 * getResources().getDisplayMetrics().density * Math.max(0, getResources().getConfiguration().fontScale - 1)) +
             mAgentFleetStatusBarInset;
     }
 

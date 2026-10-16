@@ -2358,3 +2358,35 @@ large fonts. Run focused regressions, canonical local quality, then the clean-pu
 signed-release pipeline with the full protected API36 suite. Publish .121 through
 fleet/latest after all gates, retain .120 rollback and verify served signed APKs.
 Leave phone installation and final usability smoke to the owner.
+
+
+## Compact session header and Composer icons — authorized 2026-10-16
+
+Owner declined SPEC first and requested direct execution. Android open-session Native
+and Terminal headers use one project-first line with trailing topic ellipsis. Remove
+the separate provider/status/topic rows and reduce header from 112dp to 88dp, with a
+small font-scale allowance mirrored by fullscreen terminal geometry. Keep the leading
+work symbol, accessible status/timing and Actions detail; keep connection recovery
+and its retry action available. Model/effort, input-mode and view controls move up.
+
+Composer uses icons only: Up, Down, Enter, plan/permission key Shift+Tab, answer key
+Shift+Left and Interrupt Ctrl+C. Preserve exact key semantics, draft/attachments/view,
+focus/target/attachment/connection and captured-generation guards. Add Space,
+Backspace and Delete in that order when 48dp slots fit. Wrap the six primary icons
+in very narrow panes; never introduce horizontal scrolling or undersized hit targets.
+Use accessible action descriptions and long-press/hover explanations. Native input
+controls remain provider terminal shortcuts, not assertions of provider plan state.
+
+Windows gets the same nine guarded Composer actions and icon meanings through its
+existing terminal IPC; desktop widths can wrap them. Its already compact pane title
+remains project/topic inline, while Android alone removes its extra header rows. No
+shared protocol/runtime change. Baselines Android .121/d0a94eb2 and Windows
+beta.46/a98c754. Continue in their clean warm worktrees on
+fix/compact-header-icons-20261016, preserving previous branches, dirty original root
+and sealed release evidence. Windows focused/typecheck/native CI first; reproduce
+old Android header before edits, then exact PTY bytes/retained draft, stale keys,
+provider/work status, recovery, fullscreen/workspace geometry, narrow/large-font and
+landscape tests. Review intentional golden changes. Run canonical local quality and
+clean-pushed Android protected full/signed release; publish .122 and Windows beta.47
+through existing lanes, retain rollback and verify served files. Phone installation
+and final device smoke stay owner-operated.

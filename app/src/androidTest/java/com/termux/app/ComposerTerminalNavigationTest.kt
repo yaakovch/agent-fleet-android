@@ -129,7 +129,7 @@ class ComposerTerminalNavigationTest {
         swipe(); compose.waitUntil(3_000) { bytes.length() > 0 }
         assertTrue(bytes.readText().startsWith("\u001b[<64;"))
     }
-    @Test fun narrowPaneAndLargeFontsKeepAllFiveShortcutsReachable() {
+    @Test fun narrowPaneAndLargeFontsKeepCoreIconsVisibleWithoutScrolling() {
         val input = TerminalInputController().apply { bind("narrow", true); connection(true); available = { true }; draft = "Keep" }
         val sent = mutableListOf<String>()
         input.send = { key, _ -> sent += key; true }
@@ -143,32 +143,54 @@ class ComposerTerminalNavigationTest {
                 }
             }
         }
-        val keys = listOf("UP", "DOWN", "ENTER", "SHIFT_TAB", "SHIFT_LEFT")
+        compose.onNodeWithTag("composer-terminal-shortcuts").assert(SemanticsMatcher.keyNotDefined(androidx.compose.ui.semantics.SemanticsProperties.HorizontalScrollAxisRange))
+        val keys = listOf("UP", "DOWN", "ENTER", "SHIFT_TAB", "SHIFT_LEFT", "CTRL_C")
         for (key in keys) {
-            val button = compose.onNodeWithTag("composer-terminal-key-$key").performScrollTo().assertIsDisplayed()
+            val button = compose.onNodeWithTag("composer-terminal-key-$key").assertIsDisplayed()
             val row = compose.onNodeWithTag("composer-terminal-shortcuts").fetchSemanticsNode().boundsInRoot
             assertEquals(200f, row.width / compose.activity.resources.displayMetrics.density, 1f)
             val bounds = button.fetchSemanticsNode().boundsInRoot
-            assertTrue("Complete shortcut label must fit its narrow row: $bounds / $row", bounds.left >= row.left - 1 && bounds.right <= row.right + 1)
+            assertTrue(bounds.width / compose.activity.resources.displayMetrics.density >= 48f)
+            assertTrue("Complete icon must fit its narrow row: $bounds / $row", bounds.left >= row.left - 1 && bounds.right <= row.right + 1)
             button.performTouchInput { click() }
         }
         assertEquals(keys, sent); assertEquals("Keep", input.draft); assertFalse(input.direct)
         capture("composer-narrow-large-font")
     }
+    @Test fun widePaneAddsEditingIconsAndAccessibleHints() {
+        val input = TerminalInputController().apply { bind("wide", true); connection(true); available = { true }; draft = "Keep" }
+        val sent = mutableListOf<String>()
+        input.send = { key, bits -> sent += TerminalKeys.encode(key, bits)!!; true }
+        compose.activity.requestedOrientation = android.content.pm.ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE
+        try {
+            compose.waitUntil(10_000) { compose.activity.resources.configuration.orientation == android.content.res.Configuration.ORIENTATION_LANDSCAPE }
+            compose.setContent { AgentFleetTheme(darkTheme = true) {
+                Column(Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing)) { ComposerTerminalShortcuts(input) }
+            } }
+            val keys = listOf("UP", "DOWN", "ENTER", "SHIFT_TAB", "SHIFT_LEFT", "CTRL_C", "SPACE", "BACKSPACE", "DELETE")
+            for (key in keys) compose.onNodeWithTag("composer-terminal-key-$key").assertIsDisplayed().performTouchInput { click() }
+            assertEquals(listOf("\u001b[A", "\u001b[B", "\r", "\u001b[Z", "\u001b[1;2D", "\u0003", " ", "\u007f", "\u001b[3~"), sent)
+            assertEquals("Keep", input.draft); assertFalse(input.direct)
+            compose.onNodeWithContentDescription("Plan mode (Shift+Tab)").assertIsDisplayed().performTouchInput { longClick() }
+            compose.onNodeWithText("Plan mode (Shift+Tab)").assertIsDisplayed()
+            assertEquals("Long-press hints must not type a key", 9, sent.size)
+            capture("composer-wide-icons-and-hint")
+        } finally { compose.activity.requestedOrientation = android.content.pm.ActivityInfo.SCREEN_ORIENTATION_PORTRAIT }
+    }
     @Test fun shortcutsSendEachKeyOnceAndKeepDraftAttachmentsAndReadingView() {
         setup()
-        val keys = listOf("UP", "DOWN", "ENTER", "SHIFT_TAB", "SHIFT_LEFT")
-        for (key in keys) compose.onNodeWithTag("composer-terminal-key-$key").performScrollTo().performTouchInput { click() }
-        val expected = "\u001b[A\u001b[B\r\u001b[Z\u001b[1;2D"
+        val keys = listOf("UP", "DOWN", "ENTER", "SHIFT_TAB", "SHIFT_LEFT", "CTRL_C")
+        for (key in keys) compose.onNodeWithTag("composer-terminal-key-$key").performTouchInput { click() }
+        val expected = "\u001b[A\u001b[B\r\u001b[Z\u001b[1;2D\u0003"
         compose.waitUntil(5_000) { bytes.length() == expected.toByteArray().size.toLong() }
-        assertEquals(expected, bytes.readText()); assertEquals(5, writes); assertEquals(0, viewChanges)
+        assertEquals(expected, bytes.readText()); assertEquals(6, writes); assertEquals(0, viewChanges)
         assertFalse(input.direct); assertEquals("Keep my draft", input.draft); assertEquals(listOf("/fixture/image.png"), attachments.toList())
         capture("composer-shortcuts-portrait")
         compose.runOnUiThread { input.connection(false) }
         compose.onNodeWithTag("composer-terminal-key-ENTER").assertIsNotEnabled().performTouchInput { click() }
         compose.runOnUiThread { input.connection(true); input.available = { false } }
         compose.onNodeWithTag("composer-terminal-key-ENTER").assertIsNotEnabled()
-        assertEquals(5, writes)
+        assertEquals(6, writes)
     }
     @Test fun ordinaryHistoryAlternateNavigationAndMouseScrollWorkInBothModes() {
         setup()
@@ -228,15 +250,15 @@ class ComposerTerminalNavigationTest {
             } }
             compose.waitUntil(10_000) { terminals.all { it.emulator?.screen?.transcriptText?.contains("READY") == true } }
             control(0, "agent-fleet-message-input").performTextInput("Keep workspace draft")
-            val keys = listOf("UP", "DOWN", "ENTER", "SHIFT_TAB", "SHIFT_LEFT")
+            val keys = listOf("UP", "DOWN", "ENTER", "SHIFT_TAB", "SHIFT_LEFT", "CTRL_C")
             for (key in keys) {
-                val button = control(0, "composer-terminal-key-$key").performScrollTo().assertIsEnabled()
+                val button = control(0, "composer-terminal-key-$key").assertIsEnabled()
                 val row = control(0, "composer-terminal-shortcuts").fetchSemanticsNode().boundsInRoot
                 val bounds = button.fetchSemanticsNode().boundsInRoot
                 assertTrue("Complete shortcut must fit the pane footer: $bounds / $row", bounds.left >= row.left - 1 && bounds.right <= row.right + 1)
                 button.performTouchInput { click() }
             }
-            val expected = "\u001b[A\u001b[B\r\u001b[Z\u001b[1;2D"
+            val expected = "\u001b[A\u001b[B\r\u001b[Z\u001b[1;2D\u0003"
             compose.waitUntil(5_000) { files[0].length() == expected.toByteArray().size.toLong() }
             assertEquals(expected, files[0].readText()); assertEquals(0L, files[1].length())
             control(0, "agent-fleet-message-input").assertTextContains("Keep workspace draft")
@@ -258,6 +280,7 @@ class ComposerTerminalNavigationTest {
             }
             compose.onNodeWithTag("workspace-mode-native").performScrollTo().performClick()
             compose.onNodeWithTag("workspace-mode-terminal").performScrollTo().performClick()
+            compose.onNodeWithTag("workspace-mode-terminal").assertIsSelected()
             compose.waitForIdle()
             compose.runOnUiThread {
                 assertSame("Same pane retains its local reader", retainedView, findTerminal(compose.activity.window.decorView))

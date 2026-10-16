@@ -473,3 +473,18 @@ running it with `AgentFleetEmbeddedRegistryTest` passes in either class order.
 Keep strict runtime-tree checks. Build Termux artifacts for the runtime root
 `/data/data/com.yaakovch.fleet/files/home/.local/share/agent-fleet/wtmux` (not the
 Termux executable prefix); `/data/user/0` is its equivalent Android spelling.
+
+
+### Compact header and icon Composer (2026-10-16)
+
+`SessionHeaderIdentityTest` checks the single project-first title line in Native and
+Terminal, trailing topic ellipsis, 88dp base header, large fonts, physical landscape,
+and recovery details/retry through Actions. Fullscreen Termux geometry must use the
+same base height and font-scale allowance as Compose.
+
+`ComposerTerminalNavigationTest` checks six core icons without horizontal scrolling,
+48dp touch targets in 200dp panes, optional editing keys at wide widths, accessible
+labels and long-press hints that send no key. Real PTYs and workspace tests retain
+exactly-once key bytes, draft/attachments/view and focused/live-target guards. Use
+explicit weighted layout containers around tooltip anchors; assert every button's
+visible bounds, since a tooltip's internal layout can discard parent row sizing.

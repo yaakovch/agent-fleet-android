@@ -14,6 +14,8 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.painterResource
+import com.termux.R
 import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
@@ -78,16 +80,45 @@ fun TerminalInputModeButton(state: TerminalInputController, tag: String = "nativ
     }
 }
 
-/** Named terminal keys do not submit or focus the Composer's draft. */
+private data class ComposerShortcut(val key: String, val label: String, val icon: Int)
+private val composerShortcuts = listOf(
+    ComposerShortcut("UP", "Up arrow", R.drawable.ic_composer_up),
+    ComposerShortcut("DOWN", "Down arrow", R.drawable.ic_composer_down),
+    ComposerShortcut("ENTER", "Enter", R.drawable.ic_composer_enter),
+    ComposerShortcut("SHIFT_TAB", "Plan mode (Shift+Tab)", R.drawable.ic_composer_plan),
+    ComposerShortcut("SHIFT_LEFT", "Answer question (Shift+Left)", R.drawable.ic_composer_answer),
+    ComposerShortcut("CTRL_C", "Interrupt (Ctrl+C)", R.drawable.ic_composer_interrupt),
+    ComposerShortcut("SPACE", "Space", R.drawable.ic_composer_space),
+    ComposerShortcut("BACKSPACE", "Backspace", R.drawable.ic_composer_backspace),
+    ComposerShortcut("DELETE", "Delete", R.drawable.ic_composer_delete)
+)
+
+/** Core keys stay reachable without horizontal scrolling, even in a narrow workspace pane. */
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ComposerTerminalShortcuts(input: TerminalInputController) {
     if (input.direct) return
     val generation = input.getInputGeneration()
-    Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).testTag("composer-terminal-shortcuts")) {
-        listOf("UP" to "↑", "DOWN" to "↓", "ENTER" to "Enter", "SHIFT_TAB" to "Shift+Tab", "SHIFT_LEFT" to "Shift+Left").forEach { (key, label) ->
-            TextButton(onClick = { input.composerKey(key, generation) }, enabled = input.canInput(),
-                contentPadding = PaddingValues(horizontal = 8.dp),
-                modifier = Modifier.testTag("composer-terminal-key-$key")) { Text(label, maxLines = 1) }
+    BoxWithConstraints(Modifier.fillMaxWidth().testTag("composer-terminal-shortcuts")) {
+        val slots = (maxWidth / 48.dp).toInt().coerceAtLeast(1)
+        val visibleKeys = composerShortcuts.take(slots.coerceIn(6, composerShortcuts.size))
+        Column {
+            visibleKeys.chunked(slots).forEach { row ->
+                Row(Modifier.fillMaxWidth()) {
+                    row.forEach { shortcut ->
+                        Box(Modifier.weight(1f)) {
+                            TooltipBox(positionProvider = TooltipDefaults.rememberTooltipPositionProvider(),
+                                tooltip = { PlainTooltip { Text(shortcut.label) } }, state = rememberTooltipState()) {
+                                IconButton(onClick = { input.composerKey(shortcut.key, generation) }, enabled = input.canInput(),
+                                    modifier = Modifier.fillMaxWidth().height(48.dp).testTag("composer-terminal-key-${shortcut.key}")) {
+                                    Icon(painterResource(shortcut.icon), contentDescription = shortcut.label, modifier = Modifier.size(20.dp))
+                                }
+                            }
+                        }
+                    }
+                    if (row.size < slots) Spacer(Modifier.weight((slots - row.size).toFloat()))
+                }
+            }
         }
     }
 }

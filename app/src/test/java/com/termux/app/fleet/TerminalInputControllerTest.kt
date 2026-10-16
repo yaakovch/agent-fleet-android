@@ -87,8 +87,8 @@ class TerminalInputControllerTest {
         var viewChanges = 0; input.onDirect = { viewChanges++ }; input.onComposer = { viewChanges++ }
         val writes = mutableListOf<String>()
         input.send = { key, bits -> writes += TerminalKeys.encode(key, bits)!!; true }
-        listOf("UP", "DOWN", "ENTER", "SHIFT_TAB", "SHIFT_LEFT").forEach { assertTrue(input.composerKey(it)) }
-        assertEquals(listOf("\u001b[A", "\u001b[B", "\r", "\u001b[Z", "\u001b[1;2D"), writes)
+        listOf("UP", "DOWN", "ENTER", "SHIFT_TAB", "SHIFT_LEFT", "CTRL_C", "SPACE", "BACKSPACE", "DELETE").forEach { assertTrue(input.composerKey(it)) }
+        assertEquals(listOf("\u001b[A", "\u001b[B", "\r", "\u001b[Z", "\u001b[1;2D", "\u0003", " ", "\u007f", "\u001b[3~"), writes)
         assertEquals("Keep me", input.draft); assertEquals(listOf("image.png"), input.attachments())
         assertFalse(input.direct); assertEquals(0, viewChanges)
         input.connection(false); assertFalse(input.composerKey("ENTER")); input.connection(true)
@@ -96,7 +96,7 @@ class TerminalInputControllerTest {
         input.onTerminalTargetChanged(Any(), Any())
         assertFalse(input.composerKey("ENTER", old))
         input.beforeKey = { input.onTerminalTargetChanged(Any(), Any()) }
-        assertFalse(input.composerKey("ENTER")); assertEquals(5, writes.size)
+        assertFalse(input.composerKey("ENTER")); assertEquals(9, writes.size)
     }
     @Test fun scrollNavigationIsIndependentOfTypingButRetainsAvailabilityAndFocusChecks() {
         val input = live()

@@ -486,37 +486,32 @@ private fun CompactSessionHeader(
     val terminalInput = LocalTerminalInputController.current
     var actionMenu by rememberSaveable(state.hostId, state.internalSession, destinationLabel) { mutableStateOf(false) }
     var confirmKill by rememberSaveable(state.hostId, state.internalSession, destinationLabel) { mutableStateOf(false) }
+    val statusDetail = nativeSessionStatusDetail(state, tickerActive)
+    val recovery = state.attachmentRecovery
     Surface(
         modifier = modifier
             .fillMaxWidth()
-            .heightIn(min = dimensionResource(com.termux.R.dimen.agent_fleet_compact_session_header_height) + (48 * (androidx.compose.ui.platform.LocalDensity.current.fontScale - 1).coerceAtLeast(0f)).dp)
+            .heightIn(min = dimensionResource(com.termux.R.dimen.agent_fleet_compact_session_header_height) + (8 * (androidx.compose.ui.platform.LocalDensity.current.fontScale - 1).coerceAtLeast(0f)).dp)
             .testTag(headerTag),
         color = MaterialTheme.colorScheme.background,
         tonalElevation = 2.dp
     ) {
         Column(Modifier.fillMaxWidth().padding(start = 12.dp, end = 5.dp)) {
             Row(
-                Modifier.fillMaxWidth().heightIn(min = 64.dp).testTag("compact-session-identity-row"),
+                Modifier.fillMaxWidth().heightIn(min = 40.dp).testTag("compact-session-identity-row"),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(4.dp)
             ) {
-                Column(Modifier.weight(1f)) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        val work = rememberSessionWorkPresentation(state.workStatus, state.hostAvailable, tickerActive)
-                        Text(work.symbol, fontSize = 13.sp, modifier = Modifier.padding(end = 4.dp).semantics { contentDescription = work.label })
-                        Text(state.sessionLabel, fontSize = 13.sp, fontWeight = FontWeight.Bold,
-                            maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
-                    }
-                    if (state.sessionTopic.isNotBlank()) Text(state.sessionTopic,
-                        fontSize = 12.sp, fontWeight = FontWeight.Normal, maxLines = 1,
-                        overflow = TextOverflow.Ellipsis, modifier = Modifier.testTag("session-topic"))
-                    val recovery = state.attachmentRecovery
-                    if (recovery == null) NativeSessionStatusLine(state, tickerActive)
-                    else Row(Modifier.fillMaxWidth().height(20.dp).testTag("session-attachment-recovery"), verticalAlignment = Alignment.CenterVertically) {
-                        Text(recovery.message, Modifier.weight(1f), fontSize = 11.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                        if (recovery.retryable) TextButton(onClick = onRetryConnection, modifier = Modifier.height(20.dp).testTag("session-attachment-retry"), contentPadding = PaddingValues(horizontal = 4.dp, vertical = 0.dp)) { Text("Retry", fontSize = 11.sp) }
-                    }
-                }
+                val work = rememberSessionWorkPresentation(state.workStatus, state.hostAvailable, tickerActive)
+                Text(if (recovery == null) work.symbol else "!", fontSize = 13.sp,
+                    modifier = Modifier.testTag("session-work-status").semantics {
+                        contentDescription = recovery?.message ?: statusDetail
+                    })
+                Text(buildAnnotatedString {
+                    withStyle(SpanStyle(fontWeight = FontWeight.Bold)) { append(state.sessionLabel) }
+                    if (state.sessionTopic.isNotBlank()) append(" · ${state.sessionTopic}")
+                }, fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f).testTag("session-title"))
                 Box {
                     TextButton(
                         onClick = { actionMenu = true },
@@ -525,6 +520,10 @@ private fun CompactSessionHeader(
                     ) { Text("Actions", fontSize = 11.sp) }
                     DropdownMenu(expanded = actionMenu, onDismissRequest = { actionMenu = false }) {
                         val context = LocalContext.current
+                        DropdownMenuItem(text = { Text(recovery?.message ?: statusDetail) }, enabled = false, onClick = {})
+                        if (recovery?.retryable == true) DropdownMenuItem(
+                            text = { Text("Retry connection") }, modifier = Modifier.testTag("session-attachment-retry"),
+                            onClick = { actionMenu = false; onRetryConnection() })
                         if (onHistory != null) {
                             DropdownMenuItem(text = { Text("History") }, enabled = historyAvailable,
                                 modifier = Modifier.testTag("terminal-history-open"),
@@ -612,7 +611,7 @@ private fun CompactSessionHeader(
 }
 
 @Composable
-private fun NativeSessionStatusLine(state: NativeSessionUiState, tickerActive: Boolean) {
+private fun nativeSessionStatusDetail(state: NativeSessionUiState, tickerActive: Boolean): String {
     val exactActivity = state.providerActivity
     val exactActivityStartedAt = remember(exactActivity) {
         providerActivityStartedAt(exactActivity)
@@ -647,14 +646,7 @@ private fun NativeSessionStatusLine(state: NativeSessionUiState, tickerActive: B
         completedDuration != null -> "Worked for ${formatElapsedDuration(completedDuration)}"
         else -> work.label
     }
-    Text(
-        "${prettyAdapter(state.adapter)} · $detail",
-        fontSize = 10.sp,
-        color = if (work.state == "working") ReadyGreen else MaterialTheme.colorScheme.onSurfaceVariant,
-        maxLines = 1,
-        overflow = TextOverflow.Ellipsis,
-        modifier = Modifier.testTag("native-session-status")
-    )
+    return "${prettyAdapter(state.adapter)} · $detail"
 }
 
 internal fun providerActivityStartedAt(activity: ProviderActivity?): Long? {

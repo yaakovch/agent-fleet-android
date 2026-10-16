@@ -23,6 +23,45 @@ import org.junit.runner.RunWith
 class SessionHeaderIdentityTest {
     @get:Rule val compose = createAndroidComposeRule<TerminalKeyboardTestHostActivity>()
 
+    @Test fun sessionHeaderReclaimsProviderAndTopicRows() {
+        val input = TerminalInputController().apply { bind("compact", true); connection(true); available = { true } }
+        compose.setContent { AgentFleetTheme(darkTheme = true) {
+            CompositionLocalProvider(LocalTerminalInputController provides input) {
+                Column(Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing)) {
+                    AgentFleetTerminalSessionChrome(NativeSessionUiState("project:1", "fixture", "compact", adapter = "codex", sessionTopic = "A long session topic that may be clipped"), {}, {}, { _, _, _, _ -> }, {})
+                    ComposerTerminalShortcuts(input)
+                }
+            }
+        } }
+        val automation = InstrumentationRegistry.getInstrumentation().uiAutomation
+        automation.waitForIdle(300, 5_000)
+        val file = java.io.File(compose.activity.externalMediaDirs.first(), "compact-header/header-and-icons.png")
+        file.parentFile!!.mkdirs()
+        val bitmap = requireNotNull(automation.takeScreenshot())
+        file.outputStream().use { bitmap.compress(Bitmap.CompressFormat.PNG, 100, it) }; bitmap.recycle()
+        val header = compose.onNodeWithTag("terminal-session-chrome").fetchSemanticsNode().boundsInRoot
+        assertTrue("Header must reclaim space: ${header.height / compose.activity.resources.displayMetrics.density}dp", header.height / compose.activity.resources.displayMetrics.density <= 88.5f)
+        compose.onNodeWithTag("native-session-status").assertDoesNotExist()
+        compose.onNodeWithTag("composer-terminal-key-CTRL_C").assertIsDisplayed()
+    }
+
+    @Test fun compactHeaderKeepsRecoveryDetailAndRetryInActions() {
+        var retries = 0
+        compose.setContent { AgentFleetTheme(darkTheme = true) {
+            Column(Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing)) {
+                AgentFleetTerminalSessionChrome(NativeSessionUiState("project:1", "fixture", "compact",
+                    attachmentRecovery = SessionAttachmentRecovery("Connection was lost. Retry to reattach.", true)),
+                    {}, {}, { _, _, _, _ -> }, {}, onRetryConnection = { retries++ })
+            }
+        } }
+        compose.onNodeWithTag("terminal-session-chrome").assertHeightIsEqualTo(88.dp)
+        compose.onNodeWithContentDescription("Connection was lost. Retry to reattach.").assertIsDisplayed()
+        compose.onNodeWithTag("compact-session-actions").performClick()
+        compose.onNodeWithText("Connection was lost. Retry to reattach.").assertIsDisplayed()
+        compose.onNodeWithTag("session-attachment-retry").assertIsDisplayed().performClick()
+        compose.runOnIdle { assertEquals(1, retries) }
+    }
+
     @Test fun sameProjectThreadsKeepTheirOwnStatusAcrossNativeAndTerminal() {
         var terminal by mutableStateOf(false)
         var state by mutableStateOf(NativeSessionUiState("shared-daemon:1", "owned-host", "first-thread", adapter = "codex",
@@ -50,23 +89,23 @@ class SessionHeaderIdentityTest {
         }
         compose.runOnIdle { state = state.copy(workStatus = SessionWorkStatus("working", java.time.Instant.now().toString())) }
         capture("shared-daemon-working")
-        compose.onNodeWithText("Codex · Working").assertIsDisplayed()
-        compose.onNodeWithTag("session-topic").assertTextEquals("First thread")
+        compose.onNodeWithContentDescription("Codex · Working").assertIsDisplayed()
+        compose.onNodeWithTag("session-title").assertTextEquals("shared-daemon:1 · First thread")
         compose.runOnIdle {
             terminal = true
             state = state.copy(sessionLabel = "shared-daemon:2", internalSession = "second-thread", sessionTopic = "Second thread",
                 workStatus = SessionWorkStatus("waiting", java.time.Instant.now().toString()))
         }
-        compose.onNodeWithText("Codex · Waiting for input").assertIsDisplayed()
-        compose.onNodeWithTag("session-topic").assertTextEquals("Second thread")
+        compose.onNodeWithContentDescription("Codex · Waiting for input").assertIsDisplayed()
+        compose.onNodeWithTag("session-title").assertTextEquals("shared-daemon:2 · Second thread")
         capture("shared-daemon-waiting")
         compose.runOnIdle {
             terminal = false
             state = state.copy(sessionLabel = "shared-daemon:1", internalSession = "first-thread", sessionTopic = "First thread",
                 workStatus = SessionWorkStatus("working", java.time.Instant.now().toString()))
         }
-        compose.onNodeWithText("Codex · Working").assertIsDisplayed()
-        compose.onNodeWithTag("session-topic").assertTextEquals("First thread")
+        compose.onNodeWithContentDescription("Codex · Working").assertIsDisplayed()
+        compose.onNodeWithTag("session-title").assertTextEquals("shared-daemon:1 · First thread")
     }
 
     @Test fun folderTopicAndWorkStatusStayOrderedAcrossBothViewsAndSizes() {
@@ -96,14 +135,16 @@ class SessionHeaderIdentityTest {
         fun check(name: String) {
             compose.runOnIdle { state = state.copy(workStatus = SessionWorkStatus("waiting", java.time.Instant.now().toString())) }
             compose.waitForIdle()
-            val project = compose.onNodeWithText(state.sessionLabel).assertIsDisplayed().fetchSemanticsNode().boundsInRoot
-            val topic = compose.onNodeWithTag("session-topic").assertIsDisplayed().fetchSemanticsNode().boundsInRoot
-            val status = compose.onNodeWithTag("native-session-status").assertIsDisplayed().fetchSemanticsNode().boundsInRoot
+            val titleNode = compose.onNodeWithTag("session-title").assertIsDisplayed()
+                .assertTextEquals("${state.sessionLabel} · ${state.sessionTopic}")
+            val title = titleNode.fetchSemanticsNode().boundsInRoot
             val controls = compose.onNodeWithTag("compact-session-control-row").fetchSemanticsNode().boundsInRoot
-            assertTrue(project.bottom <= topic.top)
-            assertTrue(topic.bottom <= status.top)
-            assertTrue(status.bottom <= controls.top)
-            compose.onNodeWithText("Codex · Waiting for input").assertIsDisplayed()
+            val layouts = mutableListOf<androidx.compose.ui.text.TextLayoutResult>()
+            titleNode.performSemanticsAction(androidx.compose.ui.semantics.SemanticsActions.GetTextLayoutResult) { it(layouts) }
+            assertEquals(1, layouts.single().lineCount)
+            assertTrue(title.bottom <= controls.top)
+            compose.onNodeWithTag("native-session-status").assertDoesNotExist()
+            compose.onNodeWithContentDescription("Codex · Waiting for input").assertIsDisplayed()
             val automation = InstrumentationRegistry.getInstrumentation().uiAutomation
             automation.waitForIdle(300, 5_000)
             val bitmap = requireNotNull(automation.takeScreenshot())

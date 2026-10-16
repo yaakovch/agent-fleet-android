@@ -278,7 +278,7 @@ class TerminalInputController : TerminalInputBridge {
         return isInputAllowed() && captured == generation && send(name, bits)
     }
     fun composerKey(name: String, captured: Long = generation): Boolean {
-        if (captured != generation || direct || name !in setOf("UP", "DOWN", "ENTER", "SHIFT_TAB", "SHIFT_LEFT") || !canInput()) return false
+        if (captured != generation || direct || name !in setOf("UP", "DOWN", "ENTER", "SHIFT_TAB", "SHIFT_LEFT", "CTRL_C", "SPACE", "BACKSPACE", "DELETE") || !canInput()) return false
         clearModifiers()
         beforeInput()
         return !direct && captured == generation && canInput() && send(name, 0)
@@ -305,6 +305,7 @@ object TerminalKeys {
     @JvmStatic @JvmOverloads
     fun encode(name: String, modifiers: Int = 0, emulator: TerminalEmulator? = null): String? {
         if (name == "CTRL_C") return "\u0003"
+        if (name == "SPACE") return " "
         val code = when (name) {
             "ESC" -> android.view.KeyEvent.KEYCODE_ESCAPE
             "TAB", "SHIFT_TAB" -> android.view.KeyEvent.KEYCODE_TAB
