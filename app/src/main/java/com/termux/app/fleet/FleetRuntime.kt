@@ -362,13 +362,11 @@ class FleetRuntime(private val context: Context) {
         hostId: String,
         project: String,
         backend: String,
-        tool: String,
         path: String,
         locationKind: String
     ): FleetSnapshot {
         require(project.matches(Regex("[A-Za-z0-9][A-Za-z0-9._ -]{0,63}"))) { "Enter a valid session label." }
         require(backend in setOf("linux", "windows")) { "Choose a valid backend." }
-        require(tool in setOf("shell", "codex", "claude", "copilot")) { "Choose a valid tool." }
         require(validDirectoryPath(path, backend, false)) { "Choose a valid folder." }
         require(locationKind in setOf("project", "custom")) { "Choose a valid location type." }
         return createSessionWithStaleRetry(snapshot, hostId, execute = { current, key ->
@@ -376,7 +374,7 @@ class FleetRuntime(private val context: Context) {
                 .put("hostId", hostId)
                 .put("project", project)
                 .put("backend", backend)
-                .put("tool", tool)
+                .put("tool", "shell")
                 .put("path", path)
                 .put("locationKind", locationKind)
                 .put("expectedRevision", current.revision)

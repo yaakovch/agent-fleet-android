@@ -59,15 +59,17 @@ class AgentFleetCompatibilityTest {
         val attempts = mutableListOf<List<String>>()
         var pending: ((Result<Unit>) -> Unit)? = null
         var dismissals = 0
-        showDialog(state, { host, label, backend, tool, path, kind, callback ->
-            attempts += listOf(host, label, backend, tool, path, kind); pending = callback
+        showDialog(state, { host, label, backend, path, kind, callback ->
+            attempts += listOf(host, label, backend, path, kind); pending = callback
         }, { dismissals++ })
         selectWindowsFolder()
+        compose.onNodeWithText("Tool").assertDoesNotExist()
+        compose.onNodeWithText("✓ codex").assertDoesNotExist()
         compose.onNodeWithTag("session-create-submit").assertIsEnabled().performClick()
         compose.onNodeWithTag("session-create-submit").assertIsNotEnabled()
         compose.onNodeWithTag("session-create-label").assertIsNotEnabled()
         assertEquals(1, attempts.size)
-        assertEquals(listOf("gaming", "home_through_work-strata-native", "windows", "codex", folder, "project"), attempts.single())
+        assertEquals(listOf("gaming", "home_through_work-strata-native", "windows", folder, "project"), attempts.single())
         compose.runOnIdle { pending!!(Result.failure(FleetUnavailableException("Fleet changed. Try again.", "stale_revision"))) }
         compose.onNodeWithTag("session-create-error").assertTextContains("Fleet changed", substring = true)
         compose.onNodeWithTag("session-create-label").assertTextContains("home_through_work-strata-native")
@@ -81,7 +83,7 @@ class AgentFleetCompatibilityTest {
     }
 
     @Test fun uncertainCreationBlocksRepeatAndExplainsHowToCheck() {
-        showDialog(mutableStateOf(snapshot()), { _, _, _, _, _, _, callback ->
+        showDialog(mutableStateOf(snapshot()), { _, _, _, _, _, callback ->
             callback(Result.failure(FleetUnavailableException("The result is unknown.", "unsafe_state")))
         })
         selectWindowsFolder()
@@ -93,7 +95,7 @@ class AgentFleetCompatibilityTest {
 
     @Test fun hostGoingOfflineKeepsFolderAndTargetUntilItReturns() {
         val state = mutableStateOf(snapshot())
-        showDialog(state, { _, _, _, _, _, _, _ -> fail("Offline host must not create") })
+        showDialog(state, { _, _, _, _, _, _ -> fail("Offline host must not create") })
         selectWindowsFolder()
         compose.runOnIdle { state.value = snapshot("offline") }
         compose.onNodeWithTag("session-create-label").assertTextContains("home_through_work-strata-native")
@@ -109,7 +111,7 @@ class AgentFleetCompatibilityTest {
     ), emptyList(), emptyList(), emptyList())
 
     private fun showDialog(state: androidx.compose.runtime.MutableState<FleetSnapshot>,
-        confirm: (String, String, String, String, String, String, (Result<Unit>) -> Unit) -> Unit,
+        confirm: (String, String, String, String, String, (Result<Unit>) -> Unit) -> Unit,
         dismiss: () -> Unit = {}) {
         compose.setContent { MaterialTheme {
             CreateSessionDialog(state.value,

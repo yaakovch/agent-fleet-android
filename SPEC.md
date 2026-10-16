@@ -1123,3 +1123,49 @@ existing lanes if sequence preflight permits; retain prior artifacts and verify
 served bytes. Phone installation/final smoke and Windows private-feed enrollment
 remain owner-operated/separate. Use the next monotonic version if another release
 claims a candidate before publication; never reuse a published version.
+
+
+## Shell-only interactive sessions — approved 2026-10-16
+
+The owner declined SPEC first, approved the conversational plan and requested
+implementation. Every new interactive session starts the configured Linux shell
+or Windows Git Bash. Remove provider selection from all creation menus/apps and
+retire explicit agent-launch shortcuts. Reject fresh non-shell creation before
+side effects; retain completed idempotent replays. Existing launch presets keep
+their locations/names and create shells. Manual agent commands, including codexN,
+existing sessions, Native adapters, limits, models and scheduled jobs remain.
+
+Keep the existing wire shape and provider enums. App-local creation APIs no
+longer accept a selectable tool and emit tool=shell. Live provider discovery must
+recognize agents started inside the shell on Linux and Windows, without trusting
+shell launch metadata or unrelated processes. Validate native Windows PID/birth
+identity and bounded descendant discovery. Update attached app metadata in place,
+retain drafts/images/scroll and revoke old provider operations. Terminal stays
+selected until the owner selects Native; provider exit returns to the same shell.
+
+Validate runtime guards/discovery and Windows UI first, then Android fullscreen/
+workspace parity on the protected API36 emulator. Cover shell→agent→shell,
+profiles, ambiguity, PID reuse, reconnects, exactly-once creation and uncertainty.
+Actual Windows Git Bash/Native transition acceptance is a required gate. Publish
+clean tested runtime/app releases through existing lanes after their gates, keep
+rollback and verify served files. Leave phone installation/final smoke to the owner;
+other-machine commands retain their approval gate. Baselines: runtime d8946f9
+(with documentation successor8efd7dc), Android e15fa728/.123, Windows2bc32d21/beta.49.
+
+
+Implementation detail: new Git Bash shells use a nonce-tagged private RC file
+and a builtin-only DEBUG/PROMPT hook recording prompt/running state and background
+job IDs. A complete marker rejects partial writes. Provider discovery combines
+that MSYS job tree with native WINPID/creation-time evidence, because MSYS exec
+can outlive an intermediate Win32 parent. Native queries close stdin and use a
+native working directory; /init is used only when WSL interop registration is
+absent. No terminal content is used as provider identity. Linux checks only the
+selected shell's descendants and foreground process group. Cached source and
+model/input authority are revoked across provider changes while drafts and PTYs
+remain session-owned. Existing untagged provider-launched Windows sessions keep
+their legacy compatibility path; new shell sessions use live ownership proof.
+
+The private Git Bash bootstrap is sourced before exec and exports its hooks.
+The interactive shell retains --norc; its --rcfile argument is an identity tag.
+This preserves the previous system/user startup-file behavior. Windows process
+queries are cached from completion so slow queries are shared across sessions.

@@ -660,7 +660,7 @@ class AgentFleetActivity : ComponentActivity() {
     }
 
     private fun createFleetSession(
-        hostId: String, project: String, backend: String, tool: String, path: String, locationKind: String,
+        hostId: String, project: String, backend: String, path: String, locationKind: String,
         callback: (Result<Unit>) -> Unit
     ) {
         val operation = when (backend) {
@@ -679,7 +679,7 @@ class AgentFleetActivity : ComponentActivity() {
         val started = android.os.SystemClock.elapsedRealtime()
         diagnosticJournal.record(operation, "pending")
         fleetExecutor.execute {
-            val result = runCatching { fleetRuntime.createSession(snapshot, hostId, project, backend, tool, path, locationKind) }
+            val result = runCatching { fleetRuntime.createSession(snapshot, hostId, project, backend, path, locationKind) }
             runOnUiThread {
                 result.onSuccess {
                     FleetSnapshotStore.publish(it)
@@ -1164,7 +1164,7 @@ fun AgentFleetApp(
     onRefresh: () -> Unit,
     onOpenSession: (FleetSession) -> Unit,
     onOpenSessionWithImages: (FleetSession, List<String>) -> Unit,
-    onCreateSession: (String, String, String, String, String, String, (Result<Unit>) -> Unit) -> Unit,
+    onCreateSession: (String, String, String, String, String, (Result<Unit>) -> Unit) -> Unit,
     onListDirectory: (String, String, String, (Result<FleetDirectoryListing>) -> Unit) -> Unit,
     onCreateDirectory: (String, String, String, String, (Result<String>) -> Unit) -> Unit,
     onListRepository: (FleetSession, String, Boolean, String, (Result<FleetRepositoryPage>) -> Unit) -> Unit,
@@ -2120,7 +2120,7 @@ internal fun CreateSessionDialog(
     onListDirectory: (String, String, String, (Result<FleetDirectoryListing>) -> Unit) -> Unit,
     onCreateDirectory: (String, String, String, String, (Result<String>) -> Unit) -> Unit,
     onDismiss: () -> Unit,
-    onConfirm: (String, String, String, String, String, String, (Result<Unit>) -> Unit) -> Unit
+    onConfirm: (String, String, String, String, String, (Result<Unit>) -> Unit) -> Unit
 ) {
     val hosts = snapshot.physicalHosts
     var hostId by rememberSaveable {
@@ -2132,7 +2132,6 @@ internal fun CreateSessionDialog(
         }?.id ?: "linux")
     }
     var locationKind by rememberSaveable { mutableStateOf("project") }
-    var tool by rememberSaveable { mutableStateOf("codex") }
     var selectedPath by rememberSaveable { mutableStateOf("") }
     var label by rememberSaveable { mutableStateOf("") }
     var newFolder by rememberSaveable { mutableStateOf("") }
@@ -2288,12 +2287,6 @@ internal fun CreateSessionDialog(
                 }
                 if (selectedPath.isNotBlank()) {
                     OutlinedTextField(label, { label = it }, Modifier.fillMaxWidth().testTag("session-create-label"), label = { Text("Session label") }, singleLine = true, enabled = !creating)
-                    Text("Tool", fontWeight = FontWeight.SemiBold)
-                    Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                        listOf("codex", "claude", "copilot", "shell").forEach { choice ->
-                            AssistChip(onClick = { tool = choice }, enabled = !creating, label = { Text(if (tool == choice) "✓ $choice" else choice) })
-                        }
-                    }
                 }
             }
         },
@@ -2306,7 +2299,7 @@ internal fun CreateSessionDialog(
             creating = true
             creationMayHaveCompleted = true
             creationError = ""
-            onConfirm(transportHost, label.trim(), backend, tool, selectedPath, locationKind) { result ->
+            onConfirm(transportHost, label.trim(), backend, selectedPath, locationKind) { result ->
                 creating = false
                 result.onSuccess {
                     recentStore.record(submittedHost, submittedBackend, submittedPath)
@@ -3564,7 +3557,7 @@ private fun AgentFleetPreview() {
             onRefresh = {},
             onOpenSession = {},
             onOpenSessionWithImages = { _, _ -> },
-            onCreateSession = { _, _, _, _, _, _, callback -> callback(Result.success(Unit)) },
+            onCreateSession = { _, _, _, _, _, callback -> callback(Result.success(Unit)) },
             onListDirectory = { _, _, _, callback -> callback(Result.failure(IllegalStateException("Preview"))) },
             onCreateDirectory = { _, _, _, _, callback -> callback(Result.failure(IllegalStateException("Preview"))) },
             onListRepository = { _, _, _, _, callback -> callback(Result.failure(IllegalStateException("Preview"))) },

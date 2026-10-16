@@ -64,6 +64,7 @@ class NativeSessionController @JvmOverloads constructor(
     private val savedBinding = mutableStateOf<SavedSessionBinding?>(null)
     private var notificationEntry = false
     private var viewSelectionSerial = 0L
+    private var enteredAsShell = false
     private val completedQuestions = CompletedQuestionMemory()
     @Volatile private var fleetSnapshot: FleetSnapshot? = null
     @Volatile private var visible = false
@@ -192,7 +193,7 @@ class NativeSessionController @JvmOverloads constructor(
         val descriptor = snapshot?.sessions?.firstOrNull { it.hostId == host && it.internalName == session } ?: metadata
         val identity = descriptor?.let(::sessionListPresentation)
         val binding = JSONArray(listOf(host, session, nextWorkspace, project, nextLocal.toString(),
-            metadata?.tool.orEmpty(), metadata?.backend.orEmpty(), metadata?.executionTargetId.orEmpty(),
+            metadata?.backend.orEmpty(), metadata?.executionTargetId.orEmpty(),
             metadata?.projectPath.orEmpty(), snapshot?.hosts?.firstOrNull { it.id == host }?.wtmuxVersion.orEmpty(),
             snapshot?.executionTargets?.firstOrNull { it.id == metadata?.executionTargetId && it.physicalHostId == metadata?.physicalHostId }?.fingerprint.orEmpty())).toString()
         val bindingView = NativeSessionSettings.conversationView(activity.nativeContext)
@@ -224,6 +225,7 @@ class NativeSessionController @JvmOverloads constructor(
         aiComposer = intent?.getBooleanExtra(AgentFleetContract.EXTRA_COMPOSE_INPUT, false) == true
         localSession = nextLocal
         workspaceSessionId = nextWorkspace
+        enteredAsShell = descriptor?.tool == "shell"
         composerTarget = agentFleetComposerTarget(
             host,
             project,
@@ -256,13 +258,14 @@ class NativeSessionController @JvmOverloads constructor(
         } else DrawerSessionSurface.Native
         val initialMode = when {
             !enabled -> NativeViewMode.ManualTerminal
+            descriptor?.tool == "shell" -> NativeViewMode.ManualTerminal
             requestedSurface == AgentFleetContract.SURFACE_NATIVE -> NativeViewMode.Native
             activity.terminalInput?.direct == true -> NativeViewMode.ManualTerminal
             requestedSurface == AgentFleetContract.SURFACE_TERMINAL -> NativeViewMode.ManualTerminal
             storedSurface == DrawerSessionSurface.Terminal -> NativeViewMode.ManualTerminal
             else -> NativeViewMode.Native
         }
-        applyViewMode(initialMode)
+        applyViewMode(initialMode, persist = enteredAsShell)
         notificationEntry = intent?.getBooleanExtra(AgentFleetContract.EXTRA_NOTIFICATION_ENTRY, false) == true
         if (notificationEntry) focusNotification()
         val target = snapshot?.sessions?.firstOrNull { it.hostId == host && it.internalName == session }?.executionTargetId
@@ -528,7 +531,14 @@ class NativeSessionController @JvmOverloads constructor(
     private fun installSavedBinding(resolved: SavedSessionBinding, selectionAtResolution: Long) {
         savedBinding.value = resolved
         val saved = resolved.state.value
-        if (saved != null && !notificationEntry && activity.terminalInput?.direct != true && viewSelectionSerial == selectionAtResolution) {
+        if (enteredAsShell && !notificationEntry) {
+            // A new shell has never selected Native. Preserve a later explicit
+            // user selection while preventing a default saved Native view from
+            // being restored after entering Composer or recreating the activity.
+            val selected = if (viewSelectionSerial == selectionAtResolution) NativeViewMode.ManualTerminal else uiState.value.viewMode
+            resolved.updateView(if (selected == NativeViewMode.Native) "native" else "terminal")
+            if (viewSelectionSerial == selectionAtResolution) applyViewMode(selected)
+        } else if (saved != null && !notificationEntry && activity.terminalInput?.direct != true && viewSelectionSerial == selectionAtResolution) {
             applyViewMode(if (saved.selectedView == "terminal") NativeViewMode.ManualTerminal else NativeViewMode.Native)
         }
         updateComposerState()
@@ -559,10 +569,26 @@ class NativeSessionController @JvmOverloads constructor(
 
     private fun applyFleetSnapshot(snapshot: FleetSnapshot) {
         val previousViewArguments = conversationViewArguments()
+        val previousTool = currentFleetSession()?.tool
         fleetSnapshot = snapshot
         if (previousViewArguments != conversationViewArguments() && streamProcess != null) restartForView()
         val sessionId = "${uiState.value.hostId}:${uiState.value.internalSession}"
         val session = snapshot.sessions.firstOrNull { it.id == sessionId }
+        if (session != null && previousTool != null && previousTool != session.tool) {
+            activity.terminalInput?.providerChanged()
+            modelRequestGate.reset()
+            uiState.value = uiState.value.copy(modelControl = null, providerState = ProviderState.unavailable(),
+                providerStateKnown = false, providerActivity = null, providerActivityAuthoritative = false,
+                adapter = session.tool, sourceMode = if (session.tool == "shell") "shell" else "ai")
+            if (session.tool == "shell") {
+                applyViewMode(NativeViewMode.ManualTerminal, persist = true)
+                activity.terminalInput?.chooseDirect()
+            }
+            // The old provider is no longer an action target. Cancel its stream
+            // and one-shot operations immediately, including an in-flight reply.
+            NativeConversationContentCache.removeSession(targetBinding)
+            restartNow()
+        }
         if (session == null && snapshot.hosts.any { it.id == uiState.value.hostId && it.status == "healthy" }) {
             NativeConversationContentCache.removeSession(targetBinding)
         }

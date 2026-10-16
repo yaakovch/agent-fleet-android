@@ -349,6 +349,46 @@ class TerminalDirectInputTest {
         } }
     }
 
+    @Test fun providerChangesRetainWorkspaceInputAndRejectOldEditorCallbacks() {
+        val tool = mutableStateOf("shell")
+        lateinit var observed: TerminalInputController
+        compose.setContent { AgentFleetTheme(darkTheme = true) {
+            observed = rememberTerminalInputController("stable-workspace-session", tool.value != "shell")
+            Box(Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing)) {
+            CompositionLocalProvider(LocalTerminalInputController provides observed) {
+                AgentFleetComposerContent("stable-workspace-session", AgentFleetComposerNativeState(),
+                    observed.attachments(), false, null, {}, {}, {}, {}, { _, _ -> false })
+            }
+            }
+        } }
+        compose.waitForIdle()
+        val original = observed
+        var freezes = 0
+        compose.runOnUiThread {
+            original.connection(true); original.available = { true }
+            original.draft = "Retained draft"; original.attachments = { listOf("image.png") }
+            original.freezeComposition = { freezes++ }
+            tool.value = "codex"
+        }
+        compose.waitForIdle()
+        assertSame("Starting an agent must retain the session input", original, observed)
+        compose.runOnUiThread {
+            observed.providerChanged()
+            observed.chooseComposer()
+        }
+        compose.onNodeWithTag("agent-fleet-message-input").assertTextContains("Retained draft")
+        val generation = observed.getInputGeneration()
+        compose.runOnUiThread { tool.value = "shell" }
+        compose.waitForIdle()
+        assertSame("Agent exit must retain the session input", original, observed)
+        compose.runOnUiThread { observed.providerChanged() }
+        assertEquals("Retained draft", observed.draft)
+        assertEquals(listOf("image.png"), observed.attachments())
+        assertFalse(observed.composerKey("ENTER", generation))
+        assertEquals(2, freezes)
+        captureUi("workspace-provider-transition-retained-draft.png")
+    }
+
     @Test fun nativeSavedDraftRemainsAuthoritativeForTheSharedInput() {
         val directory = java.io.File(compose.activity.cacheDir, "native-direct-draft-${System.nanoTime()}").apply { mkdirs() }
         val binding = SavedSessionBinding(directory)

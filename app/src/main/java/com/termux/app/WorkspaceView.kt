@@ -655,6 +655,10 @@ private fun WorkspacePaneView(
     input.onComposer = { onView(pane.id, if (input.previousNative) WorkspaceViewMode.Native else WorkspaceViewMode.Terminal) }
     input.send = { name, modifiers -> session != null && input.canInput() && broker.key(session.id, name, modifiers) }
     input.sendText = { value -> session != null && input.canInput() && broker.write(session.id, value) }
+    var boundProvider by remember(input) { mutableStateOf(session?.tool) }
+    SideEffect {
+        if (boundProvider != session?.tool) { input.providerChanged(); boundProvider = session?.tool }
+    }
     var shellEntryPending by remember(input) { mutableStateOf(session?.tool == "shell" && input.direct) }
     SideEffect {
         input.focus(focused && inputLifecycle.currentState.isAtLeast(androidx.lifecycle.Lifecycle.State.STARTED))

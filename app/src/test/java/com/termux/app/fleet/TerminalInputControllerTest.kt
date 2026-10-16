@@ -5,6 +5,43 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class TerminalInputControllerTest {
+    @Test fun shellEntryDoesNotRestoreAnUnselectedNativeViewWhenAnAgentStarts() {
+        val input = TerminalInputController().apply {
+            bind("new-shell", false); connection(true); available = { true }
+        }
+        assertTrue(input.direct); assertFalse(input.previousNative)
+        input.providerChanged()
+        var restoredNative = true
+        input.onComposer = { restoredNative = input.previousNative }
+        input.chooseComposer()
+        assertFalse(restoredNative)
+        input.readingNative = { true }; input.chooseDirect()
+        input.chooseComposer()
+        assertTrue(restoredNative)
+    }
+
+    @Test fun providerChangePreservesInputStateAndRevokesOldCallbacks() {
+        val input = live(); input.draft = "Keep this draft"
+        input.attachments = { listOf("image.png") }
+        var freezes = 0; var writes = 0
+        input.freezeComposition = { freezes++ }
+        input.send = { _, _ -> writes++; true }
+        val old = input.getInputGeneration()
+        input.providerChanged()
+        assertEquals(1, freezes); assertFalse(input.direct)
+        assertEquals("Keep this draft", input.draft)
+        assertEquals(listOf("image.png"), input.attachments())
+        assertFalse(input.composerKey("ENTER", old)); assertEquals(0, writes)
+        assertTrue(input.composerKey("ENTER")); assertEquals(1, writes)
+        input.chooseDirect(); input.toggleProfile()
+        input.modifier(KeyHandler.KEYMOD_SHIFT)
+        val directGeneration = input.getInputGeneration()
+        input.providerChanged()
+        assertTrue(input.direct); assertTrue(input.compatibility)
+        assertEquals(0, input.modifiers)
+        assertFalse(input.key("ENTER", directGeneration)); assertEquals(1, writes)
+        assertEquals("Keep this draft", input.draft)
+    }
     @Test fun phrasesSendOnceWithOptionalEnterAndNeverSubmitTheDraft() {
         val input = live(); input.draft = "Keep my draft"; input.attachments = { listOf("image.png") }
         val writes = mutableListOf<String>(); input.sendText = { writes += it; true }

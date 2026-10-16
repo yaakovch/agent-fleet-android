@@ -63,7 +63,7 @@ class TerminalInputController : TerminalInputBridge {
         selectingSurface = false
         target = id
         draft = ""
-        previousNative = true
+        previousNative = ai
         connected = false
         direct = !ai
         compatibility = false
@@ -75,6 +75,12 @@ class TerminalInputController : TerminalInputBridge {
     }
 
     fun resetEntry(id: String, ai: Boolean) { target = ""; bind(id, ai) }
+
+    fun providerChanged() {
+        freezeComposition()
+        modifiers = 0
+        invalidateInput()
+    }
 
     override fun onTerminalTargetChanged(view: Any?, session: Any?) {
         if (view === terminalOwner && session === terminalAttachment) return
@@ -340,7 +346,7 @@ val LocalTerminalInputController = androidx.compose.runtime.staticCompositionLoc
 @androidx.compose.runtime.Composable
 fun rememberTerminalInputController(id: String, ai: Boolean): TerminalInputController {
     val context = androidx.compose.ui.platform.LocalContext.current.applicationContext
-    return androidx.compose.runtime.saveable.rememberSaveable(id, ai, saver = androidx.compose.runtime.saveable.listSaver(
+    return androidx.compose.runtime.saveable.rememberSaveable(id, saver = androidx.compose.runtime.saveable.listSaver(
         save = { input: TerminalInputController -> listOf(input.direct, input.compatibility, input.expanded, input.previousNative, input.draft, input.terminalSurface, input.keyboardDismissed, input.letterKeysVisible) },
         restore = { values -> TerminalKeyboardSettings.controller(context).apply {
             bind(id, ai)
