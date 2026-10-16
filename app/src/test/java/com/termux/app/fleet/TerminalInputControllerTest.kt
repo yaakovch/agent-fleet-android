@@ -5,6 +5,25 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class TerminalInputControllerTest {
+    @Test fun phrasesSendOnceWithOptionalEnterAndNeverSubmitTheDraft() {
+        val input = live(); input.draft = "Keep my draft"; input.attachments = { listOf("image.png") }
+        val writes = mutableListOf<String>(); input.sendText = { writes += it; true }
+        assertTrue(input.composerPhrase("Continue", true)); assertTrue(input.composerPhrase("One more thing 🙂", false))
+        assertEquals(listOf("Continue\r", "One more thing 🙂"), writes)
+        assertEquals("Keep my draft", input.draft); assertEquals(listOf("image.png"), input.attachments()); assertFalse(input.direct)
+        assertFalse(input.composerPhrase("hidden\nEnter", false)); assertEquals(2, writes.size)
+    }
+    @Test fun phrasesRejectDisconnectedUnfocusedChangedAndLateTargetsIncludingBeforeInputHooks() {
+        val input = live(); var writes = 0; input.sendText = { writes++; true }
+        val original = input.getInputGeneration()
+        input.connection(false); assertFalse(input.composerPhrase("Continue", true)); input.connection(true)
+        assertFalse(input.composerPhrase("Continue", true, original))
+        input.focus(false); assertFalse(input.composerPhrase("Continue", true)); input.focus(true)
+        input.available = { false }; assertFalse(input.composerPhrase("Continue", true)); input.available = { true }
+        input.beforeKey = { input.onTerminalTargetChanged(Any(), Any()) }
+        assertFalse(input.composerPhrase("Continue", true)); assertEquals(0, writes)
+        input.beforeKey = {}; input.chooseDirect(); assertFalse(input.composerPhrase("Continue", true)); assertEquals(0, writes)
+    }
     private fun live(): TerminalInputController = TerminalInputController().apply {
         bind("one", true); connection(true); available = { true }
     }

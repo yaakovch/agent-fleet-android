@@ -54,6 +54,7 @@ class TerminalInputController : TerminalInputBridge {
     var systemImeOnEntry: () -> Boolean = { true }
     var beforeKey: () -> Unit = {}
     var send: (String, Int) -> Boolean = { _, _ -> false }
+    var sendText: (String) -> Boolean = { false }
 
     fun bind(id: String, ai: Boolean) {
         if (id == target) return
@@ -284,6 +285,12 @@ class TerminalInputController : TerminalInputBridge {
         return !direct && captured == generation && canInput() && send(name, 0)
     }
     override fun isScrollNavigationAllowed(): Boolean = canInput()
+    fun composerPhrase(text: String, appendEnter: Boolean, captured: Long = generation): Boolean {
+        if (captured != generation || direct || !canInput() || !SavedPhrases.validText(text)) return false
+        clearModifiers()
+        beforeInput()
+        return captured == generation && !direct && canInput() && sendText(text + if (appendEnter) "\r" else "")
+    }
     fun answerQuestion(): Boolean {
         if (!chooseDirect() || !isInputAllowed()) return false
         clearModifiers()

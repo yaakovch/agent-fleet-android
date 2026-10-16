@@ -62,6 +62,7 @@ class ComposerTerminalNavigationTest {
             input.available = { terminal.isRunning && view.currentSession === terminal }
             input.attachments = { attachments.toList() }
             input.send = { key, bits -> TerminalKeys.encode(key, bits, terminal.emulator)?.let { terminal.write(it); writes++; true } ?: false }
+            input.sendText = { text -> terminal.write(text); writes++; true }
         }
         compose.setContent { AgentFleetTheme(darkTheme = true) {
             CompositionLocalProvider(LocalTerminalInputController provides input) {
@@ -74,7 +75,11 @@ class ComposerTerminalNavigationTest {
         } }
         compose.waitUntil(10_000) { terminal.emulator?.screen?.transcriptText?.contains("READY") == true }
     }
-    @After fun cleanup() { if (::terminal.isInitialized) compose.runOnUiThread { terminal.finishIfRunning() } }
+    @After fun cleanup() { compose.runOnUiThread {
+        androidx.core.view.WindowCompat.getInsetsController(compose.activity.window, compose.activity.window.decorView)
+            .hide(androidx.core.view.WindowInsetsCompat.Type.ime())
+        if (::terminal.isInitialized) terminal.finishIfRunning()
+    } }
     private fun mode(ansi: String) = compose.runOnUiThread {
         val data = ansi.toByteArray(); terminal.emulator.append(data, data.size); view.onScreenUpdated()
     }
@@ -103,11 +108,26 @@ class ComposerTerminalNavigationTest {
     }
     private fun capture(name: String) {
         compose.waitForIdle()
+        // UIAutomator idle can precede the bottom-sheet window's first committed frame.
+        // Match the golden fixture's compositor settling before retaining evidence.
+        InstrumentationRegistry.getInstrumentation().waitForIdleSync()
+        android.os.SystemClock.sleep(750)
+        InstrumentationRegistry.getInstrumentation().waitForIdleSync()
         val automation = InstrumentationRegistry.getInstrumentation().uiAutomation
         automation.waitForIdle(300, 5_000)
         val bitmap = requireNotNull(automation.takeScreenshot())
         val file = File(compose.activity.externalMediaDirs.first(), "composer-navigation/$name.png")
         file.parentFile?.mkdirs(); file.outputStream().use { bitmap.compress(Bitmap.CompressFormat.PNG, 100, it) }; bitmap.recycle()
+    }
+    private fun retainPhraseFlow(name: String, expected: String) {
+        val file = File(compose.activity.externalMediaDirs.first(), "composer-navigation/$name.json")
+        file.parentFile?.mkdirs()
+        file.writeText(org.json.JSONObject().put("synthetic", true).put("observedAt", java.time.Instant.now().toString())
+            .put("actualUtf8Base64", android.util.Base64.encodeToString(bytes.readBytes(), android.util.Base64.NO_WRAP))
+            .put("expectedUtf8Base64", android.util.Base64.encodeToString(expected.toByteArray(), android.util.Base64.NO_WRAP))
+            .put("imeVisibleAtCollection", androidx.core.view.ViewCompat.getRootWindowInsets(view)?.isVisible(androidx.core.view.WindowInsetsCompat.Type.ime()) == true)
+            .put("writes", writes).put("draftAfter", input.draft).put("attachmentCount", attachments.size)
+            .put("directAfter", input.direct).put("viewChanges", viewChanges).toString(2))
     }
     @Test fun composerMouseReportingSwipeSendsWheelEvents() {
         setup(); mode("\u001b[?1000h\u001b[?1006h")
@@ -155,7 +175,155 @@ class ComposerTerminalNavigationTest {
             button.performTouchInput { click() }
         }
         assertEquals(keys, sent); assertEquals("Keep", input.draft); assertFalse(input.direct)
+        compose.onNodeWithTag("composer-terminal-key-PHRASES").assertIsDisplayed()
         capture("composer-narrow-large-font")
+        compose.onNodeWithTag("composer-terminal-key-PHRASES").performTouchInput { click() }
+        compose.onNodeWithTag("saved-phrases-popup").assertIsDisplayed()
+        capture("saved-phrases-narrow-large-font")
+        compose.onNodeWithTag("saved-phrases-close").performClick()
+    }
+    @Test fun savedPhrasePopupEditsPersistsAndSendsExactlyOnceWithOptionalEnter() {
+        setup()
+        val previous = SavedPhrases.load(compose.activity)
+        try {
+            SavedPhrases.save(compose.activity, listOf(SavedPhrase("continue", "Continue", true)))
+            compose.onNodeWithTag("composer-terminal-key-PHRASES").performTouchInput { click() }
+            compose.onNodeWithTag("saved-phrase-send-continue").assertIsDisplayed()
+            capture("saved-phrases-portrait")
+            compose.onNodeWithTag("saved-phrase-send-continue").performTouchInput { click() }
+            compose.waitUntil(5_000) { bytes.readText() == "Continue\r" }
+            assertEquals(1, writes)
+            compose.onNodeWithTag("composer-terminal-key-PHRASES").performTouchInput { click() }
+            compose.onNodeWithTag("saved-phrase-enter-continue").performClick().assertIsOff()
+            compose.onNodeWithTag("saved-phrase-edit-continue").performClick()
+            compose.onNodeWithTag("saved-phrase-text").performTextReplacement("Continue, please 🙂")
+            compose.onNodeWithTag("saved-phrase-save").performTouchInput { click() }
+            assertEquals(listOf(SavedPhrase("continue", "Continue, please 🙂", false)), SavedPhrases.load(compose.activity))
+            capture("saved-phrases-edited")
+            compose.onNodeWithTag("saved-phrase-send-continue").performScrollTo().performTouchInput { click() }
+            val expected = "Continue\rContinue, please 🙂"
+            compose.waitUntil(5_000) { bytes.readText() == expected }
+            assertEquals(2, writes); assertEquals(0, viewChanges); assertFalse(input.direct)
+            assertEquals("Keep my draft", input.draft); assertEquals(listOf("/fixture/image.png"), attachments.toList())
+            compose.onNodeWithTag("composer-terminal-key-PHRASES").performTouchInput { click() }
+            compose.onNodeWithTag("saved-phrase-enter-continue").assertIsOff()
+            compose.onNodeWithTag("saved-phrase-edit-continue").performClick()
+            compose.onNodeWithTag("saved-phrase-delete").performScrollTo().performTouchInput { click() }
+            assertTrue(SavedPhrases.load(compose.activity).isEmpty())
+            compose.onNodeWithTag("saved-phrase-add").performScrollTo().performClick()
+            compose.onNodeWithTag("saved-phrase-editor-enter").assertIsOff()
+            assertEquals(2, writes)
+            compose.onNodeWithTag("saved-phrase-text").performTextReplacement("Run the checks.")
+            compose.onNodeWithTag("saved-phrase-save").performTouchInput { click() }
+            val created = SavedPhrases.load(compose.activity).single()
+            assertEquals("Run the checks.", created.text); assertFalse(created.enter)
+            compose.onNodeWithTag("saved-phrase-send-${created.id}").performScrollTo().performTouchInput { click() }
+            compose.waitUntil(5_000) { bytes.readText() == expected + "Run the checks." }
+            assertEquals(3, writes); assertEquals("Keep my draft", input.draft)
+            retainPhraseFlow("saved-phrases-exact-input", expected + "Run the checks.")
+            capture("saved-phrases-retained-composer")
+        } finally { SavedPhrases.save(compose.activity, previous) }
+    }
+    @Test fun savedPhrasePopupCannotSendAfterDisconnectReconnectOrTargetReplacement() {
+        setup()
+        val previous = SavedPhrases.load(compose.activity)
+        try {
+            SavedPhrases.save(compose.activity, listOf(SavedPhrase("continue", "Continue", true)))
+            compose.onNodeWithTag("composer-terminal-key-PHRASES").performTouchInput { click() }
+            compose.runOnUiThread { input.connection(false); input.connection(true) }
+            compose.onNodeWithTag("saved-phrase-send-continue").assertIsNotEnabled().performTouchInput { click() }
+            assertEquals(0, writes); assertEquals(0L, bytes.length())
+            capture("saved-phrases-stale-target")
+            compose.onNodeWithTag("saved-phrases-close").performClick()
+            compose.onNodeWithTag("composer-terminal-key-PHRASES").performTouchInput { click() }
+            compose.runOnUiThread { input.onTerminalTargetChanged(Any(), Any()) }
+            compose.onNodeWithTag("saved-phrase-send-continue").assertIsNotEnabled()
+            compose.onNodeWithTag("saved-phrases-close").performClick()
+            compose.runOnUiThread { input.connection(false) }
+            compose.onNodeWithTag("composer-terminal-key-PHRASES").performClick()
+            compose.onNodeWithTag("saved-phrase-send-continue").assertIsNotEnabled()
+            compose.onNodeWithTag("saved-phrase-add").assertIsEnabled()
+            compose.onNodeWithTag("saved-phrases-close").performClick()
+            assertEquals(0, writes); assertEquals("Keep my draft", input.draft)
+        } finally { SavedPhrases.save(compose.activity, previous) }
+    }
+    @Test fun separatePhraseEditorCancelsWithoutSendingAndBackDismissesThePopup() {
+        setup()
+        val previous = SavedPhrases.load(compose.activity)
+        val original = listOf(SavedPhrase("continue", "Continue", true))
+        try {
+            SavedPhrases.save(compose.activity, original)
+            compose.onNodeWithTag("composer-terminal-key-PHRASES").performTouchInput { click() }
+            compose.onNodeWithTag("saved-phrase-edit-continue").performScrollTo().performClick()
+            compose.onNodeWithTag("saved-phrase-editor").assertIsDisplayed()
+            compose.onNodeWithTag("saved-phrases-popup").assertDoesNotExist()
+            compose.onNodeWithTag("saved-phrase-text").performTextReplacement("Do not save this.")
+            capture("saved-phrases-separate-editor")
+            compose.onNodeWithTag("saved-phrase-cancel").performTouchInput { click() }
+            compose.onNodeWithTag("saved-phrases-popup").assertIsDisplayed()
+            assertEquals(original, SavedPhrases.load(compose.activity)); assertEquals(0, writes)
+            InstrumentationRegistry.getInstrumentation().sendKeyDownUpSync(android.view.KeyEvent.KEYCODE_BACK)
+            compose.onNodeWithTag("saved-phrases-popup").assertDoesNotExist()
+            assertEquals(0L, bytes.length()); assertEquals("Keep my draft", input.draft)
+            retainPhraseFlow("saved-phrases-cancel-input", "")
+        } finally { SavedPhrases.save(compose.activity, previous) }
+    }
+    @Test fun phrasePopupWorksWithTheAndroidKeyboardAlreadyVisible() {
+        setup()
+        val previous = SavedPhrases.load(compose.activity)
+        try {
+            SavedPhrases.save(compose.activity, listOf(SavedPhrase("continue", "Continue", true)))
+            compose.onNodeWithTag("agent-fleet-message-input").performTouchInput { click() }
+            compose.waitUntil(5_000) { androidx.core.view.ViewCompat.getRootWindowInsets(view)?.isVisible(androidx.core.view.WindowInsetsCompat.Type.ime()) == true }
+            compose.onNodeWithTag("composer-terminal-key-PHRASES").performTouchInput { click() }
+            compose.onNodeWithTag("saved-phrases-popup").assertIsDisplayed()
+            compose.onNodeWithTag("saved-phrase-send-continue").assertIsDisplayed().assertIsEnabled()
+            capture("saved-phrases-opened-from-ime")
+            compose.onNodeWithTag("saved-phrase-send-continue").performTouchInput { click() }
+            compose.waitUntil(5_000) { bytes.readText() == "Continue\r" }
+            assertEquals(1, writes); assertEquals("Keep my draft", input.draft)
+            assertEquals(listOf("/fixture/image.png"), attachments.toList()); assertFalse(input.direct)
+            retainPhraseFlow("saved-phrases-ime-input", "Continue\r")
+        } finally { SavedPhrases.save(compose.activity, previous) }
+    }
+    @Test fun landscapePhraseEditorKeepsSaveAndCancelAboveTheKeyboard() {
+        setup()
+        val previous = SavedPhrases.load(compose.activity)
+        try {
+            SavedPhrases.save(compose.activity, listOf(SavedPhrase("continue", "Continue", true)))
+            compose.activity.requestedOrientation = android.content.pm.ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE
+            compose.waitUntil(10_000) { compose.activity.resources.configuration.orientation == android.content.res.Configuration.ORIENTATION_LANDSCAPE }
+            compose.onNodeWithTag("composer-terminal-key-PHRASES").performTouchInput { click() }
+            compose.onNodeWithTag("saved-phrase-edit-continue").performScrollTo().performTouchInput { click() }
+            compose.onNodeWithTag("saved-phrase-text").performTextReplacement("Continue after the checks.")
+            val field = compose.onNodeWithTag("saved-phrase-text").assertIsDisplayed().fetchSemanticsNode().boundsInRoot
+            assertTrue("Landscape editor must show a usable text field", field.height / compose.activity.resources.displayMetrics.density >= 48f)
+            capture("saved-phrases-editor-landscape")
+            compose.onNodeWithTag("saved-phrase-save").assertIsDisplayed().performTouchInput { click() }
+            assertEquals("Continue after the checks.", SavedPhrases.load(compose.activity).single().text)
+            compose.onNodeWithTag("saved-phrase-edit-continue").performScrollTo().performTouchInput { click() }
+            compose.onNodeWithTag("saved-phrase-cancel").assertIsDisplayed().performTouchInput { click() }
+            compose.onNodeWithTag("saved-phrases-close").performScrollTo().performTouchInput { click() }
+            assertEquals(0, writes); assertEquals("Keep my draft", input.draft)
+        } finally {
+            compose.activity.requestedOrientation = android.content.pm.ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
+            SavedPhrases.save(compose.activity, previous)
+        }
+    }
+    @Test fun rejectedPhraseWriteKeepsTheMenuAndErrorWithoutClearingTheDraft() {
+        setup()
+        val previous = SavedPhrases.load(compose.activity)
+        try {
+            SavedPhrases.save(compose.activity, listOf(SavedPhrase("continue", "Continue", true)))
+            compose.runOnUiThread { input.sendText = { false } }
+            compose.onNodeWithTag("composer-terminal-key-PHRASES").performTouchInput { click() }
+            compose.onNodeWithTag("saved-phrase-send-continue").performTouchInput { click() }
+            compose.onNodeWithTag("saved-phrases-popup").assertIsDisplayed()
+            compose.onNodeWithTag("saved-phrases-error").assertTextContains("disconnected", substring = true)
+            assertEquals(0L, bytes.length()); assertEquals("Keep my draft", input.draft)
+            capture("saved-phrases-rejected-write")
+            compose.onNodeWithTag("saved-phrases-close").performScrollTo().performClick()
+        } finally { SavedPhrases.save(compose.activity, previous) }
     }
     @Test fun widePaneAddsEditingIconsAndAccessibleHints() {
         val input = TerminalInputController().apply { bind("wide", true); connection(true); available = { true }; draft = "Keep" }
@@ -165,12 +333,19 @@ class ComposerTerminalNavigationTest {
         try {
             compose.waitUntil(10_000) { compose.activity.resources.configuration.orientation == android.content.res.Configuration.ORIENTATION_LANDSCAPE }
             compose.setContent { AgentFleetTheme(darkTheme = true) {
-                Column(Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing)) { ComposerTerminalShortcuts(input) }
+                Column(Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing)) {
+                    Spacer(Modifier.weight(1f))
+                    ComposerTerminalShortcuts(input)
+                }
             } }
             val keys = listOf("UP", "DOWN", "ENTER", "SHIFT_TAB", "SHIFT_LEFT", "CTRL_C", "SPACE", "BACKSPACE", "DELETE")
             for (key in keys) compose.onNodeWithTag("composer-terminal-key-$key").assertIsDisplayed().performTouchInput { click() }
             assertEquals(listOf("\u001b[A", "\u001b[B", "\r", "\u001b[Z", "\u001b[1;2D", "\u0003", " ", "\u007f", "\u001b[3~"), sent)
             assertEquals("Keep", input.draft); assertFalse(input.direct)
+            compose.onNodeWithTag("composer-terminal-key-PHRASES").performTouchInput { click() }
+            compose.onNodeWithTag("saved-phrases-popup").assertIsDisplayed()
+            capture("saved-phrases-landscape")
+            compose.onNodeWithTag("saved-phrases-close").performClick()
             compose.onNodeWithContentDescription("Plan mode (Shift+Tab)").assertIsDisplayed().performTouchInput { longClick() }
             compose.onNodeWithText("Plan mode (Shift+Tab)").assertIsDisplayed()
             assertEquals("Long-press hints must not type a key", 9, sent.size)
@@ -213,6 +388,7 @@ class ComposerTerminalNavigationTest {
         val before = bytes.length(); swipe(); compose.waitForIdle(); assertEquals(before, bytes.length())
     }
     @Test fun workspaceComposerSendsOnlyToTheFocusedLivePane() {
+        val previousPhrases = SavedPhrases.load(compose.activity)
         val sessions = listOf("one", "two").map { name -> FleetSession("navigation:$name", "navigation", name, name, name, "fixture", "codex", "linux", "active", false, null, 0) }
         val snapshot = FleetSnapshot("composer-navigation", "2026-10-14T20:00:00Z",
             listOf(FleetHost("navigation", "Fixture", "healthy", "wsl", null, emptySet())), sessions, emptyList(), emptyList())
@@ -258,7 +434,14 @@ class ComposerTerminalNavigationTest {
                 assertTrue("Complete shortcut must fit the pane footer: $bounds / $row", bounds.left >= row.left - 1 && bounds.right <= row.right + 1)
                 button.performTouchInput { click() }
             }
-            val expected = "\u001b[A\u001b[B\r\u001b[Z\u001b[1;2D\u0003"
+            var expected = "\u001b[A\u001b[B\r\u001b[Z\u001b[1;2D\u0003"
+            compose.waitUntil(5_000) { files[0].length() == expected.toByteArray().size.toLong() }
+            assertEquals(expected, files[0].readText()); assertEquals(0L, files[1].length())
+            SavedPhrases.save(compose.activity, listOf(SavedPhrase("continue", "Continue", true)))
+            control(0, "composer-terminal-key-PHRASES").performTouchInput { click() }
+            capture("workspace-saved-phrases")
+            compose.onNodeWithTag("saved-phrase-send-continue").performTouchInput { click() }
+            expected += "Continue\r"
             compose.waitUntil(5_000) { files[0].length() == expected.toByteArray().size.toLong() }
             assertEquals(expected, files[0].readText()); assertEquals(0L, files[1].length())
             control(0, "agent-fleet-message-input").assertTextContains("Keep workspace draft")
@@ -319,6 +502,6 @@ class ComposerTerminalNavigationTest {
             compose.onNodeWithTag("workspace-input-mode").performScrollTo().performClick()
             control(0, "agent-fleet-message-input").assertTextContains("Keep workspace draft")
             assertTrue(workspacePanes(state.value.layout.root).all { it.viewMode == WorkspaceViewMode.Terminal })
-        } finally { compose.runOnUiThread { registry.destroy(); broker.close(); terminals.forEach { it.finishIfRunning() } } }
+        } finally { SavedPhrases.save(compose.activity, previousPhrases); compose.runOnUiThread { registry.destroy(); broker.close(); terminals.forEach { it.finishIfRunning() } } }
     }
 }

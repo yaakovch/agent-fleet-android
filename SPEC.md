@@ -1082,3 +1082,44 @@ landscape tests. Review intentional golden changes. Run canonical local quality 
 clean-pushed Android protected full/signed release; publish .122 and Windows beta.47
 through existing lanes, retain rollback and verify served files. Phone installation
 and final device smoke stay owner-operated.
+
+
+## Composer saved phrases — approved upward-menu plan, 2026-10-16
+
+Owner requested implementation after planning. This supersedes the initial bottom
+sheet/side-drawer prototype, including Windows beta.48. Add Saved phrases to the
+Composer icon row, opening a compact upward popup anchored above that icon in
+Native/Terminal and fullscreen/workspace. Keep it within available screen/IME
+bounds; long lists scroll vertically. Preserve touch targets and accessibility.
+Outside tap/Back/Escape closes it without terminal input; opening it does not
+summon the keyboard. Successful send closes it; a rejected write keeps an error.
+
+Show actual phrase text, an Enter-after-send toggle and Edit. Add/Edit opens a
+separate editor with text, Enter, Save, Cancel and existing-item Delete. Save
+persists and returns to the menu; Cancel discards changes; neither sends input.
+Continue initially has Enter on; NEW custom phrases have Enter OFF. Preserve
+existing saved choices. One local list across all sessions/projects in each app;
+no synchronization or transfer in v1. Empty saved lists stay empty. Up to30
+single-paragraph phrases of2000 characters; allow Unicode/emoji but reject line
+breaks and terminal control characters. Preserve data on read/write failures.
+
+Send literal text directly to the current terminal input line, appending one CR
+only if requested. Do not clear that line, submit/clear the Composer draft, clear
+attachments or change mode/view. Capture target/generation at menu opening and
+reject stale focus, disconnected/reconnected/replaced attachments, including
+before-input hooks. Never queue offline input; prevent duplicate pending sends.
+Reuse current storage and guarded terminal IPC/broker; no protocol/runtime change.
+
+Continue in fix/composer-saved-phrases-20261016 from preserved warm app worktrees.
+Validate Windows parser/storage/dispatch/typecheck and actual native popup/editor
+taps, then Android JVM/protected API36 real-PTY checks. Cover toggles, persistence,
+empty/delete/cancel, exact bytes, stale/rejected targets, retained drafts/images,
+portrait/landscape/narrow/large fonts and IME-visible popup geometry. Inspect
+screens and intentional golden candidates. Resolve the prior Android release
+unit-test packaging failure and run the complete canonical local quality gate.
+Prepare clean pushed sources, run one protected full through Android canonical
+release orchestration, publish Android .123/code1137 and Windows beta.49 through
+existing lanes if sequence preflight permits; retain prior artifacts and verify
+served bytes. Phone installation/final smoke and Windows private-feed enrollment
+remain owner-operated/separate. Use the next monotonic version if another release
+claims a candidate before publication; never reuse a published version.

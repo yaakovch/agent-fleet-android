@@ -103,6 +103,7 @@ object AgentFleetComposer {
         input.beforeKey = { activity.getAgentFleetTerminalScrollback()?.returnToLive() }
         input.onKeyboard = { TerminalKeyboard.show(activity.terminalView) }
         input.send = activity::sendAgentFleetTerminalKey
+        input.sendText = activity::sendAgentFleetTerminalText
         input.directLiteral = { cp, generation -> activity.terminalView.inputDirectCodePoint(cp, generation) }
         input.literal = { cp, bits, generation -> activity.terminalView.inputAppCodePoint(cp, bits, generation) }
         input.freezeComposition = { activity.terminalView.freezeImeComposition() }

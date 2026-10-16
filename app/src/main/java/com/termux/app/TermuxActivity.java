@@ -409,6 +409,12 @@ public final class TermuxActivity extends ComponentActivity implements ServiceCo
         return true;
     }
 
+    public boolean sendAgentFleetTerminalText(String value) {
+        if (!isAgentFleetTerminalInputLive() || value == null || value.isEmpty() || value.length() > 2001) return false;
+        getCurrentSession().write(value);
+        return true;
+    }
+
     private void updateAgentFleetInputMode(Intent intent) {
         String sessionId = managedSessionId(intent);
         if (sessionId != null)

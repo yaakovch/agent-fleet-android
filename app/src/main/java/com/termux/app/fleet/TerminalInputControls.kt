@@ -7,6 +7,10 @@ import android.view.inputmethod.InputMethodManager
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.boundsInWindow
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
@@ -88,6 +92,7 @@ private val composerShortcuts = listOf(
     ComposerShortcut("SHIFT_TAB", "Plan mode (Shift+Tab)", R.drawable.ic_composer_plan),
     ComposerShortcut("SHIFT_LEFT", "Answer question (Shift+Left)", R.drawable.ic_composer_answer),
     ComposerShortcut("CTRL_C", "Interrupt (Ctrl+C)", R.drawable.ic_composer_interrupt),
+    ComposerShortcut("PHRASES", "Saved phrases", R.drawable.ic_composer_phrases),
     ComposerShortcut("SPACE", "Space", R.drawable.ic_composer_space),
     ComposerShortcut("BACKSPACE", "Backspace", R.drawable.ic_composer_backspace),
     ComposerShortcut("DELETE", "Delete", R.drawable.ic_composer_delete)
@@ -99,17 +104,28 @@ private val composerShortcuts = listOf(
 fun ComposerTerminalShortcuts(input: TerminalInputController) {
     if (input.direct) return
     val generation = input.getInputGeneration()
+    var phrasesOpen by rememberSaveable(input) { mutableStateOf(false) }
+    var phraseGeneration by remember(input) { mutableStateOf(0L) }
+    val density = LocalDensity.current
+    var phraseAnchorTop by remember { mutableStateOf(0f) }
     BoxWithConstraints(Modifier.fillMaxWidth().testTag("composer-terminal-shortcuts")) {
         val slots = (maxWidth / 48.dp).toInt().coerceAtLeast(1)
-        val visibleKeys = composerShortcuts.take(slots.coerceIn(6, composerShortcuts.size))
+        val visibleKeys = composerShortcuts.take(slots.coerceIn(7, composerShortcuts.size))
         Column {
             visibleKeys.chunked(slots).forEach { row ->
                 Row(Modifier.fillMaxWidth()) {
                     row.forEach { shortcut ->
-                        Box(Modifier.weight(1f)) {
+                        Box(Modifier.weight(1f).onGloballyPositioned { coordinates ->
+                            if (shortcut.key == "PHRASES") phraseAnchorTop = coordinates.boundsInWindow().top
+                        }) {
+                            if (shortcut.key == "PHRASES" && phrasesOpen) SavedPhrasesPopup(input, phraseGeneration,
+                                with(density) { phraseAnchorTop.toDp() } - 24.dp) { phrasesOpen = false }
                             TooltipBox(positionProvider = TooltipDefaults.rememberTooltipPositionProvider(),
                                 tooltip = { PlainTooltip { Text(shortcut.label) } }, state = rememberTooltipState()) {
-                                IconButton(onClick = { input.composerKey(shortcut.key, generation) }, enabled = input.canInput(),
+                                IconButton(onClick = {
+                                    if (shortcut.key == "PHRASES") { phraseGeneration = input.getInputGeneration(); phrasesOpen = true }
+                                    else input.composerKey(shortcut.key, generation)
+                                }, enabled = shortcut.key == "PHRASES" || input.canInput(),
                                     modifier = Modifier.fillMaxWidth().height(48.dp).testTag("composer-terminal-key-${shortcut.key}")) {
                                     Icon(painterResource(shortcut.icon), contentDescription = shortcut.label, modifier = Modifier.size(20.dp))
                                 }
