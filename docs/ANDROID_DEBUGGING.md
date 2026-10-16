@@ -142,7 +142,11 @@ even after System UI pixels update. The guarded fixture refreshes display
 configuration after waiting for the targeted broadcast and application-thread
 barriers with `am wait-for-broadcast-barrier --flush-broadcast-loopers
 --flush-application-threads`. Require both barrier completion markers; a fixed
-sleep does not establish delivery. The fixture then performs an orientation
+sleep does not establish delivery. Android also has an internal 30-second application
+ping deadline. On a loaded emulator, the fixture may issue at most three complete
+barriers, requiring both markers from a single successful attempt before continuing.
+Each attempt retains unique output and elapsed-time metadata; prepare and restore
+failures cannot overwrite one another. No incomplete barrier is accepted. The fixture then performs an orientation
 round trip, restores and verifies the original
 rotation policy, and repeats that refresh when restoring the original overlays.
 Each comparison retains content bounds and the status-bar inset as JSON.

@@ -336,12 +336,26 @@ class AgentFleetGoldenTest {
         private fun refreshDisplayInsets() {
             // Overlay changes reach system-server and app resources asynchronously.
             // Wait for already queued work, not all future startup broadcasts.
-            val barrier = deviceShell("timeout 45 am wait-for-broadcast-barrier --flush-broadcast-loopers --flush-application-threads")
-            PlatformTestStorageRegistry.getInstance().openOutputFile("viewport-broadcast-${viewportRefreshes + 1}.txt").use {
-                it.write(barrier.toByteArray())
+            val refresh = ++viewportRefreshes
+            var settled = false
+            for (attempt in 1..3) {
+                val started = SystemClock.elapsedRealtime()
+                val barrier = deviceShell("timeout 45 am wait-for-broadcast-barrier --flush-broadcast-loopers --flush-application-threads")
+                val storage = PlatformTestStorageRegistry.getInstance()
+                storage.openOutputFile("viewport-broadcast-$refresh-attempt-$attempt.txt").use {
+                    it.write(barrier.toByteArray())
+                }
+                settled = barrier.contains("Test barrier passed") && barrier.contains("Finished application barriers!")
+                storage.openOutputFile("viewport-broadcast-$refresh-attempt-$attempt.json").use {
+                    it.write(org.json.JSONObject().put("settled", settled)
+                        .put("elapsedMillis", SystemClock.elapsedRealtime() - started).toString().toByteArray())
+                }
+                if (settled) break
+                // Android bounds each application-thread ping internally. Reissue the
+                // complete barrier; an earlier timeout never counts as synchronization.
             }
-            check(barrier.contains("Test barrier passed") && barrier.contains("Finished application barriers!")) {
-                "Emulator overlay configuration did not settle; see viewport-broadcast evidence"
+            check(settled) {
+                "Emulator overlay configuration did not settle after three barriers; see viewport-broadcast evidence"
             }
             val rotation = deviceShell("wm user-rotation").trim()
             check(Regex("free|lock [0-3]").matches(rotation)) { "Unknown emulator rotation state: $rotation" }
@@ -370,7 +384,7 @@ class AgentFleetGoldenTest {
                     "Emulator fixed-rotation policy was not restored"
                 }
             }
-            PlatformTestStorageRegistry.getInstance().openOutputFile("viewport-refresh-${++viewportRefreshes}.json").use {
+            PlatformTestStorageRegistry.getInstance().openOutputFile("viewport-refresh-$refresh.json").use {
                 it.write(org.json.JSONObject().put("rotationRestored", rotation)
                     .put("fixedRotationRestored", fixedRotation).put("observedRotations", org.json.JSONArray(listOf(1, 0)))
                     .put("observedAt", java.time.Instant.now().toString()).toString().toByteArray())
