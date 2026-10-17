@@ -117,7 +117,10 @@ import org.junit.runner.RunWith
 
 @RunWith(AndroidJUnit4::class)
 class AgentFleetComposeTest {
-    @get:Rule val compose = createComposeRule()
+    @get:Rule(order = 0) val questionFontScale: org.junit.rules.TestRule = EmulatorFontScaleRule(
+        "secondQuestionKeepsReadableBodyAndFooterAtLargeFont", 2f
+    )
+    @get:Rule(order = 1) val compose = createComposeRule()
 
     @Test
     fun discoveredHostRequiresReviewAndPairsAndRepairsExactlyOnce() {
@@ -1539,25 +1542,34 @@ class AgentFleetComposeTest {
     @Test
     fun secondQuestionKeepsReadableBodyAndFooterAtLargeFont() {
         val submissions = mutableListOf<List<ConversationAnswer>>()
-        val fontScale = mutableStateOf(1.6f)
+        fun assertDialogScale(expected: Float) {
+            val layouts = mutableListOf<androidx.compose.ui.text.TextLayoutResult>()
+            compose.onNodeWithText("Tap an answer").performSemanticsAction(
+                androidx.compose.ui.semantics.SemanticsActions.GetTextLayoutResult
+            ) { it(layouts) }
+            val actual = layouts.single().layoutInput.density.fontScale
+            val context = androidx.test.platform.app.InstrumentationRegistry.getInstrumentation().targetContext
+            java.io.File(context.externalMediaDirs.first(), "questions-font-scale-$expected.json").writeText(
+                org.json.JSONObject().put("expectedMinimum", expected - 0.1f).put("actual", actual).toString()
+            )
+            assertTrue("Question dialog font scale: expected $expected, actual $actual", actual >= expected - 0.1f)
+        }
+
         compose.setContent {
-            val density = LocalDensity.current
-            CompositionLocalProvider(LocalDensity provides Density(density.density, fontScale.value)) {
-                NativeFixture(listOf(
+            NativeFixture(listOf(
                     question("layout-first", "How should phrases appear in the drawer?"),
                     question("layout-second", "What should happen after choosing a phrase?"),
                     question("layout-third", "Which setting should be kept?"),
                 ), submissions::add)
-            }
         }
-        compose.onNodeWithTag("question-option-layout-first-a").performClick()
+        compose.onNodeWithTag("question-option-layout-first-a").performScrollTo().performClick()
         compose.onNodeWithTag("question-page").assertTextContains("2 of 3")
         discoveryScreenshot("questions-second-page-large-font")
         val hint = compose.onNodeWithText("Tap an answer").getUnclippedBoundsInRoot()
         assertTrue("The answer hint must not consume the question body", hint.bottom - hint.top <= 52.dp)
-        compose.runOnIdle { fontScale.value = 2f }
         compose.onNodeWithTag("question-option-layout-second-b").performScrollTo().assertIsDisplayed()
         discoveryScreenshot("questions-second-page-extra-large-font")
+        assertDialogScale(2f)
         compose.onNodeWithTag("question-option-layout-second-b").performClick()
         compose.onNodeWithTag("question-page").assertTextContains("3 of 3")
         compose.onNodeWithTag("question-option-layout-third-a").performScrollTo().performClick()
