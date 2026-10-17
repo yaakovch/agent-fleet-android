@@ -1537,6 +1537,37 @@ class AgentFleetComposeTest {
     }
 
     @Test
+    fun secondQuestionKeepsReadableBodyAndFooterAtLargeFont() {
+        val submissions = mutableListOf<List<ConversationAnswer>>()
+        val fontScale = mutableStateOf(1.6f)
+        compose.setContent {
+            val density = LocalDensity.current
+            CompositionLocalProvider(LocalDensity provides Density(density.density, fontScale.value)) {
+                NativeFixture(listOf(
+                    question("layout-first", "How should phrases appear in the drawer?"),
+                    question("layout-second", "What should happen after choosing a phrase?"),
+                    question("layout-third", "Which setting should be kept?"),
+                ), submissions::add)
+            }
+        }
+        compose.onNodeWithTag("question-option-layout-first-a").performClick()
+        compose.onNodeWithTag("question-page").assertTextContains("2 of 3")
+        discoveryScreenshot("questions-second-page-large-font")
+        val hint = compose.onNodeWithText("Tap an answer").getUnclippedBoundsInRoot()
+        assertTrue("The answer hint must not consume the question body", hint.bottom - hint.top <= 52.dp)
+        compose.runOnIdle { fontScale.value = 2f }
+        compose.onNodeWithTag("question-option-layout-second-b").performScrollTo().assertIsDisplayed()
+        discoveryScreenshot("questions-second-page-extra-large-font")
+        compose.onNodeWithTag("question-option-layout-second-b").performClick()
+        compose.onNodeWithTag("question-page").assertTextContains("3 of 3")
+        compose.onNodeWithTag("question-option-layout-third-a").performScrollTo().performClick()
+        compose.runOnIdle {
+            assertEquals(1, submissions.size)
+            assertEquals(listOf(listOf("a"), listOf("b"), listOf("a")), submissions.single().map { it.choiceIds })
+        }
+    }
+
+    @Test
     fun questionGroupsOfOneTwoFourAndEightSendOnlyAtTheEnd() {
         val count = mutableStateOf(1)
         val submissions = mutableListOf<List<ConversationAnswer>>()

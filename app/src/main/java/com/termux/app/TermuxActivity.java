@@ -704,7 +704,7 @@ public final class TermuxActivity extends ComponentActivity implements ServiceCo
         AgentFleetExternalImageRequest request = AgentFleetComposer.beginExternalImageRequest(false);
         if (request == null) {
             Toast.makeText(
-                this, "This session has no image target, or an image picker is already open.",
+                this, "This session has no attachment target, or a file picker is already open.",
                 Toast.LENGTH_LONG
             ).show();
             return;
@@ -712,14 +712,14 @@ public final class TermuxActivity extends ComponentActivity implements ServiceCo
         mAgentFleetPickerRequest = request;
         Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT);
         intent.addCategory(Intent.CATEGORY_OPENABLE);
-        intent.setType("image/*");
+        intent.setType("*/*");
         intent.putExtra(Intent.EXTRA_ALLOW_MULTIPLE, true);
         try {
             startActivityForResult(intent, REQUEST_AGENT_FLEET_IMAGES);
         } catch (RuntimeException error) {
             if (mAgentFleetPickerRequest == request) mAgentFleetPickerRequest = null;
             AgentFleetComposer.cancelExternalImageRequest(request);
-            Toast.makeText(this, "No image picker is available", Toast.LENGTH_LONG).show();
+            Toast.makeText(this, "No file picker is available", Toast.LENGTH_LONG).show();
         }
     }
 

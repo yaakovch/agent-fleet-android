@@ -1019,7 +1019,8 @@ private fun EmbeddedNative(
                 uris,
                 currentSession,
                 capacity,
-                cancellation
+                cancellation,
+                imagesOnly = ownedCameraFile != null
             ) { result ->
                 ownedCameraFile?.delete()
                 if (!uploadState.uploadOwner.finish(ticket)) return@uploadWorkspaceImages
@@ -1028,7 +1029,7 @@ private fun EmbeddedNative(
                 if (!result.cancelled) result.error?.let { error ->
                     Toast.makeText(
                         currentContext,
-                        error.message ?: "Image upload failed. Refresh the session and retry.",
+                        error.message ?: "Attachment upload failed. Refresh the session and retry.",
                         Toast.LENGTH_LONG
                     ).show()
                 }
@@ -1078,15 +1079,15 @@ private fun EmbeddedNative(
 
             override fun pickAgentFleetImages() {
                 if (stateHolder.value.attachmentUploading) {
-                    Toast.makeText(currentContext, "An image upload is already in progress.", Toast.LENGTH_SHORT).show()
+                    Toast.makeText(currentContext, "An attachment upload is already in progress.", Toast.LENGTH_SHORT).show()
                 } else {
-                    imagePicker.launch("image/*")
+                    imagePicker.launch("*/*")
                 }
             }
 
             override fun pickAgentFleetCamera() {
                 if (stateHolder.value.attachmentUploading) {
-                    Toast.makeText(currentContext, "An image upload is already in progress.", Toast.LENGTH_SHORT).show()
+                    Toast.makeText(currentContext, "An attachment upload is already in progress.", Toast.LENGTH_SHORT).show()
                     return
                 }
                 val directory = File(currentContext.cacheDir, "agent-fleet-camera").apply { mkdirs() }

@@ -14,6 +14,8 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -2117,6 +2119,7 @@ private fun QuestionCard(
     }
 }
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun QuestionForm(
     value: ConversationItem,
@@ -2267,9 +2270,8 @@ private fun QuestionForm(
         }
         val latest = questionDraft(draft, question.id)
         val needsAction = question.type in setOf("multi", "text") || "__other__" in latest.choiceIds
-        Row(Modifier.fillMaxWidth().padding(top = 10.dp), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+        FlowRow(Modifier.fillMaxWidth().padding(top = 10.dp), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
             if (page > 0) OutlinedButton(onClick = { page-- }) { Text("Back") }
-            Spacer(Modifier.weight(1f))
             if (edited || savedState?.questions?.any { it.requestId == value.id && it.form == form } == true)
                 OutlinedButton(onClick = { edited = true; draft = "{}"; savedBinding?.clearQuestion(value.id, form) }) { Text("Clear answer") }
             OutlinedButton(onClick = onOpenTerminal) { Text("Terminal") }
@@ -2279,8 +2281,10 @@ private fun QuestionForm(
                     enabled = validQuestionAnswer(question, latest),
                     modifier = Modifier.testTag("question-submit")
                 ) { Text(if (retry && page == value.questions.lastIndex) "Retry" else if (question.type == "multi") "Done" else "Send") }
-            } else Text("Tap an answer", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 13.sp)
+            }
         }
+        if (!needsAction) Text("Tap an answer", Modifier.fillMaxWidth().padding(top = 4.dp),
+            color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 13.sp)
     }
 }
 

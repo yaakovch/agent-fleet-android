@@ -42,7 +42,7 @@ class ComposerTerminalNavigationTest {
     }
     @After fun restoreKeyboardEntry() { TerminalKeyboardSettings.save(compose.activity, previousEntry) }
 
-    private fun setup() {
+    private fun setup(documentPicker: Boolean = false) {
         compose.runOnUiThread {
             bytes = File(compose.activity.cacheDir, "composer-navigation-bytes").apply { writeBytes(byteArrayOf()) }
             input = TerminalInputController().apply {
@@ -69,7 +69,7 @@ class ComposerTerminalNavigationTest {
                 Column(Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing)) {
                     AndroidView(factory = { view }, modifier = Modifier.weight(1f).testTag("fixture-terminal"))
                     AgentFleetComposerContent("composer-fixture", AgentFleetComposerNativeState(), attachments, false, null,
-                        onShowPendingQuestion = {}, onAttach = {}, onRemoveAttachment = {}, onComposerText = { _, _ -> false })
+                        onShowPendingQuestion = {}, onAttach = { if (documentPicker) attachments += ".wtmux/attachments/Selected_plan.md" }, onRemoveAttachment = {}, onComposerText = { _, _ -> false })
                 }
             }
         } }
@@ -128,6 +128,23 @@ class ComposerTerminalNavigationTest {
             .put("imeVisibleAtCollection", androidx.core.view.ViewCompat.getRootWindowInsets(view)?.isVisible(androidx.core.view.WindowInsetsCompat.Type.ime()) == true)
             .put("writes", writes).put("draftAfter", input.draft).put("attachmentCount", attachments.size)
             .put("directAfter", input.direct).put("viewChanges", viewChanges).toString(2))
+    }
+    @Test fun selectedDocumentIsVisibleAndRetainedWithDraftAndTerminalShortcut() {
+        setup(documentPicker = true)
+        compose.onNodeWithTag("agent-fleet-composer-attach").performTouchInput { click() }
+        compose.onNodeWithText("✓ Selected_plan.md").assertIsDisplayed()
+        compose.onNodeWithTag("agent-fleet-message-input").assertTextContains("Keep my draft")
+        capture("document-selected-before-send")
+        compose.onNodeWithTag("composer-terminal-key-ENTER").performTouchInput { click() }
+        compose.waitUntil(5_000) { bytes.readText() == "\r" }
+        compose.onNodeWithTag("agent-fleet-composer-send").performTouchInput { click() }
+        assertEquals(1, writes)
+        assertEquals("Keep my draft", input.draft)
+        assertTrue("Rejected send must retain the document", attachments.contains(".wtmux/attachments/Selected_plan.md"))
+        assertFalse(input.direct)
+        assertEquals(0, viewChanges)
+        capture("document-retained-after-rejected-send")
+        retainPhraseFlow("document-retained-flow", "\r")
     }
     @Test fun composerMouseReportingSwipeSendsWheelEvents() {
         setup(); mode("\u001b[?1000h\u001b[?1006h")

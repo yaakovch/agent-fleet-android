@@ -2,6 +2,8 @@ package com.termux.app
 
 import android.graphics.Bitmap
 import android.net.Uri
+import androidx.core.content.FileProvider
+import com.termux.app.fleet.importAgentFleetAttachment
 import androidx.test.core.app.ActivityScenario
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
@@ -45,6 +47,25 @@ class AgentFleetImageImportTest {
     }
 
     @Test
+    fun documentProviderImportsMarkdownWithoutImageConversion() {
+        val context = ApplicationProvider.getApplicationContext<android.content.Context>()
+        val source = File(context.cacheDir, "agent-fleet-camera/Selected plan.md").apply {
+            parentFile?.mkdirs()
+            writeBytes("# Plan\r\nשלום 🙂\n".toByteArray())
+        }
+        val uri = FileProvider.getUriForFile(context, "${context.packageName}.agentfleet.images", source)
+        val imported = importAgentFleetAttachment(context, uri)
+        try {
+            assertEquals("Selected_plan.md", imported.documentName)
+            assertArrayEquals(source.readBytes(), imported.file.readBytes())
+            assertTrue(imported.file.absolutePath.contains("/.cache/agent-fleet/attachments/"))
+        } finally {
+            imported.file.delete()
+            source.delete()
+        }
+    }
+
+    @Test
     fun packagedRuntimeUsesOpenSshForImagesAndPaneScrollback() {
         val context = ApplicationProvider.getApplicationContext<android.content.Context>()
         ensureBootstrap(context)
@@ -72,6 +93,27 @@ class AgentFleetImageImportTest {
         val path = AgentFleetComposer.sendImage(context, source, "fake-host", "demo", "demo-session")
 
         assertEquals(".wtmux/images/emulator-upload.png", path)
+
+        val document = File(context.cacheDir, "emulator-plan.md").apply {
+            writeBytes("# Keep these bytes\r\nשלום 🙂\n".toByteArray())
+        }
+        try {
+            val documentPath = AgentFleetComposer.sendImage(
+                context, document, "fake-host", "demo", "demo-session", "Selected plan.md"
+            )
+            assertEquals(".wtmux/attachments/emulator-upload.md", documentPath)
+            val received = File(home, ".cache/agent-fleet/received-document.md")
+            assertArrayEquals(document.readBytes(), received.readBytes())
+            File(context.externalMediaDirs.first(), "attachments/packaged-document.json").apply {
+                parentFile?.mkdirs()
+                writeText(org.json.JSONObject().put("syntheticSsh", true)
+                    .put("sourceSha256", document.sha256()).put("receivedSha256", received.sha256())
+                    .put("remotePath", documentPath).put("runtimeVersion", EmbeddedRuntimeManager(context).descriptor().baselineVersion)
+                    .put("byteCount", document.length()).toString(2))
+            }
+        } finally {
+            document.delete()
+        }
 
         val prefix = File(appRoot, "files/usr")
         val raw = runTermuxCapture(

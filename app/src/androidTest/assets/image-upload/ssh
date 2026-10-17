@@ -8,6 +8,11 @@ if [[ "$*" == *image-receive* ]]; then
     printf '%s\n' 'client_loop: send disconnect: Broken pipe' >&2
     exit 255
   fi
+  if [[ "$*" == *.md* ]]; then
+    cat >"$HOME/.cache/agent-fleet/received-document.md"
+    printf '%s\n' '.wtmux/attachments/emulator-upload.md'
+    exit 0
+  fi
   cat >/dev/null
   printf '%s\n' '.wtmux/images/emulator-upload.png'
   exit 0

@@ -7,6 +7,9 @@ import android.os.Handler
 import android.os.Looper
 import android.view.View
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -205,6 +208,7 @@ object AgentFleetComposer {
         session: FleetSession,
         maxCount: Int,
         cancellation: AgentFleetUploadCancellation,
+        imagesOnly: Boolean = false,
         onComplete: (AgentFleetWorkspaceImageUploadResult) -> Unit
     ) {
         val main = Handler(Looper.getMainLooper())
@@ -214,11 +218,11 @@ object AgentFleetComposer {
                 maxCount.coerceIn(0, MAX_ATTACHMENTS),
                 shouldContinue = cancellation::isActive
             ) { uri ->
-                    val local = copyImage(context, uri)
+                    val local = importAgentFleetAttachment(context, uri, imagesOnly)
                     try {
-                        sendImage(context, local, session.hostId, session.project, session.internalName)
+                        sendImage(context, local.file, session.hostId, session.project, session.internalName, local.documentName)
                     } finally {
-                        local.delete()
+                        local.file.delete()
                     }
                 }
             main.post {
@@ -247,7 +251,7 @@ object AgentFleetComposer {
         }
         val route = synchronized(this) { targetRoutes[target] }
         if (route == null || route.host.isBlank() || route.project.isBlank() || route.session.isBlank()) {
-            state.uploadError = "This terminal tab is missing its fleet image target."
+            state.uploadError = "This terminal tab is missing its fleet attachment target."
             ownedCameraSource?.let { deleteOwnedCameraSource(activity, it) }
             return
         }
@@ -259,21 +263,21 @@ object AgentFleetComposer {
             var failure: String? = null
             try {
                 for (uri in uris) {
-                    val localResult = runCatching { copyImage(activity, uri) }
+                    val localResult = runCatching { importAgentFleetAttachment(activity, uri, ownedCameraSource != null) }
                     if (localResult.isFailure) {
-                        failure = localResult.exceptionOrNull()?.message ?: "Image import failed."
+                        failure = localResult.exceptionOrNull()?.message ?: "Attachment import failed."
                         break
                     }
                     val local = localResult.getOrThrow()
                     val remote = try {
                         runCatching {
-                            sendImage(activity, local, route.host, route.project, route.session)
+                            sendImage(activity, local.file, route.host, route.project, route.session, local.documentName)
                         }.getOrElse { error ->
-                            failure = error.message ?: "Image upload failed. Refresh the session and retry."
+                            failure = error.message ?: "Attachment upload failed. Refresh the session and retry."
                             null
                         }
                     } finally {
-                        local.delete()
+                        local.file.delete()
                     }
                     if (remote == null) break
                     uploaded += remote
@@ -346,7 +350,7 @@ object AgentFleetComposer {
         }
     }
 
-    internal fun sendImage(activity: Context, local: File, host: String, project: String, session: String): String {
+    internal fun sendImage(activity: Context, local: File, host: String, project: String, session: String, documentName: String? = null): String {
         val appRoot = activity.filesDir.parentFile ?: error("App data directory is unavailable")
         val home = File(appRoot, "files/home")
         val prefix = File(appRoot, "files/usr")
@@ -365,10 +369,11 @@ object AgentFleetComposer {
         var lastOutput: AgentFleetProcessOutput? = null
         repeat(2) { attempt ->
             val output = try {
-                val process = ProcessBuilder(
-                    bash.absolutePath, wtmux.absolutePath, "image", "send", local.absolutePath,
-                    "--host", host, "--project", project, "--session", session
-                ).directory(home).apply {
+                val arguments = mutableListOf(bash.absolutePath, wtmux.absolutePath,
+                    if (documentName == null) "image" else "attachment", "send", local.absolutePath,
+                    "--host", host, "--project", project, "--session", session)
+                if (documentName != null) arguments += listOf("--name", documentName)
+                val process = ProcessBuilder(arguments).directory(home).apply {
                     environment()["HOME"] = home.absolutePath
                     environment()["PREFIX"] = prefix.absolutePath
                     environment()["PATH"] = "${File(home, ".local/bin")}:${File(prefix, "bin")}"
@@ -380,7 +385,8 @@ object AgentFleetComposer {
                 throw failure
             }
             lastOutput = output
-            if (output.exitCode == 0) return parseSuccessfulAgentFleetImageOutput(output)
+            if (output.exitCode == 0) return if (documentName == null) parseSuccessfulAgentFleetImageOutput(output)
+                else parseSuccessfulAgentFleetAttachmentOutput(output)
             if (!shouldRetryAgentFleetImageUpload(output, attempt)) {
                 throw AgentFleetImageException(agentFleetImageUploadFailure(output.stderr, output.exitCode))
             }
@@ -593,6 +599,7 @@ internal class AgentFleetComposerUploadOwner {
     internal fun activeUploadCountForTest(): Int = activeGenerations.size
 }
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 internal fun AgentFleetComposerContent(
     target: String,
@@ -782,9 +789,10 @@ internal fun AgentFleetComposerContent(
                 ) { Text(if (localSuggestions.mode == LocalSuggestionMode.AUTOMATIC) "Regenerate" else "Suggest locally", fontSize = density.nativeMetadataSp.sp) }
             }
             if (attachments.isNotEmpty()) {
-                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                FlowRow(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
                     attachments.take(3).forEach { path ->
-                        AssistChip(onClick = { onRemoveAttachment(path) }, label = { Text("✓ ${path.substringAfterLast('/')}") })
+                        AssistChip(onClick = { onRemoveAttachment(path) }, modifier = Modifier.widthIn(max = 220.dp),
+                            label = { Text("✓ ${path.substringAfterLast('/')}", maxLines = 1, overflow = TextOverflow.Ellipsis) })
                     }
                 }
             }
